@@ -1,7 +1,9 @@
+import SoftwareLayout from "@/components/SoftwareLayout";
+
 export default function EmployeesPage() {
   return (
-    <main>
-      {/* Employees / Staff Management Page UI to be added */}
-    </main>
+    <SoftwareLayout>
+      {/* Employees / Staff Page UI - to be added later */}
+    </SoftwareLayout>
   );
 }

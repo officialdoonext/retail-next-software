@@ -1,7 +1,9 @@
+import SoftwareLayout from "@/components/SoftwareLayout";
+
 export default function AnalyticsPage() {
   return (
-    <main>
-      {/* Analytics & Traffic Insights Page UI to be added */}
-    </main>
+    <SoftwareLayout>
+      {/* Analytics Page UI - to be added later */}
+    </SoftwareLayout>
   );
 }

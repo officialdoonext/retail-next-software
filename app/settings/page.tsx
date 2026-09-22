@@ -1,7 +1,9 @@
+import SoftwareLayout from "@/components/SoftwareLayout";
+
 export default function SettingsPage() {
   return (
-    <main>
-      {/* Settings & Configuration Page UI to be added */}
-    </main>
+    <SoftwareLayout>
+      {/* Settings Page UI - to be added later */}
+    </SoftwareLayout>
   );
 }

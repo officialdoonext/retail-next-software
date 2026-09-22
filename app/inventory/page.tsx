@@ -1,7 +1,9 @@
+import SoftwareLayout from "@/components/SoftwareLayout";
+
 export default function InventoryPage() {
   return (
-    <main>
-      {/* Inventory Management Page UI to be added */}
-    </main>
+    <SoftwareLayout>
+      {/* Inventory & Catalog Page UI - to be added later */}
+    </SoftwareLayout>
   );
 }

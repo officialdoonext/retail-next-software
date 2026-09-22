@@ -1,7 +1,9 @@
+import SoftwareLayout from "@/components/SoftwareLayout";
+
 export default function OrdersPage() {
   return (
-    <main>
-      {/* Orders & Transactions Page UI to be added */}
-    </main>
+    <SoftwareLayout>
+      {/* Sales & Orders Page UI - to be added later */}
+    </SoftwareLayout>
   );
 }
