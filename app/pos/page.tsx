@@ -391,20 +391,6 @@ export default function PosPage() {
   };
 
   // Totals & Taxes Calculation
-  const subtotal = useMemo(() => {
-    return cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  }, [cart]);
-
-  const discountAmount = useMemo(() => {
-    if (!discountValue || discountValue <= 0) return 0;
-    if (discountType === "PERCENT") {
-      return (subtotal * Number(discountValue)) / 100;
-    }
-    return Math.min(Number(discountValue), subtotal);
-  }, [subtotal, discountValue, discountType]);
-
-  const taxableAmount = Math.max(0, subtotal - discountAmount);
-
   // GST Calculation based on Store Settings
   const enableGst = Boolean(storeSettings?.enableGst);
   const isPriceInclusiveGst = Boolean(storeSettings?.isPriceInclusiveGst);
@@ -412,35 +398,91 @@ export default function PosPage() {
   const sgstPercent = storeSettings?.sgstPercent ?? 9;
   const totalGstRate = cgstPercent + sgstPercent;
 
-  const { cgst, sgst, grandTotal } = useMemo(() => {
+  // Gross cart total (MRP sum of item prices * quantity)
+  const grossCartTotal = useMemo(() => {
+    return cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  }, [cart]);
+
+  // Comprehensive Totals & Taxes Calculation
+  const { subtotal, discountAmount, cgst, sgst, grandTotal } = useMemo(() => {
+    if (grossCartTotal <= 0) {
+      return { subtotal: 0, discountAmount: 0, cgst: 0, sgst: 0, grandTotal: 0 };
+    }
+
     if (!enableGst || totalGstRate <= 0) {
+      // GST Disabled
+      const disc =
+        !discountValue || discountValue <= 0
+          ? 0
+          : discountType === "PERCENT"
+          ? (grossCartTotal * Number(discountValue)) / 100
+          : Math.min(Number(discountValue), grossCartTotal);
+
+      const gTotal = Math.max(0, grossCartTotal - disc);
       return {
+        subtotal: Math.round(grossCartTotal * 100) / 100,
+        discountAmount: Math.round(disc * 100) / 100,
         cgst: 0,
         sgst: 0,
-        grandTotal: Math.round(taxableAmount * 100) / 100,
+        grandTotal: Math.round(gTotal * 100) / 100,
       };
     }
 
     if (isPriceInclusiveGst) {
-      // Prices already include GST
-      const taxComponent = (taxableAmount * totalGstRate) / (100 + totalGstRate);
+      // GST IS INCLUSIVE IN PRODUCT PRICES
+      // Product price already contains GST (e.g. ₹399 at 18% GST).
+      // Base Taxable Subtotal = Gross / (1 + totalGstRate / 100) = 399 / 1.18 = ₹338.14
+      const rawDisc =
+        !discountValue || discountValue <= 0
+          ? 0
+          : discountType === "PERCENT"
+          ? (grossCartTotal * Number(discountValue)) / 100
+          : Math.min(Number(discountValue), grossCartTotal);
+
+      const payableGross = Math.max(0, grossCartTotal - rawDisc);
+      const gTotal = Math.round(payableGross * 100) / 100;
+
+      // Extract CGST and SGST from payable amount
+      const taxComponent = (gTotal * totalGstRate) / (100 + totalGstRate);
       const halfTax = taxComponent / 2;
+      const calculatedCgst = Math.round(halfTax * 100) / 100;
+      const calculatedSgst = Math.round(halfTax * 100) / 100;
+
+      // Base Taxable Subtotal before tax: 399 - 60.86 = ₹338.14
+      // Subtotal (338.14) - Discount (42.37) + CGST (26.62) + SGST (26.62) = Grand Total (349.00)
+      const taxableDiscount = Math.round((rawDisc / (1 + totalGstRate / 100)) * 100) / 100;
+      const taxableGross = Math.round((grossCartTotal / (1 + totalGstRate / 100)) * 100) / 100;
+
       return {
-        cgst: Math.round(halfTax * 100) / 100,
-        sgst: Math.round(halfTax * 100) / 100,
-        grandTotal: Math.round(taxableAmount * 100) / 100,
+        subtotal: taxableGross,
+        discountAmount: taxableDiscount,
+        cgst: calculatedCgst,
+        sgst: calculatedSgst,
+        grandTotal: gTotal,
       };
     } else {
-      // GST is added on top of subtotal
-      const halfTax = (taxableAmount * (cgstPercent / 100));
-      const totalTax = halfTax * 2;
+      // GST IS EXCLUSIVE (Added on top of subtotal)
+      const disc =
+        !discountValue || discountValue <= 0
+          ? 0
+          : discountType === "PERCENT"
+          ? (grossCartTotal * Number(discountValue)) / 100
+          : Math.min(Number(discountValue), grossCartTotal);
+
+      const taxableBase = Math.max(0, grossCartTotal - disc);
+      const calculatedCgst = Math.round((taxableBase * (cgstPercent / 100)) * 100) / 100;
+      const calculatedSgst = Math.round((taxableBase * (sgstPercent / 100)) * 100) / 100;
+      const gTotal = Math.round((taxableBase + calculatedCgst + calculatedSgst) * 100) / 100;
+
       return {
-        cgst: Math.round(halfTax * 100) / 100,
-        sgst: Math.round(halfTax * 100) / 100,
-        grandTotal: Math.round((taxableAmount + totalTax) * 100) / 100,
+        subtotal: Math.round(grossCartTotal * 100) / 100,
+        discountAmount: Math.round(disc * 100) / 100,
+        cgst: calculatedCgst,
+        sgst: calculatedSgst,
+        grandTotal: gTotal,
       };
     }
-  }, [taxableAmount, enableGst, isPriceInclusiveGst, cgstPercent, sgstPercent, totalGstRate]);
+  }, [grossCartTotal, discountValue, discountType, enableGst, isPriceInclusiveGst, cgstPercent, sgstPercent, totalGstRate]);
 
   // Keep split amounts synced when split mode is used
   const currentSplitTotal = Math.round((splitAmounts.upi + splitAmounts.cash + splitAmounts.card) * 100) / 100;
@@ -1060,17 +1102,11 @@ export default function PosPage() {
               {enableGst && totalGstRate > 0 && (
                 <div className="pt-2 border-t border-slate-100 space-y-1 text-xs text-slate-600">
                   <div className="flex items-center justify-between text-[11.5px]">
-                    <span>
-                      CGST ({cgstPercent}%)
-                      {isPriceInclusiveGst && <span className="text-[10px] text-slate-400 ml-1">(incl.)</span>}
-                    </span>
+                    <span>CGST ({cgstPercent}%)</span>
                     <span className="font-mono">₹{cgst.toFixed(2)}</span>
                   </div>
                   <div className="flex items-center justify-between text-[11.5px]">
-                    <span>
-                      SGST ({sgstPercent}%)
-                      {isPriceInclusiveGst && <span className="text-[10px] text-slate-400 ml-1">(incl.)</span>}
-                    </span>
+                    <span>SGST ({sgstPercent}%)</span>
                     <span className="font-mono">₹{sgst.toFixed(2)}</span>
                   </div>
                 </div>
