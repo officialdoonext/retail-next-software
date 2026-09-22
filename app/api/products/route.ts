@@ -17,27 +17,111 @@ async function getStoreContext() {
   return { session, storeId };
 }
 
-// GET: Fetch all products for the active store
-export async function GET() {
+// GET: Fetch products for the active store with pagination (default 24), search, and barcode lookup
+export async function GET(request: Request) {
   try {
     const ctx = await getStoreContext();
     if (!ctx) {
       return NextResponse.json({ success: false, error: "Unauthorized or no active store." }, { status: 401 });
     }
 
+    const { searchParams } = new URL(request.url);
+
     const productsRef = collection(db, "products");
     const q = query(productsRef, where("storeId", "==", ctx.storeId));
     const snapshot = await getDocs(q);
 
-    const products = snapshot.docs.map((d) => ({
+    const allProducts: any[] = snapshot.docs.map((d) => ({
       id: d.id,
       ...d.data(),
     }));
 
     // Sort newest first
-    products.sort((a: any, b: any) => (b.createdAt || 0) - (a.createdAt || 0));
+    allProducts.sort((a: any, b: any) => (b.createdAt || 0) - (a.createdAt || 0));
 
-    return NextResponse.json({ success: true, products });
+    // 1. Direct Barcode Lookup (Scanner optimization for POS)
+    const barcodeQuery = searchParams.get("barcode")?.trim().toLowerCase();
+    if (barcodeQuery) {
+      for (const p of allProducts) {
+        if (p.barcode && String(p.barcode).trim().toLowerCase() === barcodeQuery) {
+          return NextResponse.json({ success: true, product: p, variant: null });
+        }
+        if (p.hasVariations && Array.isArray(p.variants)) {
+          const v = p.variants.find(
+            (item: any) => item.barcode && String(item.barcode).trim().toLowerCase() === barcodeQuery
+          );
+          if (v) {
+            return NextResponse.json({ success: true, product: p, variant: v });
+          }
+        }
+      }
+      return NextResponse.json({ success: false, error: "Product not found." }, { status: 404 });
+    }
+
+    // 2. Filters (Search Query & Category)
+    let filtered = allProducts;
+    const search = searchParams.get("search")?.trim().toLowerCase();
+    const categoryId = searchParams.get("categoryId")?.trim();
+
+    if (categoryId && categoryId !== "ALL") {
+      filtered = filtered.filter((p) => p.categoryId === categoryId);
+    }
+
+    if (search) {
+      filtered = filtered.filter((p) => {
+        const nameMatch = p.name?.toLowerCase().includes(search);
+        const barcodeMatch = p.barcode?.toLowerCase().includes(search);
+        const skuMatch = p.sku?.toLowerCase().includes(search);
+        const variantMatch =
+          p.hasVariations &&
+          Array.isArray(p.variants) &&
+          p.variants.some(
+            (v: any) =>
+              v.name?.toLowerCase().includes(search) ||
+              v.barcode?.toLowerCase().includes(search) ||
+              v.sku?.toLowerCase().includes(search)
+          );
+        return nameMatch || barcodeMatch || skuMatch || variantMatch;
+      });
+    }
+
+    // 3. Return All (if explicitly requested)
+    if (searchParams.get("all") === "true") {
+      return NextResponse.json({
+        success: true,
+        products: filtered,
+        pagination: {
+          total: filtered.length,
+          totalPages: 1,
+          page: 1,
+          limit: filtered.length,
+          hasMore: false,
+        },
+      });
+    }
+
+    // 4. Default 24 Products Pagination
+    const pageParam = searchParams.get("page");
+    const limitParam = searchParams.get("limit");
+    const page = pageParam ? Math.max(1, parseInt(pageParam, 10)) : 1;
+    const limit = limitParam ? Math.max(1, parseInt(limitParam, 10)) : 24;
+
+    const total = filtered.length;
+    const totalPages = Math.ceil(total / limit) || 1;
+    const startIndex = (page - 1) * limit;
+    const paginatedProducts = filtered.slice(startIndex, startIndex + limit);
+
+    return NextResponse.json({
+      success: true,
+      products: paginatedProducts,
+      pagination: {
+        total,
+        totalPages,
+        page,
+        limit,
+        hasMore: page < totalPages,
+      },
+    });
   } catch (error: any) {
     console.error("Error fetching products:", error);
     return NextResponse.json({ success: false, error: "Failed to fetch products." }, { status: 500 });

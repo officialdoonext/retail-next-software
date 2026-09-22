@@ -118,28 +118,55 @@ export default function ProductsPage() {
     return subVariation || "Variation 2";
   }, [subVariation, subCustomInput]);
 
+  // Pagination state (24 products per page)
+  const [currentPage, setCurrentPage] = useState(1);
+  const [paginationInfo, setPaginationInfo] = useState<{
+    total: number;
+    totalPages: number;
+    page: number;
+    limit: number;
+  }>({ total: 0, totalPages: 1, page: 1, limit: 24 });
+
   // Generate random 12-digit barcode number
   const generateRandomBarcode = () => {
     return Math.floor(100000000000 + Math.random() * 900000000000).toString();
   };
 
-  // Fetch products, categories, and variations on load
-  const loadData = async () => {
+  // Fetch products with pagination (24 items), search, and category filter
+  const loadProducts = async (page = currentPage, queryStr = searchQuery, catFilter = selectedCategoryFilter) => {
     setLoading(true);
     try {
-      const [prodRes, catRes, varRes] = await Promise.all([
-        fetch("/api/products"),
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: "24",
+      });
+      if (queryStr.trim()) params.set("search", queryStr.trim());
+      if (catFilter && catFilter !== "ALL") params.set("categoryId", catFilter);
+
+      const res = await fetch(`/api/products?${params.toString()}`);
+      const data = await res.json();
+      if (data.success && Array.isArray(data.products)) {
+        setProducts(data.products);
+        if (data.pagination) {
+          setPaginationInfo(data.pagination);
+        }
+      }
+    } catch (err) {
+      console.error("Error loading products:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Fetch initial categories and variations
+  const loadInitialMeta = async () => {
+    try {
+      const [catRes, varRes] = await Promise.all([
         fetch("/api/categories"),
         fetch("/api/variations"),
       ]);
-
-      const prodData = await prodRes.json();
       const catData = await catRes.json();
       const varData = await varRes.json();
-
-      if (prodData.success && Array.isArray(prodData.products)) {
-        setProducts(prodData.products);
-      }
       if (catData.success && Array.isArray(catData.categories)) {
         setCategories(catData.categories);
       }
@@ -153,15 +180,25 @@ export default function ProductsPage() {
         }
       }
     } catch (err) {
-      console.error("Error loading products:", err);
-    } finally {
-      setLoading(false);
+      console.error("Error loading metadata:", err);
     }
   };
 
   useEffect(() => {
-    loadData();
+    loadInitialMeta();
   }, []);
+
+  // Fetch products whenever page, search, or category filter changes
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      loadProducts(currentPage, searchQuery, selectedCategoryFilter);
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [currentPage, searchQuery, selectedCategoryFilter]);
+
+  const loadData = () => {
+    loadProducts(currentPage, searchQuery, selectedCategoryFilter);
+  };
 
   // Sync generated variants preserving entered price, stock, buffer stock, and barcodes
   const syncVariants = (
@@ -552,24 +589,8 @@ export default function ProductsPage() {
   };
 
   // Filter products by search and category
-  const filteredProducts = useMemo(() => {
-    return products.filter((p) => {
-      const matchesCategory =
-        selectedCategoryFilter === "ALL" || p.categoryId === selectedCategoryFilter;
-
-      const q = searchQuery.toLowerCase().trim();
-      if (!q) return matchesCategory;
-
-      const nameMatch = p.name.toLowerCase().includes(q);
-      const barcodeMatch = p.barcode?.toLowerCase().includes(q);
-      const skuMatch = p.sku?.toLowerCase().includes(q);
-      const variantBarcodeMatch = p.variants?.some((v) =>
-        v.barcode.toLowerCase().includes(q) || v.name.toLowerCase().includes(q)
-      );
-
-      return matchesCategory && (nameMatch || barcodeMatch || skuMatch || variantBarcodeMatch);
-    });
-  }, [products, searchQuery, selectedCategoryFilter]);
+  // Products are already paginated and filtered by the server
+  const filteredProducts = products;
 
   return (
     <SoftwareLayout>
@@ -582,7 +603,7 @@ export default function ProductsPage() {
                 Products
               </h1>
               <span className="bg-[#5e2b9d]/10 text-[#5e2b9d] text-[10.5px] font-medium px-2 py-0.5 rounded-[4px]">
-                {products.length} Total
+                {paginationInfo.total} Total
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-0.5 font-normal">
@@ -629,7 +650,10 @@ export default function ProductsPage() {
             <input
               type="text"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                if (currentPage !== 1) setCurrentPage(1);
+              }}
               placeholder="Search product by name, barcode, or variant..."
               className="w-full h-[34px] max-h-[34px] pl-8 pr-3 bg-[#f8fafc] border border-slate-200 rounded-[6px] text-xs font-normal text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#5e2b9d] focus:border-[#5e2b9d]"
             />
@@ -638,7 +662,10 @@ export default function ProductsPage() {
           <div className="flex items-center gap-2 w-full sm:w-auto">
             <select
               value={selectedCategoryFilter}
-              onChange={(e) => setSelectedCategoryFilter(e.target.value)}
+              onChange={(e) => {
+                setSelectedCategoryFilter(e.target.value);
+                if (currentPage !== 1) setCurrentPage(1);
+              }}
               className="h-[34px] max-h-[34px] w-full sm:w-44 bg-[#f8fafc] border border-slate-200 rounded-[6px] px-2.5 text-xs font-normal text-slate-700 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#5e2b9d] focus:border-[#5e2b9d] cursor-pointer"
             >
               <option value="ALL">All Categories</option>
@@ -843,6 +870,91 @@ export default function ProductsPage() {
                 })}
               </tbody>
             </table>
+
+            {/* Pagination Controls (24 items per page) */}
+            {paginationInfo && paginationInfo.totalPages > 1 && (
+              <div className="bg-[#f8fafc] border-t border-slate-200/80 px-4 py-3 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+                {/* Summary */}
+                <div className="text-slate-500 font-normal">
+                  Showing <span className="font-medium text-slate-800">{(currentPage - 1) * 24 + 1}</span> to{" "}
+                  <span className="font-medium text-slate-800">
+                    {Math.min(currentPage * 24, paginationInfo.total)}
+                  </span>{" "}
+                  of <span className="font-medium text-slate-800">{paginationInfo.total}</span> products
+                </div>
+
+                {/* Page Navigation */}
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    disabled={currentPage <= 1 || loading}
+                    onClick={() => {
+                      setCurrentPage((p) => Math.max(1, p - 1));
+                      window.scrollTo({ top: 0, behavior: "smooth" });
+                    }}
+                    className="h-[32px] max-h-[32px] px-2.5 rounded-[6px] border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 disabled:opacity-40 disabled:cursor-not-allowed font-medium flex items-center gap-1 transition-colors cursor-pointer shadow-2xs"
+                  >
+                    <svg className="w-3.5 h-3.5 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+                    </svg>
+                    <span>Prev</span>
+                  </button>
+
+                  {Array.from({ length: paginationInfo.totalPages }, (_, i) => i + 1).map((pg) => {
+                    if (
+                      pg === 1 ||
+                      pg === paginationInfo.totalPages ||
+                      (pg >= currentPage - 1 && pg <= currentPage + 1)
+                    ) {
+                      const isActive = pg === currentPage;
+                      return (
+                        <button
+                          key={pg}
+                          type="button"
+                          disabled={loading}
+                          onClick={() => {
+                            setCurrentPage(pg);
+                            window.scrollTo({ top: 0, behavior: "smooth" });
+                          }}
+                          className={`h-[32px] w-[32px] max-h-[32px] rounded-[6px] text-xs font-medium transition-colors cursor-pointer flex items-center justify-center ${
+                            isActive
+                              ? "bg-[#5e2b9d] text-white shadow-2xs"
+                              : "border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-2xs"
+                          }`}
+                        >
+                          {pg}
+                        </button>
+                      );
+                    } else if (
+                      (pg === currentPage - 2 && pg > 1) ||
+                      (pg === currentPage + 2 && pg < paginationInfo.totalPages)
+                    ) {
+                      return (
+                        <span key={pg} className="px-1 text-slate-400">
+                          ...
+                        </span>
+                      );
+                    }
+                    return null;
+                  })}
+
+                  <button
+                    type="button"
+                    disabled={currentPage >= paginationInfo.totalPages || loading}
+                    onClick={() => {
+                      setCurrentPage((p) => Math.min(paginationInfo.totalPages, p + 1));
+                      window.scrollTo({ top: 0, behavior: "smooth" });
+                    }}
+                    className="h-[32px] max-h-[32px] px-2.5 rounded-[6px] border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 disabled:opacity-40 disabled:cursor-not-allowed font-medium flex items-center gap-1 transition-colors cursor-pointer shadow-2xs"
+                  >
+                    <span>Next</span>
+                    <svg className="w-3.5 h-3.5 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
