@@ -52,6 +52,8 @@ export default function OnboardingPage() {
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [userEmail, setUserEmail] = useState("");
+  const [userRole, setUserRole] = useState<"Admin" | "Staff">("Admin");
+  const [userName, setUserName] = useState("");
   const [actionError, setActionError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -77,6 +79,8 @@ export default function OnboardingPage() {
         const meData = await meRes.json();
         if (meData.authenticated && meData.user) {
           setUserEmail(meData.user.email);
+          setUserRole(meData.user.role || "Admin");
+          setUserName(meData.user.staffName || "");
         }
 
         // 2. Fetch stores from Firestore
@@ -153,7 +157,17 @@ export default function OnboardingPage() {
       if (!res.ok || !data.success) {
         setActionError(data.error || "Access denied. Store is not active.");
       } else {
-        router.push("/dashboard");
+        if (typeof window !== "undefined") {
+          const role = data.role || userRole;
+          localStorage.setItem("staff_role", role);
+          if (role === "Staff" && Array.isArray(data.access)) {
+            localStorage.setItem("staff_access", JSON.stringify(data.access));
+          } else {
+            localStorage.removeItem("staff_access");
+          }
+        }
+        const destination = data.defaultRoute || "/dashboard";
+        router.push(destination);
         router.refresh();
       }
     } catch {
@@ -164,6 +178,10 @@ export default function OnboardingPage() {
   // Logout handler
   const handleLogout = async () => {
     try {
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("staff_role");
+        localStorage.removeItem("staff_access");
+      }
       await fetch("/api/auth/logout", { method: "POST" });
     } finally {
       router.push("/login");
@@ -192,9 +210,17 @@ export default function OnboardingPage() {
           {/* User Profile Pill */}
           <div className="hidden sm:flex items-center gap-2 bg-[#f8fafc] border border-slate-200/90 rounded-[6px] px-3 py-1.5 text-xs text-slate-700">
             <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse" />
-            <span className="font-medium text-slate-700">{userEmail || "Authenticated Admin"}</span>
-            <span className="bg-[#5e2b9d]/10 text-[#5e2b9d] text-[10px] font-medium px-1.5 py-0.5 rounded-[4px] uppercase tracking-wider">
-              Admin
+            <span className="font-medium text-slate-700">
+              {userName || userEmail || (userRole === "Staff" ? "Staff Member" : "Authenticated Admin")}
+            </span>
+            <span
+              className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-[4px] uppercase tracking-wider ${
+                userRole === "Staff"
+                  ? "bg-purple-100 text-[#5e2b9d]"
+                  : "bg-[#5e2b9d]/10 text-[#5e2b9d]"
+              }`}
+            >
+              {userRole}
             </span>
           </div>
 
@@ -246,31 +272,35 @@ export default function OnboardingPage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
           <div>
             <h1 className="text-2xl sm:text-3xl font-medium text-slate-900 tracking-tight">
-              Retail Stores
+              {userRole === "Staff" ? "Assigned Stores" : "Retail Stores"}
             </h1>
             <p className="text-xs sm:text-sm text-slate-500 mt-1 font-normal">
-              Select an active, verified store to launch the software or register a new store.
+              {userRole === "Staff"
+                ? "Select your assigned store to launch your staff terminal."
+                : "Select an active, verified store to launch the software or register a new store."}
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={() => {
-              setActionError("");
-              setIsModalOpen(true);
-            }}
-            className="h-[34px] max-h-[34px] bg-[#5e2b9d] hover:bg-[#4e2284] active:bg-[#431d73] text-white font-medium text-xs sm:text-sm px-4 rounded-[6px] transition-all flex items-center justify-center gap-1.5 shadow-xs cursor-pointer self-start sm:self-auto"
-          >
-            <svg
-              className="w-4 h-4 stroke-[2.2]"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
+          {userRole === "Admin" && (
+            <button
+              type="button"
+              onClick={() => {
+                setActionError("");
+                setIsModalOpen(true);
+              }}
+              className="h-[34px] max-h-[34px] bg-[#5e2b9d] hover:bg-[#4e2284] active:bg-[#431d73] text-white font-medium text-xs sm:text-sm px-4 rounded-[6px] transition-all flex items-center justify-center gap-1.5 shadow-xs cursor-pointer self-start sm:self-auto"
             >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-            </svg>
-            <span>Add New Store</span>
-          </button>
+              <svg
+                className="w-4 h-4 stroke-[2.2]"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+              <span>Add New Store</span>
+            </button>
+          )}
         </div>
 
         {loading ? (
@@ -283,7 +313,7 @@ export default function OnboardingPage() {
             <p className="text-xs text-slate-500 font-medium">Loading registered stores...</p>
           </div>
         ) : stores.length === 0 ? (
-          /* Empty State: Exactly when no stores are registered for this user */
+          /* Empty State */
           <div className="w-full bg-white rounded-[6px] border border-dashed border-slate-300/80 p-12 sm:p-16 flex flex-col items-center justify-center text-center shadow-xs">
             <div className="w-14 h-14 rounded-[6px] bg-purple-50 text-[#5e2b9d] flex items-center justify-center mb-4">
               <svg
@@ -300,21 +330,25 @@ export default function OnboardingPage() {
               </svg>
             </div>
             <h2 className="text-base sm:text-lg font-medium text-slate-800 mb-1">
-              No Stores Registered
+              {userRole === "Staff" ? "No Stores Assigned" : "No Stores Registered"}
             </h2>
             <p className="text-xs sm:text-sm text-slate-400 max-w-md mb-6 leading-relaxed font-normal">
-              No retail stores have been registered under this account yet. Click below to register your store details.
+              {userRole === "Staff"
+                ? "You have not been assigned to any stores yet. Please contact your store manager or administrator."
+                : "No retail stores have been registered under this account yet. Click below to register your store details."}
             </p>
-            <button
-              type="button"
-              onClick={() => setIsModalOpen(true)}
-              className="h-[34px] max-h-[34px] bg-[#5e2b9d] hover:bg-[#4e2284] text-white font-medium text-xs px-5 rounded-[6px] transition-all flex items-center gap-1.5 shadow-xs cursor-pointer"
-            >
-              <svg className="w-3.5 h-3.5 stroke-[2.2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-              </svg>
-              <span>Add Your First Store</span>
-            </button>
+            {userRole === "Admin" && (
+              <button
+                type="button"
+                onClick={() => setIsModalOpen(true)}
+                className="h-[34px] max-h-[34px] bg-[#5e2b9d] hover:bg-[#4e2284] text-white font-medium text-xs px-5 rounded-[6px] transition-all flex items-center gap-1.5 shadow-xs cursor-pointer"
+              >
+                <svg className="w-3.5 h-3.5 stroke-[2.2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                </svg>
+                <span>Add Your First Store</span>
+              </button>
+            )}
           </div>
         ) : (
           /* Stores Grid */

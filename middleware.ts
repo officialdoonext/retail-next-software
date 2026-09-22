@@ -19,6 +19,7 @@ const SOFTWARE_ROUTES = [
   "/orders",
   "/customers",
   "/employees",
+  "/staff",
   "/analytics",
   "/settings",
 ];
@@ -31,6 +32,7 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/_next") ||
     pathname.startsWith("/api/auth/send-otp") ||
     pathname.startsWith("/api/auth/verify-otp") ||
+    pathname.startsWith("/api/auth/staff-login") ||
     pathname === "/favicon.ico" ||
     pathname === "/logo.jpeg" ||
     pathname.includes(".")
@@ -41,11 +43,13 @@ export async function middleware(request: NextRequest) {
   // 2. Extract and verify session token
   const token = request.cookies.get(AUTH_COOKIE)?.value;
   let isAuthenticated = false;
+  let sessionPayload: any = null;
 
   if (token) {
     try {
-      await jwtVerify(token, SESSION_SECRET);
+      const { payload } = await jwtVerify(token, SESSION_SECRET);
       isAuthenticated = true;
+      sessionPayload = payload;
     } catch {
       isAuthenticated = false;
     }
@@ -76,13 +80,42 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  // 6. If user is authenticated, check if accessing software pages without active store
+  // 6. Security Enforcement for Staff API Calls:
+  // Staff accounts must never access staff management APIs
+  if (sessionPayload?.role === "Staff") {
+    if (pathname.startsWith("/api/staff")) {
+      return NextResponse.json(
+        { error: "Access denied. Staff members cannot manage staff accounts." },
+        { status: 403 }
+      );
+    }
+  }
+
+  // 7. If user is accessing software pages, enforce active store and permissions
   const isSoftwareRoute = SOFTWARE_ROUTES.some((route) => pathname.startsWith(route));
   if (isSoftwareRoute) {
     const activeStoreId = request.cookies.get(ACTIVE_STORE_COOKIE)?.value;
     if (!activeStoreId) {
       // Must select an active store on the onboarding page first
       return NextResponse.redirect(new URL("/onboarding", request.url));
+    }
+
+    // STRICT PER-PAGE SECURITY FOR STAFF:
+    // If the authenticated user is a staff member, verify whether this specific page is in their assigned access array
+    if (sessionPayload?.role === "Staff") {
+      const allowedAccess: string[] = Array.isArray(sessionPayload.access)
+        ? sessionPayload.access
+        : [];
+
+      // Check if current pathname matches or is a sub-path of any permitted page
+      const isAllowed = allowedAccess.some(
+        (allowed) => pathname === allowed || pathname.startsWith(allowed + "/")
+      );
+
+      if (!isAllowed) {
+        // Block unauthorized URL attempt and redirect to unauthorized page
+        return NextResponse.redirect(new URL("/unauthorized", request.url));
+      }
     }
   }
 

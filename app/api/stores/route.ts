@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { verifySessionToken, AUTH_COOKIE_NAME, ACTIVE_STORE_COOKIE } from "@/lib/auth";
 import { db } from "@/lib/firebase";
-import { collection, query, where, getDocs, addDoc } from "firebase/firestore";
+import { collection, query, where, getDocs, addDoc, doc, getDoc } from "firebase/firestore";
 
 // Helper to authenticate request
 async function getSession() {
@@ -12,7 +12,7 @@ async function getSession() {
   return verifySessionToken(token);
 }
 
-// GET: Fetch all stores belonging to the authenticated user
+// GET: Fetch all stores belonging to the authenticated user (or assigned to staff)
 export async function GET() {
   try {
     const session = await getSession();
@@ -23,15 +23,49 @@ export async function GET() {
     const cookieStore = await cookies();
     const activeStoreId = cookieStore.get(ACTIVE_STORE_COOKIE)?.value || null;
 
-    const storesRef = collection(db, "stores");
-    const q = query(storesRef, where("ownerEmail", "==", session.email));
-    const querySnapshot = await getDocs(q);
+    let stores: any[] = [];
 
-    const stores = querySnapshot.docs.map((docSnap) => ({
-      id: docSnap.id,
-      ...docSnap.data(),
-      isActiveSelection: docSnap.id === activeStoreId,
-    }));
+    if (session.role === "Staff") {
+      // Staff user: only return stores where this staff member is actively enrolled
+      const cleanMobile = String(session.mobile || "").replace(/\D/g, "");
+      const staffRef = collection(db, "staff");
+      const staffQ = query(staffRef, where("mobile", "==", cleanMobile));
+      const staffSnap = await getDocs(staffQ);
+
+      const storeIds = Array.from(
+        new Set(
+          staffSnap.docs
+            .filter((d) => !d.data().status || d.data().status === "Active")
+            .map((d) => d.data().storeId)
+            .filter(Boolean)
+        )
+      );
+
+      if (storeIds.length > 0) {
+        const storeDocs = await Promise.all(
+          storeIds.map((sid) => getDoc(doc(db, "stores", sid)))
+        );
+
+        stores = storeDocs
+          .filter((d) => d.exists())
+          .map((docSnap) => ({
+            id: docSnap.id,
+            ...docSnap.data(),
+            isActiveSelection: docSnap.id === activeStoreId,
+          }));
+      }
+    } else {
+      // Admin user: return all stores owned by the admin email
+      const storesRef = collection(db, "stores");
+      const q = query(storesRef, where("ownerEmail", "==", session.email));
+      const querySnapshot = await getDocs(q);
+
+      stores = querySnapshot.docs.map((docSnap) => ({
+        id: docSnap.id,
+        ...docSnap.data(),
+        isActiveSelection: docSnap.id === activeStoreId,
+      }));
+    }
 
     return NextResponse.json({ success: true, stores, activeStoreId });
   } catch (error) {
@@ -43,13 +77,20 @@ export async function GET() {
   }
 }
 
-// POST: Register a new store for the user
+// POST: Register a new store for the user (Admin only)
 // Strictly enforces status="Inactive" and expires=null
 export async function POST(request: Request) {
   try {
     const session = await getSession();
     if (!session) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
+
+    if (session.role === "Staff") {
+      return NextResponse.json(
+        { success: false, error: "Access denied. Only administrators can register stores." },
+        { status: 403 }
+      );
     }
 
     const body = await request.json();

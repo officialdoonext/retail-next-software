@@ -24,9 +24,30 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
     isActiveSelection?: boolean;
   }>>([]);
   const [switchingStore, setSwitchingStore] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const [userEmail, setUserEmail] = useState("");
+  const [userRole, setUserRole] = useState<"Admin" | "Staff" | null>(null);
+  const [staffName, setStaffName] = useState("");
+  const [staffAccess, setStaffAccess] = useState<string[]>([]);
   const [isStoreDropdownOpen, setIsStoreDropdownOpen] = useState(false);
   const [printerConnected, setPrinterConnected] = useState(false);
+
+  // Synchronize on mount to eliminate SSR mismatch while keeping instant render
+  useEffect(() => {
+    setMounted(true);
+    if (typeof window !== "undefined") {
+      const storedRole = localStorage.getItem("staff_role");
+      if (storedRole === "Staff" || storedRole === "Admin") {
+        setUserRole(storedRole);
+      }
+      const storedName = localStorage.getItem("staff_name");
+      if (storedName) setStaffName(storedName);
+      try {
+        const storedAccess = localStorage.getItem("staff_access");
+        if (storedAccess) setStaffAccess(JSON.parse(storedAccess));
+      } catch {}
+    }
+  }, []);
 
   useEffect(() => {
     async function loadSession() {
@@ -39,6 +60,21 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
         const data = await res.json();
         if (data.authenticated && data.user) {
           setUserEmail(data.user.email);
+          setUserRole(data.user.role || "Admin");
+          setStaffName(data.user.staffName || "");
+          setStaffAccess(data.user.access || []);
+
+          if (typeof window !== "undefined") {
+            localStorage.setItem("staff_role", data.user.role || "Admin");
+            if (data.user.staffName) {
+              localStorage.setItem("staff_name", data.user.staffName);
+            }
+            if (data.user.role === "Staff") {
+              localStorage.setItem("staff_access", JSON.stringify(data.user.access || []));
+            } else {
+              localStorage.removeItem("staff_access");
+            }
+          }
         }
 
         let currentActiveId: string | null = null;
@@ -101,6 +137,9 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
       });
       const data = await res.json();
       if (res.ok && data.success) {
+        if (data.access && typeof window !== "undefined") {
+          localStorage.setItem("staff_access", JSON.stringify(data.access));
+        }
         setIsStoreDropdownOpen(false);
         // Force complete page reload to reset all in-memory cart, products, categories, orders for newly selected store
         window.location.reload();
@@ -116,6 +155,11 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
 
   const handleLogout = async () => {
     try {
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("staff_role");
+        localStorage.removeItem("staff_access");
+        localStorage.removeItem("staff_name");
+      }
       await fetch("/api/auth/logout", { method: "POST" });
     } finally {
       router.push("/login");
@@ -123,9 +167,19 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
     }
   };
 
-  // Nav items are sourced from the shared NAV_PAGES list (lib/nav-pages.ts)
-  // Adding a new page there automatically shows it in the sidebar AND in Staff access control.
-  const navItems = NAV_PAGES.map((page) => ({
+  // Nav items: Admin sees all; Staff only sees assigned permissions in staffAccess.
+  // Guard: if userRole is null (uninitialized), do not default to showing all menus to prevent any flash/delay!
+  const accessiblePages = NAV_PAGES.filter((page) => {
+    if (userRole === "Staff") {
+      return staffAccess.includes(page.href);
+    }
+    if (userRole === null) {
+      return false;
+    }
+    return true;
+  });
+
+  const navItems = accessiblePages.map((page) => ({
     label: page.label,
     href: page.href,
     icon: (
@@ -139,7 +193,18 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
     ),
   }));
 
-  const userInitials = userEmail ? userEmail.slice(0, 2).toUpperCase() : "AD";
+  const userInitials = mounted
+    ? userRole === "Staff"
+      ? (staffName || userEmail || "ST").slice(0, 2).toUpperCase()
+      : (userEmail || "AD").slice(0, 2).toUpperCase()
+    : "AD";
+
+  const brandHomeHref =
+    mounted && userRole === "Staff"
+      ? staffAccess.includes("/dashboard")
+        ? "/dashboard"
+        : staffAccess[0] || "/pos"
+      : "/dashboard";
 
   return (
     <div className="min-h-screen flex flex-col bg-[#fcfcfd] font-sans text-slate-800">
@@ -147,7 +212,7 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
       <header className="h-[57px] bg-white border-b border-slate-200/80 px-4 sm:px-6 flex items-center justify-between sticky top-0 z-40">
         {/* Left: Brand Logo */}
         <div className="flex items-center gap-3">
-          <Link href="/dashboard" className="flex items-center">
+          <Link href={brandHomeHref} className="flex items-center" suppressHydrationWarning>
             <Image
               src="/logo.jpeg"
               alt="RetailNext Logo"
@@ -245,9 +310,13 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
                     className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-600 hover:text-[#5e2b9d] hover:bg-purple-50 transition-colors"
                   >
                     <svg className="w-3.5 h-3.5 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                      {userRole === "Staff" ? (
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                      ) : (
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                      )}
                     </svg>
-                    <span>Manage / Add New Store</span>
+                    <span>{userRole === "Staff" ? "Switch Store" : "Manage / Add New Store"}</span>
                   </Link>
                 </div>
               </div>
@@ -273,31 +342,44 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
           </button>
 
           {/* User Profile Pill */}
-          <div className="flex items-center gap-2 pl-1">
-            <div className="w-[34px] h-[34px] rounded-[6px] bg-[#5e2b9d] text-white text-xs font-medium flex items-center justify-center flex-shrink-0">
+          <div className="flex items-center gap-2 pl-1" suppressHydrationWarning>
+            <div
+              className="w-[34px] h-[34px] rounded-[6px] bg-[#5e2b9d] text-white text-xs font-medium flex items-center justify-center flex-shrink-0"
+              suppressHydrationWarning
+            >
               {userInitials}
             </div>
-            <div className="hidden md:flex flex-col text-left">
-              <span className="text-xs font-medium text-slate-800 leading-tight max-w-[140px] truncate">
-                {userEmail || "Admin"}
+            <div className="hidden md:flex flex-col text-left" suppressHydrationWarning>
+              <span
+                className="text-xs font-medium text-slate-800 leading-tight max-w-[140px] truncate"
+                suppressHydrationWarning
+              >
+                {mounted ? (userRole === "Staff" ? staffName || "Staff Member" : userEmail || "Admin") : "Admin"}
               </span>
-              <span className="text-[10px] font-normal text-slate-400 leading-tight">
-                Administrator
+              <span
+                suppressHydrationWarning
+                className={`text-[10px] leading-tight ${
+                  mounted && userRole === "Staff" ? "text-purple-600 font-medium" : "text-slate-400 font-normal"
+                }`}
+              >
+                {mounted && userRole === "Staff" ? "Staff Terminal" : "Administrator"}
               </span>
             </div>
           </div>
 
-          {/* Quick Settings Icon */}
-          <Link
-            href="/settings"
-            title="Settings"
-            className="w-[34px] h-[34px] rounded-[6px] flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
-          >
-            <svg className="w-4 h-4 stroke-[1.8]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-          </Link>
+          {/* Quick Settings Icon - Only if Admin or if Staff has settings access */}
+          {mounted && (userRole === "Admin" || staffAccess.includes("/settings")) && (
+            <Link
+              href="/settings"
+              title="Settings"
+              className="w-[34px] h-[34px] rounded-[6px] flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+            >
+              <svg className="w-4 h-4 stroke-[1.8]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            </Link>
+          )}
 
           {/* Logout Button */}
           <button
@@ -318,28 +400,42 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
         {/* Left Sidebar - 90px width */}
         <aside className="w-[90px] bg-white border-r border-slate-200/80 flex flex-col justify-between py-3 flex-shrink-0 sticky top-[57px] h-[calc(100vh-57px)]">
           {/* Top Nav Items */}
-          <nav className="flex flex-col items-center gap-1 px-1.5 overflow-y-auto flex-1">
-            {navItems.map((item) => {
-              const isActive = pathname === item.href;
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`w-[76px] py-2 px-1 flex flex-col items-center justify-center gap-1 rounded-[6px] transition-all duration-150 ${
-                    isActive
-                      ? "bg-[#5e2b9d] text-white shadow-xs"
-                      : "text-slate-500 hover:text-[#5e2b9d] hover:bg-purple-50/60"
-                  }`}
-                >
-                  <span className="flex items-center justify-center">
-                    {item.icon}
-                  </span>
-                  <span className="text-[11px] font-medium leading-tight text-center">
-                    {item.label}
-                  </span>
-                </Link>
-              );
-            })}
+          <nav className="flex flex-col items-center gap-1 px-1.5 overflow-y-auto flex-1" suppressHydrationWarning>
+            {!mounted || (navItems.length === 0 && userRole === null) ? (
+              <div className="flex flex-col items-center gap-2 py-2 w-full animate-pulse">
+                {[1, 2, 3].map((i) => (
+                  <div
+                    key={i}
+                    className="w-[76px] h-[52px] rounded-[6px] bg-slate-100 flex flex-col items-center justify-center gap-1.5"
+                  >
+                    <div className="w-5 h-5 rounded-full bg-slate-200" />
+                    <div className="w-8 h-2 rounded bg-slate-200" />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              navItems.map((item) => {
+                const isActive = pathname === item.href;
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`w-[76px] py-2 px-1 flex flex-col items-center justify-center gap-1 rounded-[6px] transition-all duration-150 ${
+                      isActive
+                        ? "bg-[#5e2b9d] text-white shadow-xs"
+                        : "text-slate-500 hover:text-[#5e2b9d] hover:bg-purple-50/60"
+                    }`}
+                  >
+                    <span className="flex items-center justify-center">
+                      {item.icon}
+                    </span>
+                    <span className="text-[11px] font-medium leading-tight text-center">
+                      {item.label}
+                    </span>
+                  </Link>
+                );
+              })
+            )}
           </nav>
 
           {/* Bottom Sidebar Action: Switch Store / Onboarding */}

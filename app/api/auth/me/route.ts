@@ -41,6 +41,10 @@ export async function GET() {
       user: {
         email: payload.email,
         role: payload.role,
+        mobile: payload.mobile || null,
+        staffName: payload.staffName || null,
+        staffId: payload.staffId || null,
+        access: payload.access || [],
       },
       activeStore,
     });

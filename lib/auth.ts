@@ -14,6 +14,11 @@ export interface SessionPayload {
   email: string;
   role: "Admin" | "Staff";
   createdAt: number;
+  mobile?: string;
+  staffId?: string;
+  staffName?: string;
+  storeId?: string;
+  access?: string[]; // Array of permitted page hrefs (e.g. ["/pos", "/orders"])
 }
 
 // Generates a 6-digit secure numeric OTP

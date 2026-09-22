@@ -8,8 +8,11 @@ export default function LoginPage() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<"admin" | "staff">("admin");
   const [email, setEmail] = useState("");
-  const [staffId, setStaffId] = useState("");
-  const [staffPin, setStaffPin] = useState("");
+  // Staff Login States
+  const [staffMobile, setStaffMobile] = useState("");
+  const [staffMpin, setStaffMpin] = useState("");
+  const [staffStep, setStaffStep] = useState<"mobile" | "mpin">("mobile");
+  const [staffFoundName, setStaffFoundName] = useState("");
   const [otpSent, setOtpSent] = useState(false);
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -70,6 +73,11 @@ export default function LoginPage() {
       if (!res.ok || !data.success) {
         setErrorMessage(data.error || "Invalid code. Please try again.");
       } else {
+        if (typeof window !== "undefined") {
+          localStorage.setItem("staff_role", "Admin");
+          localStorage.removeItem("staff_access");
+          localStorage.removeItem("staff_name");
+        }
         // Successfully verified and cookie issued! Redirect to onboarding
         router.push("/onboarding");
         router.refresh();
@@ -103,9 +111,80 @@ export default function LoginPage() {
     }
   };
 
-  const handleStaffLogin = (e: React.FormEvent) => {
+  // Staff Step 1: Check mobile number exists across any store
+  const handleStaffCheckMobile = async (e: React.FormEvent) => {
     e.preventDefault();
-    setErrorMessage("Staff terminal login requires active store enrollment. Please login as Administrator.");
+    const clean = staffMobile.replace(/\D/g, "");
+    if (!clean || clean.length < 10) {
+      setErrorMessage("Please enter a valid 10-digit mobile number.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    setErrorMessage("");
+    setSuccessMessage("");
+
+    try {
+      const res = await fetch("/api/auth/staff-login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "check-mobile", mobile: clean }),
+      });
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        setErrorMessage(data.error || "Staff mobile number not recognized.");
+      } else {
+        setStaffFoundName(data.staffName || "Staff Member");
+        setStaffStep("mpin");
+        setStaffMpin("");
+        setSuccessMessage(`Staff member verified: ${data.staffName}. Please enter your Security MPIN.`);
+      }
+    } catch {
+      setErrorMessage("Network error connecting to staff authentication server.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Staff Step 2: Verify MPIN and issue staff session
+  const handleStaffVerifyMpin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const clean = staffMobile.replace(/\D/g, "");
+    const cleanPin = staffMpin.trim();
+
+    if (!cleanPin || cleanPin.length < 4) {
+      setErrorMessage("Please enter your 4-digit or 6-digit MPIN.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    setErrorMessage("");
+
+    try {
+      const res = await fetch("/api/auth/staff-login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "verify-mpin", mobile: clean, mpin: cleanPin }),
+      });
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        setErrorMessage(data.error || "Invalid Security MPIN. Please try again.");
+      } else {
+        if (typeof window !== "undefined") {
+          localStorage.setItem("staff_role", "Staff");
+          if (data.staffName) localStorage.setItem("staff_name", data.staffName);
+        }
+        setSuccessMessage("Authenticated successfully! Redirecting...");
+        router.push(data.redirect || "/onboarding");
+        router.refresh();
+      }
+    } catch {
+      setErrorMessage("Network error verifying MPIN.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleInstallPwa = () => {
@@ -160,6 +239,7 @@ export default function LoginPage() {
                 setActiveTab("admin");
                 setOtpSent(false);
                 setErrorMessage("");
+                setSuccessMessage("");
               }}
               className={`flex-1 h-[34px] max-h-[34px] text-xs font-medium rounded-[6px] transition-all duration-200 cursor-pointer flex items-center justify-center ${
                 activeTab === "admin"
@@ -173,8 +253,10 @@ export default function LoginPage() {
               type="button"
               onClick={() => {
                 setActiveTab("staff");
-                setOtpSent(false);
+                setStaffStep("mobile");
+                setStaffMpin("");
                 setErrorMessage("");
+                setSuccessMessage("");
               }}
               className={`flex-1 h-[34px] max-h-[34px] text-xs font-medium rounded-[6px] transition-all duration-200 cursor-pointer flex items-center justify-center ${
                 activeTab === "staff"
@@ -349,68 +431,147 @@ export default function LoginPage() {
 
           {/* Tab 2: Staff Login */}
           {activeTab === "staff" && (
-            <form onSubmit={handleStaffLogin} className="flex flex-col">
-              <div className="mb-3">
-                <label
-                  htmlFor="staffId"
-                  className="text-xs font-medium text-slate-800 mb-1.5 block"
-                >
-                  Staff ID / Username
-                </label>
-                <div className="relative">
-                  <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                    </svg>
-                  </span>
-                  <input
-                    id="staffId"
-                    type="text"
-                    required
-                    value={staffId}
-                    onChange={(e) => setStaffId(e.target.value)}
-                    placeholder="e.g. STF-1042"
-                    className="w-full h-[34px] max-h-[34px] bg-[#f8fafc] border border-slate-200 rounded-[6px] pl-9 pr-3 text-xs font-normal text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#5e2b9d] focus:border-[#5e2b9d] transition-all"
-                  />
-                </div>
-              </div>
+            <div>
+              {staffStep === "mobile" ? (
+                /* Step 1: Staff enters Mobile Number */
+                <form onSubmit={handleStaffCheckMobile} className="flex flex-col">
+                  <label
+                    htmlFor="staffMobile"
+                    className="text-xs font-medium text-slate-800 mb-1.5 block"
+                  >
+                    Registered Staff Mobile Number
+                  </label>
+                  <div className="relative mb-2">
+                    <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                      </svg>
+                    </span>
+                    <input
+                      id="staffMobile"
+                      type="tel"
+                      required
+                      maxLength={10}
+                      autoFocus
+                      value={staffMobile}
+                      onChange={(e) => setStaffMobile(e.target.value.replace(/\D/g, "").slice(0, 10))}
+                      placeholder="e.g. 9876543210"
+                      className="w-full h-[34px] max-h-[34px] bg-[#f8fafc] border border-slate-200 rounded-[6px] pl-9 pr-3 text-xs font-normal text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#5e2b9d] focus:border-[#5e2b9d] tracking-wide transition-all"
+                    />
+                  </div>
 
-              <div className="mb-4">
-                <label
-                  htmlFor="staffPin"
-                  className="text-xs font-medium text-slate-800 mb-1.5 block"
-                >
-                  Terminal Security PIN
-                </label>
-                <div className="relative">
-                  <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                    </svg>
-                  </span>
-                  <input
-                    id="staffPin"
-                    type="password"
-                    maxLength={6}
-                    required
-                    value={staffPin}
-                    onChange={(e) => setStaffPin(e.target.value)}
-                    placeholder="••••••"
-                    className="w-full h-[34px] max-h-[34px] bg-[#f8fafc] border border-slate-200 rounded-[6px] pl-9 pr-3 text-xs font-normal text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#5e2b9d] focus:border-[#5e2b9d] tracking-widest transition-all"
-                  />
-                </div>
-              </div>
+                  <p className="text-[11px] text-slate-400 leading-relaxed mb-4">
+                    Enter the 10-digit mobile number registered by your store manager.
+                  </p>
 
-              <button
-                type="submit"
-                className="w-full h-[34px] max-h-[34px] bg-[#00966a] hover:bg-[#00825c] text-white font-medium text-xs px-4 rounded-[6px] transition-all duration-200 flex items-center justify-center gap-2 shadow-xs text-center cursor-pointer"
-              >
-                <span>Sign In to Terminal</span>
-                <svg className="w-3.5 h-3.5 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                </svg>
-              </button>
-            </form>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting || staffMobile.length < 10}
+                    className="w-full h-[34px] max-h-[34px] bg-[#5e2b9d] hover:bg-[#4e2284] text-white font-medium text-xs px-4 rounded-[6px] transition-all duration-200 flex items-center justify-center gap-2 shadow-xs text-center cursor-pointer disabled:opacity-50"
+                  >
+                    {isSubmitting ? (
+                      <span className="flex items-center gap-2">
+                        <svg className="animate-spin h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
+                        Checking Authorization...
+                      </span>
+                    ) : (
+                      <>
+                        <span>Continue</span>
+                        <svg className="w-3.5 h-3.5 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                        </svg>
+                      </>
+                    )}
+                  </button>
+                </form>
+              ) : (
+                /* Step 2: Staff enters Security MPIN */
+                <form onSubmit={handleStaffVerifyMpin} className="flex flex-col">
+                  {/* Verified Staff Badge with Change option */}
+                  <div className="mb-3.5 p-2.5 rounded-[6px] bg-purple-50/70 border border-purple-100 flex items-center justify-between">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-6 h-6 rounded-full bg-[#5e2b9d] text-white text-[10px] font-semibold flex items-center justify-center flex-shrink-0">
+                        {staffFoundName.slice(0, 1).toUpperCase() || "S"}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-xs font-semibold text-slate-800 truncate">
+                          {staffFoundName}
+                        </div>
+                        <div className="text-[10.5px] text-slate-500 font-mono">
+                          +91 {staffMobile}
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStaffStep("mobile");
+                        setStaffMpin("");
+                        setErrorMessage("");
+                      }}
+                      className="text-[11px] font-medium text-[#5e2b9d] hover:underline cursor-pointer flex-shrink-0 ml-2"
+                    >
+                      Change
+                    </button>
+                  </div>
+
+                  <label
+                    htmlFor="staffMpin"
+                    className="text-xs font-medium text-slate-800 mb-1.5 block"
+                  >
+                    Enter Security MPIN
+                  </label>
+                  <div className="relative mb-2">
+                    <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                      </svg>
+                    </span>
+                    <input
+                      id="staffMpin"
+                      type="password"
+                      required
+                      maxLength={6}
+                      autoFocus
+                      value={staffMpin}
+                      onChange={(e) => setStaffMpin(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                      placeholder="••••"
+                      className="w-full h-[34px] max-h-[34px] bg-[#f8fafc] border border-slate-200 rounded-[6px] pl-9 pr-3 text-xs font-medium text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#5e2b9d] focus:border-[#5e2b9d] tracking-[0.3em] transition-all"
+                    />
+                  </div>
+
+                  <p className="text-[11px] text-slate-400 leading-relaxed mb-4">
+                    Enter your confidential 4-6 digit numeric MPIN set by your administrator.
+                  </p>
+
+                  <button
+                    type="submit"
+                    disabled={isSubmitting || staffMpin.length < 4}
+                    className="w-full h-[34px] max-h-[34px] bg-[#5e2b9d] hover:bg-[#4e2284] text-white font-medium text-xs px-4 rounded-[6px] transition-all duration-200 flex items-center justify-center gap-2 shadow-xs text-center cursor-pointer disabled:opacity-50"
+                  >
+                    {isSubmitting ? (
+                      <span className="flex items-center gap-2">
+                        <svg className="animate-spin h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
+                        Verifying MPIN...
+                      </span>
+                    ) : (
+                      <>
+                        <span>Verify & Enter Software</span>
+                        <svg className="w-3.5 h-3.5 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                        </svg>
+                      </>
+                    )}
+                  </button>
+                </form>
+              )}
+            </div>
           )}
 
           {/* Security Notice Disclaimer */}
