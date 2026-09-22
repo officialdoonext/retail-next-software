@@ -242,7 +242,7 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
 
             {isStoreDropdownOpen && (
               <div className="absolute right-0 mt-1.5 w-64 bg-white border border-slate-200 rounded-[6px] shadow-xl py-1.5 z-50 animate-in fade-in duration-150">
-                <div className="px-3 py-1.5 border-b border-slate-100 flex items-center justify-between">
+                {/* <div className="px-3 py-1.5 border-b border-slate-100 flex items-center justify-between">
                   <span className="text-[10.5px] font-semibold text-slate-400 uppercase tracking-wider">
                     Your Stores
                   </span>
@@ -255,9 +255,9 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
                       Switching...
                     </span>
                   )}
-                </div>
+                </div> */}
 
-                <div className="max-h-56 overflow-y-auto py-1 divide-y divide-slate-50">
+                {/* <div className="max-h-56 overflow-y-auto py-1 divide-y divide-slate-50">
                   {userStores.length === 0 ? (
                     <div className="px-3 py-2 text-xs text-slate-400">Loading stores...</div>
                   ) : (
@@ -301,7 +301,7 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
                       );
                     })
                   )}
-                </div>
+                </div> */}
 
                 <div className="border-t border-slate-100 mt-1 pt-1">
                   <Link
@@ -310,13 +310,9 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
                     className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-600 hover:text-[#5e2b9d] hover:bg-purple-50 transition-colors"
                   >
                     <svg className="w-3.5 h-3.5 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      {userRole === "Staff" ? (
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
-                      ) : (
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                      )}
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
                     </svg>
-                    <span>{userRole === "Staff" ? "Switch Store" : "Manage / Add New Store"}</span>
+                    <span>{userRole === "Staff" ? "Switch Store" : "Switch Store"}</span>
                   </Link>
                 </div>
               </div>
