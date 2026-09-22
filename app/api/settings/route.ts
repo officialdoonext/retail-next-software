@@ -67,6 +67,9 @@ export async function GET() {
       isPriceInclusiveGst: Boolean(data.isPriceInclusiveGst),
       cgstPercent: typeof data.cgstPercent === "number" ? data.cgstPercent : 9,
       sgstPercent: typeof data.sgstPercent === "number" ? data.sgstPercent : 9,
+
+      // Round Off Setting
+      enableRoundOff: Boolean(data.enableRoundOff),
     };
 
     return NextResponse.json({ success: true, settings });
@@ -149,6 +152,9 @@ export async function PUT(request: Request) {
       isPriceInclusiveGst,
       cgstPercent,
       sgstPercent,
+
+      // Round Off Configuration
+      enableRoundOff: Boolean(body.enableRoundOff),
 
       updatedAt: Date.now(),
     };

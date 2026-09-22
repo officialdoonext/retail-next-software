@@ -41,6 +41,7 @@ interface StoreSettings {
   isPriceInclusiveGst: boolean;
   cgstPercent: number;
   sgstPercent: number;
+  enableRoundOff?: boolean;
 }
 
 interface SavedBill {
@@ -397,6 +398,7 @@ export default function PosPage() {
   const cgstPercent = storeSettings?.cgstPercent ?? 9;
   const sgstPercent = storeSettings?.sgstPercent ?? 9;
   const totalGstRate = cgstPercent + sgstPercent;
+  const enableRoundOff = Boolean(storeSettings?.enableRoundOff);
 
   // Gross cart total (MRP sum of item prices * quantity)
   const grossCartTotal = useMemo(() => {
@@ -404,9 +406,9 @@ export default function PosPage() {
   }, [cart]);
 
   // Comprehensive Totals & Taxes Calculation
-  const { subtotal, discountAmount, cgst, sgst, grandTotal } = useMemo(() => {
+  const { subtotal, discountAmount, cgst, sgst, roundOffAmount, grandTotal } = useMemo(() => {
     if (grossCartTotal <= 0) {
-      return { subtotal: 0, discountAmount: 0, cgst: 0, sgst: 0, grandTotal: 0 };
+      return { subtotal: 0, discountAmount: 0, cgst: 0, sgst: 0, roundOffAmount: 0, grandTotal: 0 };
     }
 
     if (!enableGst || totalGstRate <= 0) {
@@ -418,13 +420,22 @@ export default function PosPage() {
           ? (grossCartTotal * Number(discountValue)) / 100
           : Math.min(Number(discountValue), grossCartTotal);
 
-      const gTotal = Math.max(0, grossCartTotal - disc);
+      const rawGTotal = Math.max(0, grossCartTotal - disc);
+      let finalGTotal = Math.round(rawGTotal * 100) / 100;
+      let rOff = 0;
+
+      if (enableRoundOff && rawGTotal > 0 && Math.ceil(rawGTotal) !== rawGTotal) {
+        finalGTotal = Math.ceil(rawGTotal);
+        rOff = Math.round((finalGTotal - rawGTotal) * 100) / 100;
+      }
+
       return {
         subtotal: Math.round(grossCartTotal * 100) / 100,
         discountAmount: Math.round(disc * 100) / 100,
         cgst: 0,
         sgst: 0,
-        grandTotal: Math.round(gTotal * 100) / 100,
+        roundOffAmount: rOff,
+        grandTotal: finalGTotal,
       };
     }
 
@@ -440,25 +451,33 @@ export default function PosPage() {
           : Math.min(Number(discountValue), grossCartTotal);
 
       const payableGross = Math.max(0, grossCartTotal - rawDisc);
-      const gTotal = Math.round(payableGross * 100) / 100;
+      const rawGTotal = Math.round(payableGross * 100) / 100;
 
       // Extract CGST and SGST from payable amount
-      const taxComponent = (gTotal * totalGstRate) / (100 + totalGstRate);
+      const taxComponent = (rawGTotal * totalGstRate) / (100 + totalGstRate);
       const halfTax = taxComponent / 2;
       const calculatedCgst = Math.round(halfTax * 100) / 100;
       const calculatedSgst = Math.round(halfTax * 100) / 100;
 
       // Base Taxable Subtotal before tax: 399 - 60.86 = ₹338.14
-      // Subtotal (338.14) - Discount (42.37) + CGST (26.62) + SGST (26.62) = Grand Total (349.00)
       const taxableDiscount = Math.round((rawDisc / (1 + totalGstRate / 100)) * 100) / 100;
       const taxableGross = Math.round((grossCartTotal / (1 + totalGstRate / 100)) * 100) / 100;
+
+      // Round off to next integer if active
+      let finalGTotal = rawGTotal;
+      let rOff = 0;
+      if (enableRoundOff && rawGTotal > 0 && Math.ceil(rawGTotal) !== rawGTotal) {
+        finalGTotal = Math.ceil(rawGTotal);
+        rOff = Math.round((finalGTotal - rawGTotal) * 100) / 100;
+      }
 
       return {
         subtotal: taxableGross,
         discountAmount: taxableDiscount,
         cgst: calculatedCgst,
         sgst: calculatedSgst,
-        grandTotal: gTotal,
+        roundOffAmount: rOff,
+        grandTotal: finalGTotal,
       };
     } else {
       // GST IS EXCLUSIVE (Added on top of subtotal)
@@ -472,17 +491,25 @@ export default function PosPage() {
       const taxableBase = Math.max(0, grossCartTotal - disc);
       const calculatedCgst = Math.round((taxableBase * (cgstPercent / 100)) * 100) / 100;
       const calculatedSgst = Math.round((taxableBase * (sgstPercent / 100)) * 100) / 100;
-      const gTotal = Math.round((taxableBase + calculatedCgst + calculatedSgst) * 100) / 100;
+      const rawGTotal = Math.round((taxableBase + calculatedCgst + calculatedSgst) * 100) / 100;
+
+      let finalGTotal = rawGTotal;
+      let rOff = 0;
+      if (enableRoundOff && rawGTotal > 0 && Math.ceil(rawGTotal) !== rawGTotal) {
+        finalGTotal = Math.ceil(rawGTotal);
+        rOff = Math.round((finalGTotal - rawGTotal) * 100) / 100;
+      }
 
       return {
         subtotal: Math.round(grossCartTotal * 100) / 100,
         discountAmount: Math.round(disc * 100) / 100,
         cgst: calculatedCgst,
         sgst: calculatedSgst,
-        grandTotal: gTotal,
+        roundOffAmount: rOff,
+        grandTotal: finalGTotal,
       };
     }
-  }, [grossCartTotal, discountValue, discountType, enableGst, isPriceInclusiveGst, cgstPercent, sgstPercent, totalGstRate]);
+  }, [grossCartTotal, discountValue, discountType, enableGst, isPriceInclusiveGst, cgstPercent, sgstPercent, totalGstRate, enableRoundOff]);
 
   // Keep split amounts synced when split mode is used
   const currentSplitTotal = Math.round((splitAmounts.upi + splitAmounts.cash + splitAmounts.card) * 100) / 100;
@@ -620,6 +647,7 @@ export default function PosPage() {
         cgstPercent,
         sgstPercent,
         isPriceInclusiveGst,
+        roundOff: roundOffAmount,
         grandTotal,
         paymentMethod,
         splitDetails: paymentMethod === "SPLIT" ? splitAmounts : null,
@@ -1109,6 +1137,14 @@ export default function PosPage() {
                     <span>SGST ({sgstPercent}%)</span>
                     <span className="font-mono">₹{sgst.toFixed(2)}</span>
                   </div>
+                </div>
+              )}
+
+              {/* Round Off (if active and roundOffAmount > 0) */}
+              {enableRoundOff && roundOffAmount > 0 && (
+                <div className="flex items-center justify-between text-[11.5px] text-slate-600 pt-1">
+                  <span>Round Off</span>
+                  <span className="font-mono text-[#5e2b9d]">+₹{roundOffAmount.toFixed(2)}</span>
                 </div>
               )}
 
@@ -1697,6 +1733,12 @@ export default function PosPage() {
                     <div className="flex justify-between text-slate-600 text-[10px]">
                       <span>SGST:</span>
                       <span>₹{settledReceipt.sgst.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {settledReceipt.roundOff > 0 && (
+                    <div className="flex justify-between text-slate-600 text-[10px]">
+                      <span>Round Off:</span>
+                      <span>+₹{Number(settledReceipt.roundOff).toFixed(2)}</span>
                     </div>
                   )}
                   <div className="flex justify-between text-xs font-medium pt-1.5 border-t border-dashed border-slate-300">

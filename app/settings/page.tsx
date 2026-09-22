@@ -25,6 +25,9 @@ interface StoreSettings {
   isPriceInclusiveGst: boolean;
   cgstPercent: number;
   sgstPercent: number;
+
+  // Round Off Configuration
+  enableRoundOff?: boolean;
 }
 
 const INDIAN_STATES = [
@@ -97,6 +100,9 @@ export default function SettingsPage() {
   const [cgstPercent, setCgstPercent] = useState<number | "">(9);
   const [sgstPercent, setSgstPercent] = useState<number | "">(9);
 
+  // Round Off State
+  const [enableRoundOff, setEnableRoundOff] = useState(false);
+
   // Original snapshot for reset
   const [initialData, setInitialData] = useState<StoreSettings | null>(null);
 
@@ -127,6 +133,7 @@ export default function SettingsPage() {
           setIsPriceInclusiveGst(Boolean(s.isPriceInclusiveGst));
           setCgstPercent(typeof s.cgstPercent === "number" ? s.cgstPercent : 9);
           setSgstPercent(typeof s.sgstPercent === "number" ? s.sgstPercent : 9);
+          setEnableRoundOff(Boolean(s.enableRoundOff));
 
           setInitialData(s);
         } else {
@@ -197,6 +204,7 @@ export default function SettingsPage() {
     setIsPriceInclusiveGst(Boolean(initialData.isPriceInclusiveGst));
     setCgstPercent(initialData.cgstPercent ?? 9);
     setSgstPercent(initialData.sgstPercent ?? 9);
+    setEnableRoundOff(Boolean(initialData.enableRoundOff));
     toast.info("Changes have been reset.");
   };
 
@@ -240,6 +248,8 @@ export default function SettingsPage() {
         isPriceInclusiveGst: enableGst ? isPriceInclusiveGst : false,
         cgstPercent: enableGst ? Number(cgstPercent) || 0 : 0,
         sgstPercent: enableGst ? Number(sgstPercent) || 0 : 0,
+
+        enableRoundOff,
       };
 
       const res = await fetch("/api/settings", {
@@ -827,6 +837,66 @@ export default function SettingsPage() {
                     </div>
                   </div>
                 )}
+              </div>
+            </div>
+
+            {/* 3. BILLING ROUND OFF CONFIGURATION */}
+            <div className="bg-white border border-slate-200/80 rounded-[6px] overflow-hidden shadow-2xs">
+              <div className="px-4 py-3 bg-[#f8fafc] border-b border-slate-200/80 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-[4px] bg-purple-50 text-[#5e2b9d] border border-purple-200/80 flex items-center justify-center">
+                    <svg className="w-3.5 h-3.5 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h2 className="text-xs font-medium text-slate-900">
+                      Invoice Round Off Configuration
+                    </h2>
+                    <p className="text-[11px] text-slate-500 font-normal">
+                      Automatically round off decimal paise in Grand Total to the next integer value.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Enable Round Off Toggle */}
+                <div className="flex items-center gap-2.5 bg-white border border-slate-200 rounded-[6px] px-3 py-1 shadow-2xs">
+                  <span className="text-xs font-medium text-slate-800">
+                    Round Off
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setEnableRoundOff(!enableRoundOff)}
+                    className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                      enableRoundOff ? "bg-[#5e2b9d]" : "bg-slate-300"
+                    }`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                        enableRoundOff ? "translate-x-4" : "translate-x-0"
+                      }`}
+                    />
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-[6px] bg-[#f8fafc] border border-slate-200 text-xs">
+                  <div className="space-y-0.5">
+                    <span className="font-medium text-slate-900 flex items-center gap-1.5">
+                      <span className={`w-2 h-2 rounded-full ${enableRoundOff ? "bg-emerald-500" : "bg-slate-400"}`} />
+                      {enableRoundOff ? "Round Off to Next Value is Active" : "Round Off is Disabled"}
+                    </span>
+                    <p className="text-[11px] text-slate-500 font-normal max-w-lg">
+                      {enableRoundOff
+                        ? "Any point / decimal value in Grand Total will automatically round up to the next integer value (e.g. ₹399.10 or ₹399.50 ➔ ₹400.00)."
+                        : "Grand Total will display exact decimal paise without rounding up (e.g. ₹399.20)."}
+                    </p>
+                  </div>
+                  <span className={`px-2.5 py-1 rounded-[4px] font-mono text-[11.5px] font-medium whitespace-nowrap self-start sm:self-auto ${enableRoundOff ? "bg-purple-100 text-[#5e2b9d] border border-purple-200" : "bg-slate-200 text-slate-600"}`}>
+                    {enableRoundOff ? "₹399.20 ➔ ₹400.00" : "₹399.20"}
+                  </span>
+                </div>
               </div>
             </div>
 

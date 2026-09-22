@@ -39,6 +39,7 @@ interface Order {
   cgstPercent?: number;
   sgstPercent?: number;
   isPriceInclusiveGst?: boolean;
+  roundOff?: number;
   grandTotal: number;
   paymentMethod: "CASH" | "UPI" | "CARD" | "SPLIT";
   splitDetails?: { upi: number; cash: number; card: number } | null;
@@ -609,6 +610,12 @@ export default function OrdersPage() {
                     <div className="flex justify-between text-slate-600 text-[10px]">
                       <span>SGST:</span>
                       <span>₹{selectedOrder.sgst.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {selectedOrder.roundOff !== undefined && selectedOrder.roundOff > 0 && (
+                    <div className="flex justify-between text-slate-600 text-[10px]">
+                      <span>Round Off:</span>
+                      <span>+₹{selectedOrder.roundOff.toFixed(2)}</span>
                     </div>
                   )}
                   <div className="flex justify-between text-xs font-medium pt-1.5 border-t border-dashed border-slate-300">

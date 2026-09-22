@@ -231,6 +231,7 @@ export async function POST(request: Request) {
       cgstPercent: body.cgstPercent ?? 0,
       sgstPercent: body.sgstPercent ?? 0,
       isPriceInclusiveGst: Boolean(body.isPriceInclusiveGst),
+      roundOff: Number(body.roundOff) || 0,
       grandTotal,
       paymentMethod,
       splitDetails,
