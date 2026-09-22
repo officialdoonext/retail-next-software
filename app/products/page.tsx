@@ -3,6 +3,8 @@
 import { useState, useEffect, useMemo } from "react";
 import Image from "next/image";
 import SoftwareLayout from "@/components/SoftwareLayout";
+import { useToast } from "@/components/ToastProvider";
+import ConfirmModal from "@/components/ConfirmModal";
 
 interface ProductVariant {
   id: string;
@@ -47,6 +49,7 @@ interface StoreVariation {
 }
 
 export default function ProductsPage() {
+  const toast = useToast();
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [storeVariations, setStoreVariations] = useState<StoreVariation[]>([]);
@@ -58,6 +61,8 @@ export default function ProductsPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const [viewingProduct, setViewingProduct] = useState<Product | null>(null);
+  const [productToDelete, setProductToDelete] = useState<Product | null>(null);
+  const [deletingProduct, setDeletingProduct] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [modalError, setModalError] = useState("");
@@ -505,32 +510,41 @@ export default function ProductsPage() {
 
       const data = await res.json();
       if (!res.ok || !data.success) {
-        setModalError(data.error || "Failed to save product.");
+        const err = data.error || "Failed to save product.";
+        setModalError(err);
+        toast.error(err);
       } else {
         setIsModalOpen(false);
+        toast.success(editingProductId ? "Product updated successfully!" : "Product created successfully!");
         loadData();
       }
     } catch {
       setModalError("Network error while saving product.");
+      toast.error("Network error while saving product.");
     } finally {
       setSubmitting(false);
     }
   };
 
-  // Delete product
-  const handleDeleteProduct = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this product?")) return;
+  // Custom Modal Delete product handler
+  const handleConfirmDelete = async () => {
+    if (!productToDelete) return;
+    setDeletingProduct(true);
 
     try {
-      const res = await fetch(`/api/products?id=${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/products?id=${productToDelete.id}`, { method: "DELETE" });
       const data = await res.json();
       if (data.success) {
-        setProducts((prev) => prev.filter((p) => p.id !== id));
+        setProducts((prev) => prev.filter((p) => p.id !== productToDelete.id));
+        toast.success(`Product "${productToDelete.name}" deleted successfully.`);
+        setProductToDelete(null);
       } else {
-        alert(data.error || "Failed to delete product.");
+        toast.error(data.error || "Failed to delete product.");
       }
     } catch {
-      alert("Network error while deleting product.");
+      toast.error("Network error while deleting product.");
+    } finally {
+      setDeletingProduct(false);
     }
   };
 
@@ -779,7 +793,7 @@ export default function ProductsPage() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleDeleteProduct(p.id)}
+                            onClick={() => setProductToDelete(p)}
                             className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
                             title="Delete Product"
                           >
@@ -1746,6 +1760,19 @@ export default function ProductsPage() {
             </div>
           </div>
         )}
+
+        {/* CONFIRMATION MODAL FOR DELETION */}
+        <ConfirmModal
+          isOpen={productToDelete !== null}
+          title="Delete Product"
+          message={`Are you sure you want to delete "${productToDelete?.name}"? This action cannot be undone and will permanently remove this item from your store's inventory.`}
+          confirmText="Delete Product"
+          cancelText="Cancel"
+          confirmVariant="danger"
+          loading={deletingProduct}
+          onConfirm={handleConfirmDelete}
+          onClose={() => setProductToDelete(null)}
+        />
       </div>
     </SoftwareLayout>
   );

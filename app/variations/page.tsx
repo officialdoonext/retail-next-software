@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 import SoftwareLayout from "@/components/SoftwareLayout";
+import { useToast } from "@/components/ToastProvider";
+import ConfirmModal from "@/components/ConfirmModal";
 
 interface Variation {
   id: string;
@@ -10,11 +12,14 @@ interface Variation {
 }
 
 export default function VariationsPage() {
+  const toast = useToast();
   const [variations, setVariations] = useState<Variation[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [variationName, setVariationName] = useState("");
+  const [variationToDelete, setVariationToDelete] = useState<Variation | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
 
   const fetchVariations = async () => {
@@ -52,28 +57,41 @@ export default function VariationsPage() {
       const data = await res.json();
 
       if (!res.ok || !data.success) {
-        setError(data.error || "Failed to save variation.");
+        const errMsg = data.error || "Failed to save variation.";
+        setError(errMsg);
+        toast.error(errMsg);
       } else {
         setVariations((prev) => [...prev, data.variation]);
+        toast.success(`Variation "${variationName.trim()}" created successfully!`);
         setVariationName("");
         setIsModalOpen(false);
       }
     } catch {
       setError("Network error saving variation.");
+      toast.error("Network error saving variation.");
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const handleConfirmDelete = async () => {
+    if (!variationToDelete) return;
+    setDeleting(true);
+
     try {
-      const res = await fetch(`/api/variations?id=${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/variations?id=${variationToDelete.id}`, { method: "DELETE" });
       const data = await res.json();
       if (data.success) {
-        setVariations((prev) => prev.filter((v) => v.id !== id));
+        setVariations((prev) => prev.filter((v) => v.id !== variationToDelete.id));
+        toast.success(`Variation "${variationToDelete.name}" deleted successfully.`);
+        setVariationToDelete(null);
+      } else {
+        toast.error(data.error || "Failed to delete variation.");
       }
     } catch {
-      setError("Failed to delete variation.");
+      toast.error("Network error while deleting variation.");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -175,7 +193,7 @@ export default function VariationsPage() {
                     <td className="py-2.5 px-3.5 text-right">
                       <button
                         type="button"
-                        onClick={() => handleDelete(v.id)}
+                        onClick={() => setVariationToDelete(v)}
                         className="text-slate-400 hover:text-rose-600 p-1 rounded transition-colors cursor-pointer"
                         title="Delete Variation"
                       >
@@ -246,6 +264,19 @@ export default function VariationsPage() {
             </div>
           </div>
         )}
+
+        {/* Delete Variation Confirmation Modal */}
+        <ConfirmModal
+          isOpen={variationToDelete !== null}
+          title="Delete Variation"
+          message={`Are you sure you want to delete variation "${variationToDelete?.name}"?`}
+          confirmText="Delete Variation"
+          cancelText="Cancel"
+          confirmVariant="danger"
+          loading={deleting}
+          onConfirm={handleConfirmDelete}
+          onClose={() => setVariationToDelete(null)}
+        />
       </div>
     </SoftwareLayout>
   );

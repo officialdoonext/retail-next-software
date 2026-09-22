@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 import SoftwareLayout from "@/components/SoftwareLayout";
+import { useToast } from "@/components/ToastProvider";
+import ConfirmModal from "@/components/ConfirmModal";
 
 interface Category {
   id: string;
@@ -10,11 +12,14 @@ interface Category {
 }
 
 export default function CategoriesPage() {
+  const toast = useToast();
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [categoryName, setCategoryName] = useState("");
+  const [categoryToDelete, setCategoryToDelete] = useState<Category | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
 
   const fetchCategories = async () => {
@@ -52,28 +57,41 @@ export default function CategoriesPage() {
       const data = await res.json();
 
       if (!res.ok || !data.success) {
-        setError(data.error || "Failed to save category.");
+        const errMsg = data.error || "Failed to save category.";
+        setError(errMsg);
+        toast.error(errMsg);
       } else {
         setCategories((prev) => [...prev, data.category]);
+        toast.success(`Category "${categoryName.trim()}" created successfully!`);
         setCategoryName("");
         setIsModalOpen(false);
       }
     } catch {
       setError("Network error saving category.");
+      toast.error("Network error saving category.");
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const handleConfirmDelete = async () => {
+    if (!categoryToDelete) return;
+    setDeleting(true);
+
     try {
-      const res = await fetch(`/api/categories?id=${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/categories?id=${categoryToDelete.id}`, { method: "DELETE" });
       const data = await res.json();
       if (data.success) {
-        setCategories((prev) => prev.filter((c) => c.id !== id));
+        setCategories((prev) => prev.filter((c) => c.id !== categoryToDelete.id));
+        toast.success(`Category "${categoryToDelete.name}" deleted successfully.`);
+        setCategoryToDelete(null);
+      } else {
+        toast.error(data.error || "Failed to delete category.");
       }
     } catch {
-      setError("Failed to delete category.");
+      toast.error("Network error while deleting category.");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -175,7 +193,7 @@ export default function CategoriesPage() {
                     <td className="py-2.5 px-3.5 text-right">
                       <button
                         type="button"
-                        onClick={() => handleDelete(cat.id)}
+                        onClick={() => setCategoryToDelete(cat)}
                         className="text-slate-400 hover:text-rose-600 p-1 rounded transition-colors cursor-pointer"
                         title="Delete Category"
                       >
@@ -246,6 +264,19 @@ export default function CategoriesPage() {
             </div>
           </div>
         )}
+
+        {/* Delete Category Confirmation Modal */}
+        <ConfirmModal
+          isOpen={categoryToDelete !== null}
+          title="Delete Category"
+          message={`Are you sure you want to delete category "${categoryToDelete?.name}"? Products assigned to this category will become Uncategorized.`}
+          confirmText="Delete Category"
+          cancelText="Cancel"
+          confirmVariant="danger"
+          loading={deleting}
+          onConfirm={handleConfirmDelete}
+          onClose={() => setCategoryToDelete(null)}
+        />
       </div>
     </SoftwareLayout>
   );
