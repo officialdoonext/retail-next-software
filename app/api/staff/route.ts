@@ -41,12 +41,11 @@ export async function GET() {
     const staff = snap.docs
       .map((d) => {
         const data = d.data();
-        // Never expose the raw MPIN in list view
         return {
           id: d.id,
           name: data.name,
           mobile: data.mobile,
-          role: data.role || "Staff",
+          access: data.access ?? [],
           status: data.status || "Active",
           createdAt: data.createdAt,
           storeId: data.storeId,
@@ -80,7 +79,7 @@ export async function POST(request: Request) {
       .trim()
       .replace(/\D/g, "");
     const mpin = String(body.mpin || "").trim();
-    const role = String(body.role || "Staff").trim();
+    const access: string[] = Array.isArray(body.access) ? body.access : [];
 
     if (!name)
       return NextResponse.json(
@@ -121,8 +120,8 @@ export async function POST(request: Request) {
       storeId: ctx.storeId,
       name,
       mobile,
-      mpin, // stored as plain text (MPIN is a simple numeric PIN, not a password)
-      role,
+      mpin,
+      access,
       status: "Active",
       createdBy: ctx.session.email,
       createdAt: Date.now(),
@@ -173,7 +172,7 @@ export async function PUT(request: Request) {
       .trim()
       .replace(/\D/g, "");
     const mpin = String(body.mpin || "").trim();
-    const role = String(body.role || "Staff").trim();
+    const access: string[] = Array.isArray(body.access) ? body.access : [];
 
     if (!name)
       return NextResponse.json(
@@ -211,7 +210,7 @@ export async function PUT(request: Request) {
         { status: 409 }
       );
 
-    const updatePayload = { name, mobile, mpin, role, updatedAt: Date.now() };
+    const updatePayload = { name, mobile, mpin, access, updatedAt: Date.now() };
     await updateDoc(staffDocRef, updatePayload);
 
     return NextResponse.json({
