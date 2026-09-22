@@ -5,6 +5,7 @@ import Image from "next/image";
 import SoftwareLayout from "@/components/SoftwareLayout";
 import { useToast } from "@/components/ToastProvider";
 import ConfirmModal from "@/components/ConfirmModal";
+import BulkUploadModal from "@/components/BulkUploadModal";
 
 interface ProductVariant {
   id: string;
@@ -59,6 +60,7 @@ export default function ProductsPage() {
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const [viewingProduct, setViewingProduct] = useState<Product | null>(null);
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
@@ -587,16 +589,29 @@ export default function ProductsPage() {
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={handleOpenAddModal}
-            className="h-[34px] max-h-[34px] bg-[#5e2b9d] hover:bg-[#4e2284] text-white font-medium text-xs px-3.5 rounded-[6px] transition-all flex items-center justify-center gap-1.5 shadow-xs cursor-pointer self-start sm:self-auto"
-          >
-            <svg className="w-3.5 h-3.5 stroke-[2.2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-            </svg>
-            <span>Add Product</span>
-          </button>
+          <div className="flex items-center gap-2 self-start sm:self-auto">
+            <button
+              type="button"
+              onClick={() => setIsBulkModalOpen(true)}
+              className="h-[34px] max-h-[34px] bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 font-medium text-xs px-3 rounded-[6px] transition-all flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer"
+            >
+              <svg className="w-3.5 h-3.5 text-emerald-600 stroke-[2.2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+              </svg>
+              <span>Bulk Upload</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleOpenAddModal}
+              className="h-[34px] max-h-[34px] bg-[#5e2b9d] hover:bg-[#4e2284] text-white font-medium text-xs px-3.5 rounded-[6px] transition-all flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
+            >
+              <svg className="w-3.5 h-3.5 stroke-[2.2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+              <span>Add Product</span>
+            </button>
+          </div>
         </div>
 
         {/* Search & Filter Bar */}
@@ -654,13 +669,25 @@ export default function ProductsPage() {
                 ? "No products match your search or filter criteria."
                 : "Your store does not have any products yet. Click below to add your first product."}
             </p>
-            <button
-              type="button"
-              onClick={handleOpenAddModal}
-              className="h-[34px] max-h-[34px] bg-[#5e2b9d] hover:bg-[#4e2284] text-white px-4 rounded-[6px] text-xs font-medium inline-flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
-            >
-              + Add First Product
-            </button>
+            <div className="flex items-center justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsBulkModalOpen(true)}
+                className="h-[34px] max-h-[34px] bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 px-3.5 rounded-[6px] text-xs font-medium inline-flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+              >
+                <svg className="w-3.5 h-3.5 text-emerald-600 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+                </svg>
+                <span>Bulk Upload</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleOpenAddModal}
+                className="h-[34px] max-h-[34px] bg-[#5e2b9d] hover:bg-[#4e2284] text-white px-4 rounded-[6px] text-xs font-medium inline-flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+              >
+                + Add First Product
+              </button>
+            </div>
           </div>
         ) : (
           <div className="bg-white border border-slate-200/80 rounded-[6px] overflow-hidden shadow-2xs">
@@ -1772,6 +1799,13 @@ export default function ProductsPage() {
           loading={deletingProduct}
           onConfirm={handleConfirmDelete}
           onClose={() => setProductToDelete(null)}
+        />
+
+        {/* BULK UPLOAD MODAL */}
+        <BulkUploadModal
+          isOpen={isBulkModalOpen}
+          onClose={() => setIsBulkModalOpen(false)}
+          onSuccess={loadData}
         />
       </div>
     </SoftwareLayout>
