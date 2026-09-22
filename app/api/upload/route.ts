@@ -31,12 +31,13 @@ export async function POST(request: Request) {
 
     // Sanitize file name
     const cleanFileName = `${storeId}_${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
+    const subfolder = String(formData.get("folder") || "products").replace(/[^a-zA-Z0-9_-]/g, "");
 
     // Upload to ImageKit
     const uploadResponse = await imagekit.upload({
       file: buffer,
       fileName: cleanFileName,
-      folder: `/retailnext/${storeId}/products`,
+      folder: `/retailnext/${storeId}/${subfolder}`,
       useUniqueFileName: true,
     });
 
