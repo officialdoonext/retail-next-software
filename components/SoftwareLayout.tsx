@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 interface SoftwareLayoutProps {
   children: React.ReactNode;
@@ -11,23 +11,55 @@ interface SoftwareLayoutProps {
 
 export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
   const pathname = usePathname();
-  const [activeStoreName, setActiveStoreName] = useState("Testing 2");
+  const router = useRouter();
+  const [activeStoreName, setActiveStoreName] = useState("Active Store");
+  const [userEmail, setUserEmail] = useState("");
   const [isStoreDropdownOpen, setIsStoreDropdownOpen] = useState(false);
   const [printerConnected, setPrinterConnected] = useState(false);
 
   useEffect(() => {
-    try {
-      const savedStores = localStorage.getItem("retailnext_stores");
-      if (savedStores) {
-        const parsed = JSON.parse(savedStores);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setActiveStoreName(parsed[0].name);
+    async function loadSession() {
+      try {
+        const res = await fetch("/api/auth/me");
+        if (!res.ok) {
+          router.push("/login");
+          return;
         }
+        const data = await res.json();
+        if (data.authenticated && data.user) {
+          setUserEmail(data.user.email);
+        }
+
+        // Fetch stores to get active store name
+        const storesRes = await fetch("/api/stores");
+        if (storesRes.ok) {
+          const storesData = await storesRes.json();
+          if (storesData.success && Array.isArray(storesData.stores)) {
+            const active = storesData.stores.find(
+              (s: { status: string; expires: string | null }) =>
+                s.status === "Active" && s.expires && new Date(s.expires).getTime() > Date.now()
+            );
+            if (active) {
+              setActiveStoreName(active.name);
+            }
+          }
+        }
+      } catch {
+        // ignore
       }
-    } catch {
-      // ignore
     }
-  }, []);
+
+    loadSession();
+  }, [router]);
+
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } finally {
+      router.push("/login");
+      router.refresh();
+    }
+  };
 
   const navItems = [
     {
@@ -105,6 +137,8 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
     },
   ];
 
+  const userInitials = userEmail ? userEmail.slice(0, 2).toUpperCase() : "AD";
+
   return (
     <div className="min-h-screen flex flex-col bg-[#fcfcfd] font-sans text-slate-800">
       {/* Top Bar */}
@@ -133,7 +167,7 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
               className="h-[34px] max-h-[34px] bg-[#f8fafc] border border-slate-200/90 rounded-[6px] px-3 flex items-center gap-2 text-xs font-medium text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
             >
               <span className="w-2 h-2 rounded-full bg-[#5e2b9d] inline-block" />
-              <span className="max-w-[120px] truncate">{activeStoreName}</span>
+              <span className="max-w-[130px] truncate">{activeStoreName}</span>
               <svg className="w-3 h-3 text-slate-400 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
               </svg>
@@ -179,17 +213,15 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
 
           {/* User Profile Pill */}
           <div className="flex items-center gap-2 pl-1">
-            {/* Square Initials Avatar */}
             <div className="w-[34px] h-[34px] rounded-[6px] bg-[#5e2b9d] text-white text-xs font-medium flex items-center justify-center flex-shrink-0">
-              AR
+              {userInitials}
             </div>
-            {/* Name and Role */}
             <div className="hidden md:flex flex-col text-left">
-              <span className="text-xs font-medium text-slate-800 leading-tight">
-                arumullasivakrishna6
+              <span className="text-xs font-medium text-slate-800 leading-tight max-w-[140px] truncate">
+                {userEmail || "Admin"}
               </span>
               <span className="text-[10px] font-normal text-slate-400 leading-tight">
-                Admin Admin
+                Administrator
               </span>
             </div>
           </div>
@@ -206,16 +238,17 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
             </svg>
           </Link>
 
-          {/* Logout Icon */}
-          <Link
-            href="/login"
+          {/* Logout Button */}
+          <button
+            type="button"
             title="Log Out"
-            className="w-[34px] h-[34px] rounded-[6px] flex items-center justify-center text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+            onClick={handleLogout}
+            className="w-[34px] h-[34px] rounded-[6px] flex items-center justify-center text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
           >
             <svg className="w-4 h-4 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
             </svg>
-          </Link>
+          </button>
         </div>
       </header>
 
@@ -262,7 +295,7 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
           </div>
         </aside>
 
-        {/* Page Content Container - clean & empty as requested */}
+        {/* Page Content Container */}
         <main className="flex-1 bg-[#fcfcfd] p-6 sm:p-8 overflow-y-auto">
           {children}
         </main>

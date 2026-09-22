@@ -12,18 +12,49 @@ interface RetailStore {
   location: string;
   phone: string;
   license: string;
-  expires: string;
+  expires: any;
   status: "Active" | "Inactive";
+}
+
+function parseExpiry(expires: any): { isUnexpired: boolean; display: string } {
+  if (!expires) return { isUnexpired: false, display: "" };
+  let time: number | null = null;
+  let display = "";
+
+  if (typeof expires === "string" || typeof expires === "number") {
+    const t = new Date(expires).getTime();
+    if (!isNaN(t)) {
+      time = t;
+      display = typeof expires === "string" ? expires : new Date(t).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+    }
+  } else if (typeof expires === "object" && expires !== null) {
+    if (typeof expires.toDate === "function") {
+      const d = expires.toDate();
+      time = d.getTime();
+      display = d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+    } else if ("seconds" in expires) {
+      const d = new Date(expires.seconds * 1000);
+      time = d.getTime();
+      display = d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+    }
+  }
+
+  return {
+    isUnexpired: time !== null && time > Date.now(),
+    display: display || String(expires),
+  };
 }
 
 export default function OnboardingPage() {
   const router = useRouter();
-  // Stores initialize empty - no dummy pharmacy data
   const [stores, setStores] = useState<RetailStore[]>([]);
+  const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [userEmail, setUserEmail] = useState("admin@retailnext.com");
+  const [userEmail, setUserEmail] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
-  // Form state for adding a new store
+  // Form state for registering a new store
   const [newStore, setNewStore] = useState({
     name: "",
     location: "",
@@ -31,57 +62,110 @@ export default function OnboardingPage() {
     license: "",
   });
 
-  // Load any previously created stores from localStorage if available
+  // Fetch authenticated session and stores
   useEffect(() => {
-    try {
-      const savedStores = localStorage.getItem("retailnext_stores");
-      if (savedStores) {
-        const parsed = JSON.parse(savedStores);
-        if (Array.isArray(parsed)) {
-          setStores(parsed);
+    async function loadData() {
+      setLoading(true);
+      try {
+        // 1. Fetch authenticated session
+        const meRes = await fetch("/api/auth/me");
+        if (!meRes.ok) {
+          router.push("/login");
+          return;
         }
-      }
-    } catch {
-      // ignore
-    }
-  }, []);
+        const meData = await meRes.json();
+        if (meData.authenticated && meData.user) {
+          setUserEmail(meData.user.email);
+        }
 
-  const handleSaveStore = (e: React.FormEvent) => {
+        // 2. Fetch stores from Firestore
+        const storesRes = await fetch("/api/stores");
+        if (storesRes.ok) {
+          const storesData = await storesRes.json();
+          if (storesData.success && Array.isArray(storesData.stores)) {
+            setStores(storesData.stores);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load onboarding data:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadData();
+  }, [router]);
+
+  // Handle register new store
+  const handleSaveStore = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newStore.name.trim()) return;
 
-    const generatedCode = `RET ${Math.floor(1000 + Math.random() * 9000)}`;
-    const createdStore: RetailStore = {
-      id: Date.now().toString(),
-      code: generatedCode,
-      name: newStore.name.trim(),
-      location: newStore.location.trim() || "Main Branch",
-      phone: newStore.phone.trim() || "+91 98745 89654",
-      license: newStore.license.trim() || `RET-TS-${Math.floor(1000 + Math.random() * 9000)}`,
-      expires: "01 Oct 2027",
-      status: "Active",
-    };
+    setSubmitting(true);
+    setActionError("");
 
-    const updated = [...stores, createdStore];
-    setStores(updated);
     try {
-      localStorage.setItem("retailnext_stores", JSON.stringify(updated));
-    } catch {
-      // ignore
-    }
+      const res = await fetch("/api/stores", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newStore),
+      });
+      const data = await res.json();
 
-    setNewStore({ name: "", location: "", phone: "", license: "" });
-    setIsModalOpen(false);
+      if (!res.ok || !data.success) {
+        setActionError(data.error || "Failed to create store.");
+      } else {
+        // Store is created in Inactive state with no expiry
+        setStores((prev) => [...prev, data.store]);
+        setNewStore({ name: "", location: "", phone: "", license: "" });
+        setIsModalOpen(false);
+      }
+    } catch {
+      setActionError("Error saving store. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const handleDeleteStore = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    const updated = stores.filter((s) => s.id !== id);
-    setStores(updated);
+  // Select store and enter software
+  const handleEnterSoftware = async (store: RetailStore) => {
+    setActionError("");
+
+    // Check client-side first
+    const isExpired = !store.expires || new Date(store.expires).getTime() <= Date.now();
+    if (store.status !== "Active" || isExpired) {
+      setActionError(
+        "This store is Inactive or awaiting admin approval. You cannot enter the software until an administrator activates it."
+      );
+      return;
+    }
+
     try {
-      localStorage.setItem("retailnext_stores", JSON.stringify(updated));
+      const res = await fetch("/api/stores/select", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ storeId: store.id }),
+      });
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        setActionError(data.error || "Access denied. Store is not active.");
+      } else {
+        router.push("/dashboard");
+        router.refresh();
+      }
     } catch {
-      // ignore
+      setActionError("Failed to connect to store terminal.");
+    }
+  };
+
+  // Logout handler
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } finally {
+      router.push("/login");
+      router.refresh();
     }
   };
 
@@ -106,16 +190,17 @@ export default function OnboardingPage() {
           {/* User Profile Pill */}
           <div className="hidden sm:flex items-center gap-2 bg-[#f8fafc] border border-slate-200/90 rounded-[6px] px-3 py-1.5 text-xs text-slate-700">
             <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse" />
-            <span className="font-medium text-slate-700">{userEmail}</span>
+            <span className="font-medium text-slate-700">{userEmail || "Authenticated Admin"}</span>
             <span className="bg-[#5e2b9d]/10 text-[#5e2b9d] text-[10px] font-medium px-1.5 py-0.5 rounded-[4px] uppercase tracking-wider">
               Admin
             </span>
           </div>
 
           {/* Log Out Button */}
-          <Link
-            href="/login"
-            className="h-[34px] max-h-[34px] border border-slate-200 rounded-[6px] px-3.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors flex items-center gap-1.5 shadow-2xs"
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="h-[34px] max-h-[34px] border border-slate-200 rounded-[6px] px-3.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer"
           >
             <svg
               className="w-3.5 h-3.5 stroke-[2] text-slate-500"
@@ -130,12 +215,31 @@ export default function OnboardingPage() {
               />
             </svg>
             <span>Log Out</span>
-          </Link>
+          </button>
         </div>
       </header>
 
       {/* Main Content Area */}
       <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-8 py-8 sm:py-10">
+        {/* Error Alert */}
+        {actionError && (
+          <div className="mb-6 p-3.5 rounded-[6px] bg-rose-50 border border-rose-200 text-rose-800 text-xs font-medium flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <svg className="w-4 h-4 flex-shrink-0 text-rose-600 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <span>{actionError}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActionError("")}
+              className="text-rose-500 hover:text-rose-800 text-xs font-medium cursor-pointer"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+
         {/* Page Heading & Action */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
           <div>
@@ -149,7 +253,10 @@ export default function OnboardingPage() {
 
           <button
             type="button"
-            onClick={() => setIsModalOpen(true)}
+            onClick={() => {
+              setActionError("");
+              setIsModalOpen(true);
+            }}
             className="h-[34px] max-h-[34px] bg-[#5e2b9d] hover:bg-[#4e2284] active:bg-[#431d73] text-white font-medium text-xs sm:text-sm px-4 rounded-[6px] transition-all flex items-center justify-center gap-1.5 shadow-xs cursor-pointer self-start sm:self-auto"
           >
             <svg
@@ -164,8 +271,17 @@ export default function OnboardingPage() {
           </button>
         </div>
 
-        {/* Empty State: Shown if no stores are registered */}
-        {stores.length === 0 ? (
+        {loading ? (
+          /* Loading State */
+          <div className="w-full bg-white rounded-[6px] border border-slate-200 p-12 flex flex-col items-center justify-center text-center">
+            <svg className="animate-spin h-6 w-6 text-[#5e2b9d] mb-3" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+            </svg>
+            <p className="text-xs text-slate-500 font-medium">Loading registered stores...</p>
+          </div>
+        ) : stores.length === 0 ? (
+          /* Empty State: Exactly when no stores are registered for this user */
           <div className="w-full bg-white rounded-[6px] border border-dashed border-slate-300/80 p-12 sm:p-16 flex flex-col items-center justify-center text-center shadow-xs">
             <div className="w-14 h-14 rounded-[6px] bg-purple-50 text-[#5e2b9d] flex items-center justify-center mb-4">
               <svg
@@ -185,7 +301,7 @@ export default function OnboardingPage() {
               No Stores Registered
             </h2>
             <p className="text-xs sm:text-sm text-slate-400 max-w-md mb-6 leading-relaxed font-normal">
-              No retail stores found for this account. Register your first store to set up the inventory, Point of Sale, and start billing.
+              No retail stores have been registered under this account yet. Click below to register your store details.
             </p>
             <button
               type="button"
@@ -199,167 +315,159 @@ export default function OnboardingPage() {
             </button>
           </div>
         ) : (
-          /* Stores Grid - matching design reference */
+          /* Stores Grid */
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {stores.map((store) => (
-              <div
-                key={store.id}
-                className="bg-white rounded-[6px] border border-slate-200/90 shadow-[0_4px_16px_rgba(0,0,0,0.03)] hover:shadow-[0_6px_20px_rgba(0,0,0,0.06)] transition-all flex flex-col justify-between p-5 sm:p-6 relative group"
-              >
-                {/* Card Header */}
-                <div>
-                  <div className="flex items-start justify-between gap-3 mb-4">
-                    <div className="flex items-center gap-3">
-                      {/* Storefront Icon */}
-                      <div className="w-11 h-11 rounded-[6px] bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 flex-shrink-0">
+            {stores.map((store) => {
+              const isUnexpired = store.expires && new Date(store.expires).getTime() > Date.now();
+              const isStoreActive = store.status === "Active" && isUnexpired;
+
+              return (
+                <div
+                  key={store.id}
+                  className={`bg-white rounded-[6px] border shadow-[0_4px_16px_rgba(0,0,0,0.03)] transition-all flex flex-col justify-between p-5 sm:p-6 relative ${
+                    isStoreActive
+                      ? "border-slate-200/90 hover:shadow-[0_6px_20px_rgba(0,0,0,0.06)]"
+                      : "border-amber-200/80 bg-slate-50/30"
+                  }`}
+                >
+                  {/* Card Header */}
+                  <div>
+                    <div className="flex items-start justify-between gap-3 mb-4">
+                      <div className="flex items-center gap-3">
+                        {/* Storefront Icon */}
+                        <div
+                          className={`w-11 h-11 rounded-[6px] border flex items-center justify-center flex-shrink-0 ${
+                            isStoreActive
+                              ? "bg-emerald-50 border-emerald-100 text-emerald-600"
+                              : "bg-amber-50 border-amber-200/70 text-amber-600"
+                          }`}
+                        >
+                          <svg
+                            className="w-6 h-6 stroke-[1.75]"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
+                            />
+                          </svg>
+                        </div>
+
+                        <div>
+                          <span className="text-[10.5px] font-medium text-slate-400 tracking-wider uppercase block">
+                            {store.code}
+                          </span>
+                          <h3 className="text-base font-medium text-slate-900 leading-tight">
+                            {store.name}
+                          </h3>
+                        </div>
+                      </div>
+
+                      {/* Status Badge: Active vs Inactive */}
+                      <div className="flex items-center gap-1.5">
+                        {isStoreActive ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200/80 px-2.5 py-0.5 rounded-[6px]">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                            Active
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200/80 px-2.5 py-0.5 rounded-[6px]">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                            Inactive
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Store Details */}
+                    <div className="space-y-2 text-xs text-slate-500 my-4 pt-2 border-t border-slate-100 font-normal">
+                      {/* Location */}
+                      <div className="flex items-center gap-2.5">
+                        <svg className="w-4 h-4 text-slate-400 stroke-[1.8] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        <span className="truncate">{store.location}</span>
+                      </div>
+
+                      {/* Phone */}
+                      <div className="flex items-center gap-2.5">
+                        <svg className="w-4 h-4 text-slate-400 stroke-[1.8] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                        </svg>
+                        <span>{store.phone}</span>
+                      </div>
+
+                      {/* License / GSTIN */}
+                      <div className="flex items-center gap-2.5">
+                        <svg className="w-4 h-4 text-slate-400 stroke-[1.8] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        <span className="font-mono text-[11px] text-slate-600 truncate">
+                          {store.license}
+                        </span>
+                      </div>
+
+                      {/* Validity Status */}
+                      <div className="flex items-center gap-2.5 font-medium">
                         <svg
-                          className="w-6 h-6 stroke-[1.75]"
+                          className={`w-4 h-4 stroke-[1.8] flex-shrink-0 ${
+                            isStoreActive ? "text-emerald-600" : "text-amber-500"
+                          }`}
                           fill="none"
                           stroke="currentColor"
                           viewBox="0 0 24 24"
                         >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
-                          />
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                         </svg>
+                        {isStoreActive ? (
+                          <span className="text-[11.5px] text-emerald-700">Expires: {store.expires}</span>
+                        ) : (
+                          <span className="text-[11px] text-amber-700">
+                            Awaiting Activation (No Expiry Set)
+                          </span>
+                        )}
                       </div>
-
-                      <div>
-                        <span className="text-[10.5px] font-medium text-slate-400 tracking-wider uppercase block">
-                          {store.code}
-                        </span>
-                        <h3 className="text-base font-medium text-slate-900 leading-tight">
-                          {store.name}
-                        </h3>
-                      </div>
-                    </div>
-
-                    {/* Active Status Badge */}
-                    <div className="flex items-center gap-1.5">
-                      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200/80 px-2.5 py-0.5 rounded-[6px]">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                        Active
-                      </span>
                     </div>
                   </div>
 
-                  {/* Store Details */}
-                  <div className="space-y-2 text-xs text-slate-500 my-4 pt-2 border-t border-slate-100 font-normal">
-                    {/* Location */}
-                    <div className="flex items-center gap-2.5">
-                      <svg
-                        className="w-4 h-4 text-slate-400 stroke-[1.8] flex-shrink-0"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
+                  {/* Card Action & Strict Activation State */}
+                  <div className="mt-4 pt-3 border-t border-slate-100 flex flex-col gap-2">
+                    {isStoreActive ? (
+                      <button
+                        type="button"
+                        onClick={() => handleEnterSoftware(store)}
+                        className="w-full h-[34px] max-h-[34px] bg-[#5e2b9d] hover:bg-[#4e2284] active:bg-[#431d73] text-white font-medium text-xs px-4 rounded-[6px] transition-all flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
                       >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
-                        />
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
-                        />
-                      </svg>
-                      <span className="truncate">{store.location}</span>
-                    </div>
-
-                    {/* Phone */}
-                    <div className="flex items-center gap-2.5">
-                      <svg
-                        className="w-4 h-4 text-slate-400 stroke-[1.8] flex-shrink-0"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
-                        />
-                      </svg>
-                      <span>{store.phone}</span>
-                    </div>
-
-                    {/* License / GSTIN */}
-                    <div className="flex items-center gap-2.5">
-                      <svg
-                        className="w-4 h-4 text-slate-400 stroke-[1.8] flex-shrink-0"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                        />
-                      </svg>
-                      <span className="font-mono text-[11px] text-slate-600 truncate">
-                        {store.license}
-                      </span>
-                    </div>
-
-                    {/* Validity */}
-                    <div className="flex items-center gap-2.5 text-emerald-700 font-medium">
-                      <svg
-                        className="w-4 h-4 text-emerald-600 stroke-[1.8] flex-shrink-0"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
-                        />
-                      </svg>
-                      <span className="text-[11.5px]">Expires: {store.expires}</span>
-                    </div>
+                        <span>Enter Software</span>
+                        <svg className="w-3.5 h-3.5 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                        </svg>
+                      </button>
+                    ) : (
+                      <div className="flex flex-col gap-1.5">
+                        <button
+                          type="button"
+                          disabled
+                          className="w-full h-[34px] max-h-[34px] bg-slate-100 text-slate-400 font-medium text-xs px-4 rounded-[6px] flex items-center justify-center gap-1.5 cursor-not-allowed border border-slate-200"
+                        >
+                          <svg className="w-3.5 h-3.5 text-slate-400 stroke-[1.8]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                          </svg>
+                          <span>Store Disabled (Inactive)</span>
+                        </button>
+                        <p className="text-[10px] text-amber-600/90 text-center font-normal leading-tight">
+                          Awaiting manual activation by administrator.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
-
-                {/* Card Action */}
-                <div className="mt-4 pt-3 border-t border-slate-100 flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => router.push("/dashboard")}
-                    className="flex-1 h-[34px] max-h-[34px] bg-[#5e2b9d] hover:bg-[#4e2284] active:bg-[#431d73] text-white font-medium text-xs px-4 rounded-[6px] transition-all flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
-                  >
-                    <span>Enter Software</span>
-                    <svg
-                      className="w-3.5 h-3.5 stroke-[2]"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M14 5l7 7m0 0l-7 7m7-7H3"
-                      />
-                    </svg>
-                  </button>
-
-                  {/* Remove store button */}
-                  <button
-                    type="button"
-                    title="Remove Store"
-                    onClick={(e) => handleDeleteStore(store.id, e)}
-                    className="h-[34px] max-h-[34px] w-[34px] border border-slate-200 rounded-[6px] flex items-center justify-center text-slate-400 hover:text-rose-600 hover:border-rose-200 hover:bg-rose-50 transition-colors cursor-pointer"
-                  >
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </main>
@@ -374,7 +482,7 @@ export default function OnboardingPage() {
                   Register New Retail Store
                 </h3>
                 <p className="text-xs text-slate-500 font-normal">
-                  Add details to set up your retail POS & store inventory.
+                  Add details to submit store for administrator activation.
                 </p>
               </div>
               <button
@@ -396,7 +504,7 @@ export default function OnboardingPage() {
                 <input
                   type="text"
                   required
-                  placeholder="e.g. RetailNext Express Store"
+                  placeholder="e.g. RetailNext Supermart"
                   value={newStore.name}
                   onChange={(e) => setNewStore({ ...newStore, name: e.target.value })}
                   className="w-full h-[34px] max-h-[34px] bg-[#f8fafc] border border-slate-200 rounded-[6px] px-3 text-xs font-normal text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#5e2b9d] focus:border-[#5e2b9d]"
@@ -443,6 +551,10 @@ export default function OnboardingPage() {
                 />
               </div>
 
+              <div className="p-2.5 rounded-[6px] bg-amber-50 border border-amber-200 text-amber-800 text-[11px] leading-relaxed">
+                <strong>Notice:</strong> Newly registered stores are created as <em>Inactive</em> with no expiry. An administrator will manually verify and activate this store before terminal access is granted.
+              </div>
+
               <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
                 <button
                   type="button"
@@ -453,9 +565,10 @@ export default function OnboardingPage() {
                 </button>
                 <button
                   type="submit"
-                  className="h-[34px] max-h-[34px] px-4 text-xs font-medium text-white bg-[#5e2b9d] hover:bg-[#4e2284] rounded-[6px] transition-all cursor-pointer shadow-xs"
+                  disabled={submitting}
+                  className="h-[34px] max-h-[34px] px-4 text-xs font-medium text-white bg-[#5e2b9d] hover:bg-[#4e2284] rounded-[6px] transition-all cursor-pointer shadow-xs disabled:opacity-75"
                 >
-                  Register Store
+                  {submitting ? "Registering..." : "Register Store"}
                 </button>
               </div>
             </form>

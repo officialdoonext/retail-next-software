@@ -2,26 +2,83 @@
 
 import { useState } from "react";
 import Image from "next/image";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 export default function LoginPage() {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<"admin" | "staff">("admin");
-  const [email, setEmail] = useState("admin@retailnext.com");
+  const [email, setEmail] = useState("");
   const [staffId, setStaffId] = useState("");
   const [staffPin, setStaffPin] = useState("");
   const [otpSent, setOtpSent] = useState(false);
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
   const [pwaInstalled, setPwaInstalled] = useState(false);
 
-  const handleSendOtp = (e: React.FormEvent) => {
+  // Send real email OTP via API
+  const handleSendOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email) return;
+
     setIsSubmitting(true);
-    setTimeout(() => {
+    setErrorMessage("");
+    setSuccessMessage("");
+
+    try {
+      const res = await fetch("/api/auth/send-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        setErrorMessage(data.error || "Failed to send verification code. Please check email.");
+      } else {
+        setOtpSent(true);
+        setSuccessMessage("Verification code has been dispatched to your inbox.");
+      }
+    } catch {
+      setErrorMessage("Network error connecting to authentication server.");
+    } finally {
       setIsSubmitting(false);
-      setOtpSent(true);
-    }, 500);
+    }
+  };
+
+  // Verify entered OTP via API
+  const handleVerifyOtp = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const fullOtp = otp.join("");
+    if (fullOtp.length !== 6) {
+      setErrorMessage("Please enter all 6 digits.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    setErrorMessage("");
+
+    try {
+      const res = await fetch("/api/auth/verify-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, otp: fullOtp }),
+      });
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        setErrorMessage(data.error || "Invalid code. Please try again.");
+      } else {
+        // Successfully verified and cookie issued! Redirect to onboarding
+        router.push("/onboarding");
+        router.refresh();
+      }
+    } catch {
+      setErrorMessage("Failed to verify code. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleOtpChange = (index: number, value: string) => {
@@ -48,10 +105,7 @@ export default function LoginPage() {
 
   const handleStaffLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSubmitting(true);
-    setTimeout(() => {
-      setIsSubmitting(false);
-    }, 500);
+    setErrorMessage("Staff terminal login requires active store enrollment. Please login as Administrator.");
   };
 
   const handleInstallPwa = () => {
@@ -105,6 +159,7 @@ export default function LoginPage() {
               onClick={() => {
                 setActiveTab("admin");
                 setOtpSent(false);
+                setErrorMessage("");
               }}
               className={`flex-1 h-[34px] max-h-[34px] text-xs font-medium rounded-[6px] transition-all duration-200 cursor-pointer flex items-center justify-center ${
                 activeTab === "admin"
@@ -119,6 +174,7 @@ export default function LoginPage() {
               onClick={() => {
                 setActiveTab("staff");
                 setOtpSent(false);
+                setErrorMessage("");
               }}
               className={`flex-1 h-[34px] max-h-[34px] text-xs font-medium rounded-[6px] transition-all duration-200 cursor-pointer flex items-center justify-center ${
                 activeTab === "staff"
@@ -129,6 +185,25 @@ export default function LoginPage() {
               Staff Login
             </button>
           </div>
+
+          {/* Feedback Messages */}
+          {errorMessage && (
+            <div className="mb-4 p-2.5 rounded-[6px] bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium flex items-center gap-2">
+              <svg className="w-4 h-4 flex-shrink-0 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <span>{errorMessage}</span>
+            </div>
+          )}
+
+          {successMessage && (
+            <div className="mb-4 p-2.5 rounded-[6px] bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-medium flex items-center gap-2">
+              <svg className="w-4 h-4 flex-shrink-0 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+              <span>{successMessage}</span>
+            </div>
+          )}
 
           {/* Tab 1: Admin Login */}
           {activeTab === "admin" && (
@@ -164,7 +239,7 @@ export default function LoginPage() {
                       required
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      placeholder="admin@pharmanext.com"
+                      placeholder="admin@yourbusiness.com"
                       className="w-full h-[34px] max-h-[34px] bg-[#f8fafc] border border-slate-200 rounded-[6px] pl-9 pr-3 text-xs font-normal text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#5e2b9d] focus:border-[#5e2b9d] transition-all"
                     />
                   </div>
@@ -205,7 +280,10 @@ export default function LoginPage() {
                     </label>
                     <button
                       type="button"
-                      onClick={() => setOtpSent(false)}
+                      onClick={() => {
+                        setOtpSent(false);
+                        setErrorMessage("");
+                      }}
                       className="text-xs font-medium text-[#5e2b9d] hover:underline cursor-pointer"
                     >
                       Change email
@@ -230,21 +308,35 @@ export default function LoginPage() {
                     ))}
                   </div>
 
-                  <Link
-                    href="/onboarding"
-                    className="w-full h-[34px] max-h-[34px] bg-[#5e2b9d] hover:bg-[#4e2284] text-white font-medium text-xs px-4 rounded-[6px] transition-all duration-200 flex items-center justify-center gap-2 shadow-xs text-center mb-2.5"
+                  <button
+                    type="button"
+                    onClick={() => handleVerifyOtp()}
+                    disabled={isSubmitting}
+                    className="w-full h-[34px] max-h-[34px] bg-[#5e2b9d] hover:bg-[#4e2284] text-white font-medium text-xs px-4 rounded-[6px] transition-all duration-200 flex items-center justify-center gap-2 shadow-xs text-center mb-2.5 cursor-pointer disabled:opacity-75"
                   >
-                    <span>Verify & Continue</span>
-                    <svg className="w-3.5 h-3.5 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                    </svg>
-                  </Link>
+                    {isSubmitting ? (
+                      <span className="flex items-center gap-2">
+                        <svg className="animate-spin h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
+                        Verifying...
+                      </span>
+                    ) : (
+                      <>
+                        <span>Verify & Continue</span>
+                        <svg className="w-3.5 h-3.5 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                        </svg>
+                      </>
+                    )}
+                  </button>
 
                   <p className="text-center text-[11px] text-slate-400">
                     Didn&apos;t receive code?{" "}
                     <button
                       type="button"
-                      onClick={() => setOtpSent(true)}
+                      onClick={handleSendOtp}
                       className="text-[#5e2b9d] font-medium hover:underline cursor-pointer"
                     >
                       Resend OTP
@@ -309,15 +401,15 @@ export default function LoginPage() {
                 </div>
               </div>
 
-              <Link
-                href="/pos"
+              <button
+                type="submit"
                 className="w-full h-[34px] max-h-[34px] bg-[#00966a] hover:bg-[#00825c] text-white font-medium text-xs px-4 rounded-[6px] transition-all duration-200 flex items-center justify-center gap-2 shadow-xs text-center cursor-pointer"
               >
                 <span>Sign In to Terminal</span>
                 <svg className="w-3.5 h-3.5 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
                 </svg>
-              </Link>
+              </button>
             </form>
           )}
 
