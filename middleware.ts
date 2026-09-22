@@ -14,6 +14,8 @@ const SOFTWARE_ROUTES = [
   "/dashboard",
   "/pos",
   "/inventory",
+  "/categories",
+  "/variations",
   "/orders",
   "/customers",
   "/employees",

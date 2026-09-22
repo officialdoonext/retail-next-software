@@ -99,6 +99,24 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
       ),
     },
     {
+      label: "Categories",
+      href: "/categories",
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+        </svg>
+      ),
+    },
+    {
+      label: "Variations",
+      href: "/variations",
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+        </svg>
+      ),
+    },
+    {
       label: "Customer",
       href: "/customers",
       icon: (
@@ -254,17 +272,17 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
 
       {/* Main Body with Sidebar + Content */}
       <div className="flex-1 flex min-h-[calc(100vh-57px)]">
-        {/* Left Sidebar */}
-        <aside className="w-[76px] bg-white border-r border-slate-200/80 flex flex-col justify-between py-3 flex-shrink-0 sticky top-[57px] h-[calc(100vh-57px)]">
+        {/* Left Sidebar - 90px width */}
+        <aside className="w-[90px] bg-white border-r border-slate-200/80 flex flex-col justify-between py-3 flex-shrink-0 sticky top-[57px] h-[calc(100vh-57px)]">
           {/* Top Nav Items */}
-          <nav className="flex flex-col items-center gap-1.5 px-2">
+          <nav className="flex flex-col items-center gap-1 px-1.5 overflow-y-auto flex-1">
             {navItems.map((item) => {
               const isActive = pathname === item.href;
               return (
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`w-[60px] py-2 px-1 flex flex-col items-center justify-center gap-1 rounded-[6px] transition-all duration-150 ${
+                  className={`w-[76px] py-2 px-1 flex flex-col items-center justify-center gap-1 rounded-[6px] transition-all duration-150 ${
                     isActive
                       ? "bg-[#5e2b9d] text-white shadow-xs"
                       : "text-slate-500 hover:text-[#5e2b9d] hover:bg-purple-50/60"
@@ -273,7 +291,7 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
                   <span className="flex items-center justify-center">
                     {item.icon}
                   </span>
-                  <span className="text-[10px] sm:text-[10.5px] font-medium leading-none text-center">
+                  <span className="text-[11px] font-medium leading-tight text-center">
                     {item.label}
                   </span>
                 </Link>
@@ -282,11 +300,11 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
           </nav>
 
           {/* Bottom Sidebar Action: Switch Store / Onboarding */}
-          <div className="px-2 flex flex-col items-center pt-2 border-t border-slate-100">
+          <div className="px-1.5 flex flex-col items-center pt-2 border-t border-slate-100">
             <Link
               href="/onboarding"
               title="Store Switcher"
-              className="w-[44px] h-[34px] rounded-[6px] flex items-center justify-center text-slate-400 hover:text-[#5e2b9d] hover:bg-purple-50 transition-colors"
+              className="w-[56px] h-[34px] rounded-[6px] flex items-center justify-center text-slate-400 hover:text-[#5e2b9d] hover:bg-purple-50 transition-colors"
             >
               <svg className="w-4 h-4 stroke-[1.8]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
@@ -296,7 +314,7 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
         </aside>
 
         {/* Page Content Container */}
-        <main className="flex-1 bg-[#fcfcfd] p-6 sm:p-8 overflow-y-auto">
+        <main className="flex-1 bg-[#fcfcfd] p-4 sm:p-5 overflow-y-auto">
           {children}
         </main>
       </div>
