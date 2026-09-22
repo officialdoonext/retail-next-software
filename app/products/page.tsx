@@ -24,6 +24,7 @@ interface Product {
   description?: string;
   categoryId?: string;
   categoryName?: string;
+  subCategory?: string;
   imageUrl?: string;
   hasVariations: boolean;
   price?: number;
@@ -740,11 +741,18 @@ export default function ProductsPage() {
                         </div>
                       </td>
 
-                      {/* Category */}
+                      {/* Category & Sub Category */}
                       <td className="py-2.5 px-3 text-slate-600 font-normal">
-                        <span className="bg-slate-100 text-slate-700 text-[10.5px] px-2 py-0.5 rounded-[4px]">
-                          {p.categoryName || "Uncategorized"}
-                        </span>
+                        <div className="flex flex-col items-start gap-0.5">
+                          <span className="bg-slate-100 text-slate-700 text-[10.5px] px-2 py-0.5 rounded-[4px]">
+                            {p.categoryName || "Uncategorized"}
+                          </span>
+                          {p.subCategory && (
+                            <span className="text-[9.5px] text-slate-400 font-medium pl-0.5">
+                              ↳ {p.subCategory}
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       {/* Structure Badge */}
@@ -1609,6 +1617,15 @@ export default function ProductsPage() {
                       <p className="text-xs text-slate-500 font-normal leading-relaxed">
                         {viewingProduct.description || "No description provided."}
                       </p>
+
+                      {viewingProduct.subCategory && (
+                        <div className="flex items-center gap-1.5 mt-2">
+                          <span className="text-[11px] text-slate-400 font-normal">Subcategory:</span>
+                          <span className="bg-slate-100 text-slate-700 text-[10.5px] font-medium px-2 py-0.5 rounded-[4px]">
+                            {viewingProduct.subCategory}
+                          </span>
+                        </div>
+                      )}
                     </div>
 
                     {/* Key Metrics Grid */}

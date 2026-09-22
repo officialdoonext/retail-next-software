@@ -4,6 +4,7 @@ import React, { useState, useRef } from "react";
 import * as XLSX from "xlsx";
 import { useToast } from "@/components/ToastProvider";
 import { SAMPLE_200_PRODUCTS } from "@/lib/sampleProducts";
+import { SAMPLE_CLOTHING_PRODUCTS } from "@/lib/sampleClothingProducts";
 
 interface BulkUploadModalProps {
   isOpen: boolean;
@@ -14,6 +15,7 @@ interface BulkUploadModalProps {
 interface ParsedProduct {
   name: string;
   category: string;
+  subCategory?: string;
   price: number;
   stock: number;
   bufferStock: number;
@@ -40,8 +42,8 @@ export default function BulkUploadModal({
 
   if (!isOpen) return null;
 
-  // 1. Download Sample Excel File (.xlsx) with 200+ Products
-  const handleDownloadSampleExcel = () => {
+  // 1A. Download Groceries Sample Excel File (.xlsx) with 200+ Products
+  const handleDownloadGroceriesExcel = () => {
     try {
       const ws = XLSX.utils.json_to_sheet(SAMPLE_200_PRODUCTS);
 
@@ -60,14 +62,43 @@ export default function BulkUploadModal({
       ];
 
       const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "Products Template");
+      XLSX.utils.book_append_sheet(wb, ws, "Groceries Products");
 
-      // Write and trigger download
-      XLSX.writeFile(wb, "RetailNext_Sample_200_Products_Template.xlsx");
-      toast.success("Sample Excel with 200+ products downloaded!");
+      XLSX.writeFile(wb, "RetailNext_Sample_Groceries_200_Products.xlsx");
+      toast.success("Groceries Sample Excel (200+ products) downloaded!");
     } catch (err) {
       console.error("Excel download error:", err);
-      toast.error("Failed to generate sample Excel file.");
+      toast.error("Failed to generate groceries sample Excel file.");
+    }
+  };
+
+  // 1B. Download Clothing & Apparel Sample Excel File (.xlsx)
+  const handleDownloadClothingExcel = () => {
+    try {
+      const ws = XLSX.utils.json_to_sheet(SAMPLE_CLOTHING_PRODUCTS);
+
+      ws["!cols"] = [
+        { wch: 44 }, // Product Name
+        { wch: 16 }, // Category
+        { wch: 18 }, // Sub Category
+        { wch: 10 }, // Price
+        { wch: 10 }, // Stock
+        { wch: 14 }, // Buffer Stock
+        { wch: 55 }, // Description
+        { wch: 18 }, // Barcode (empty)
+        { wch: 30 }, // Image URL (empty)
+        { wch: 22 }, // Variation 1 (Color)
+        { wch: 20 }, // Variation 2 (Size)
+      ];
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Clothing Products");
+
+      XLSX.writeFile(wb, "RetailNext_Sample_Clothing_Store_Products.xlsx");
+      toast.success("Clothing Store Sample Excel (with Size/Color variants) downloaded!");
+    } catch (err) {
+      console.error("Excel download error:", err);
+      toast.error("Failed to generate clothing sample Excel file.");
     }
   };
 
@@ -100,30 +131,71 @@ export default function BulkUploadModal({
           if (!name) return; // skip rows without name
 
           const category = String(row["Category"] || row["category"] || "General").trim();
+          const subCategory = String(
+            row["Sub Category"] ||
+            row["subCategory"] ||
+            row["Subcategory"] ||
+            row["Sub-Category"] ||
+            ""
+          ).trim();
+
           const price = Math.max(0, Number(row["Price"] || row["price"]) || 0);
           const stock = Math.max(0, Number(row["Stock"] || row["stock"]) || 0);
           const bufferStock = Math.max(0, Number(row["Buffer Stock"] || row["bufferStock"] || row["Buffer"]) || 0);
           const description = String(row["Description"] || row["description"] || "").trim();
           const barcode = String(row["Barcode"] || row["barcode"] || "").trim();
           const imageUrl = String(row["Image URL"] || row["imageUrl"] || row["Image"] || "").trim();
-          const variationType = String(
-            row["Variation Type"] ||
-            row["variationType"] ||
-            row["Variation"] ||
-            row["variation"] ||
+
+          // Multi-level variation columns check
+          const var1Color = String(
+            row["Variation 1 (Color)"] ||
+            row["Variation 1"] ||
+            row["Color"] ||
             ""
           ).trim();
-          const variationValue = String(
-            row["Variation Value"] ||
-            row["variationValue"] ||
-            row["Value"] ||
-            row["value"] ||
+
+          const var2Size = String(
+            row["Variation 2 (Size)"] ||
+            row["Variation 2"] ||
+            row["Size"] ||
             ""
           ).trim();
+
+          let variationType = "";
+          let variationValue = "";
+
+          if (var1Color || var2Size) {
+            if (var1Color && var2Size) {
+              variationType = "Color / Size";
+              variationValue = `${var1Color} / ${var2Size}`;
+            } else if (var1Color) {
+              variationType = "Color";
+              variationValue = var1Color;
+            } else {
+              variationType = "Size";
+              variationValue = var2Size;
+            }
+          } else {
+            variationType = String(
+              row["Variation Type"] ||
+              row["variationType"] ||
+              row["Variation"] ||
+              row["variation"] ||
+              ""
+            ).trim();
+            variationValue = String(
+              row["Variation Value"] ||
+              row["variationValue"] ||
+              row["Value"] ||
+              row["value"] ||
+              ""
+            ).trim();
+          }
 
           validList.push({
             name,
             category,
+            subCategory,
             price,
             stock,
             bufferStock,
@@ -251,34 +323,81 @@ export default function BulkUploadModal({
 
         {/* Modal Body */}
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
-          {/* STEP 1: Download Sample Excel Banner */}
-          <div className="bg-gradient-to-r from-purple-50/70 via-slate-50 to-purple-50/40 border border-purple-100 rounded-[6px] p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-start gap-2.5">
-              <div className="w-8 h-8 rounded-[4px] bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center justify-center flex-shrink-0 mt-0.5">
-                <svg className="w-4 h-4 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          {/* STEP 1: Download Sample Excel Banner with Groceries & Clothing Options */}
+          <div className="bg-slate-50 border border-slate-200/80 rounded-[6px] p-3.5 space-y-2.5">
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 rounded-[4px] bg-[#5e2b9d]/10 text-[#5e2b9d] flex items-center justify-center flex-shrink-0">
+                <svg className="w-3.5 h-3.5 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
               </div>
               <div>
                 <h3 className="text-xs font-medium text-slate-900 leading-tight">
-                  Sample Template with 200+ Products
+                  Download Pre-Filled Sample Excel Templates
                 </h3>
                 <p className="text-[11px] text-slate-500 font-normal mt-0.5">
-                  Includes 200+ pre-filled items across 8 categories. Barcodes and images are left empty for automatic generation.
+                  Choose a template pre-populated with realistic dummy data. Barcodes and image URLs are left blank for auto-generation.
                 </p>
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={handleDownloadSampleExcel}
-              className="h-[34px] max-h-[34px] px-3 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 hover:border-[#5e2b9d] text-xs font-medium rounded-[6px] flex items-center justify-center gap-1.5 cursor-pointer transition-all shadow-2xs whitespace-nowrap self-start sm:self-auto"
-            >
-              <svg className="w-3.5 h-3.5 stroke-[2] text-[#5e2b9d]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
-              <span>Download Sample Excel</span>
-            </button>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+              {/* Option 1: Groceries Template */}
+              <div className="bg-white border border-slate-200 rounded-[6px] p-2.5 flex items-center justify-between gap-2 shadow-2xs hover:border-[#5e2b9d]/60 transition-colors">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-medium text-slate-900 truncate">
+                      Groceries & Supermarket
+                    </span>
+                    <span className="bg-emerald-50 text-emerald-700 border border-emerald-200/80 text-[9.5px] font-medium px-1.5 py-0.2 rounded">
+                      220+ Items
+                    </span>
+                  </div>
+                  <p className="text-[10.5px] text-slate-400 truncate mt-0.5">
+                    FMCG, dairy, staples, snacks, household
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleDownloadGroceriesExcel}
+                  className="h-[30px] px-2.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 hover:border-[#5e2b9d] text-xs font-medium rounded-[6px] flex items-center gap-1.5 cursor-pointer transition-all shadow-2xs whitespace-nowrap flex-shrink-0"
+                >
+                  <svg className="w-3.5 h-3.5 stroke-[2] text-[#5e2b9d]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  <span>Download</span>
+                </button>
+              </div>
+
+              {/* Option 2: Clothing & Apparel Template */}
+              <div className="bg-white border border-purple-200/80 rounded-[6px] p-2.5 flex items-center justify-between gap-2 shadow-2xs hover:border-[#5e2b9d] transition-colors">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-medium text-slate-900 truncate">
+                      Clothing Store (Apparel)
+                    </span>
+                    <span className="bg-purple-50 text-[#5e2b9d] border border-purple-200 text-[9.5px] font-medium px-1.5 py-0.2 rounded">
+                      Sizes & Variants
+                    </span>
+                  </div>
+                  <p className="text-[10.5px] text-slate-400 truncate mt-0.5">
+                    Tees, Shirts, Jeans, Kurtis (S, M, L, XL, 32)
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleDownloadClothingExcel}
+                  className="h-[30px] px-2.5 bg-[#5e2b9d] hover:bg-[#4e2284] text-white text-xs font-medium rounded-[6px] flex items-center gap-1.5 cursor-pointer transition-all shadow-2xs whitespace-nowrap flex-shrink-0"
+                >
+                  <svg className="w-3.5 h-3.5 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  <span>Download</span>
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* STEP 2: Drag and Drop / Choose File */}
@@ -385,9 +504,16 @@ export default function BulkUploadModal({
                           {item.name}
                         </td>
                         <td className="py-1.5 px-3 text-slate-600">
-                          <span className="bg-slate-100 text-slate-700 px-1.5 py-0.2 rounded text-[10.5px]">
-                            {item.category}
-                          </span>
+                          <div className="flex flex-col">
+                            <span className="bg-slate-100 text-slate-700 px-1.5 py-0.2 rounded text-[10.5px]">
+                              {item.category}
+                            </span>
+                            {item.subCategory && (
+                              <span className="text-[9.5px] text-slate-400 font-medium pl-0.5 mt-0.5">
+                                ↳ {item.subCategory}
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="py-1.5 px-3 text-slate-600">
                           {item.variationValue ? (

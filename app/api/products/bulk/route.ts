@@ -93,18 +93,26 @@ export async function POST(request: Request) {
     // Find any new variation type names in the upload list that don't exist yet
     const newVariationsToCreate = new Set<string>();
     rawProducts.forEach((p) => {
-      const vType = String(
-        p.variationType ||
-        p["Variation Type"] ||
-        p.variation ||
-        p["Variation"] ||
-        p.variationName ||
-        p["Variation Name"] ||
-        ""
-      ).trim();
-      if (vType && !variationSet.has(vType.toLowerCase())) {
-        newVariationsToCreate.add(vType);
-      }
+      const candidates = [
+        p.variationType,
+        p["Variation Type"],
+        p.variation,
+        p["Variation"],
+        p.variationName,
+        p["Variation Name"],
+        p["Variation 1 (Color)"] ? "Color" : null,
+        p["Variation 1"] ? "Color" : null,
+        p["Variation 2 (Size)"] ? "Size" : null,
+        p["Variation 2"] ? "Size" : null,
+      ];
+
+      candidates.forEach((c) => {
+        if (!c) return;
+        const vType = String(c).trim();
+        if (vType && !variationSet.has(vType.toLowerCase())) {
+          newVariationsToCreate.add(vType);
+        }
+      });
     });
 
     // Auto-create missing variations for this store
@@ -124,6 +132,7 @@ export async function POST(request: Request) {
     interface NormalizedItem {
       name: string;
       catName: string;
+      subCategory: string;
       price: number;
       stock: number;
       bufferStock: number;
@@ -132,6 +141,7 @@ export async function POST(request: Request) {
       imageUrl: string;
       variationType: string;
       variationValue: string;
+      attributes: Record<string, string>;
     }
 
     const groupedProducts = new Map<string, NormalizedItem[]>();
@@ -141,26 +151,71 @@ export async function POST(request: Request) {
       if (!name) return;
 
       const catName = String(p.category || p.Category || "Uncategorized").trim();
+      const subCategory = String(
+        p.subCategory ||
+        p["Sub Category"] ||
+        p["Subcategory"] ||
+        p["Sub-Category"] ||
+        ""
+      ).trim();
+
       const price = Math.max(0, Number(p.price || p.Price) || 0);
       const stock = Math.max(0, Number(p.stock || p.Stock) || 0);
       const bufferStock = Math.max(0, Number(p.bufferStock || p["Buffer Stock"]) || 0);
       const description = String(p.description || p.Description || "").trim();
       const barcode = String(p.barcode || p.Barcode || "").trim();
       const imageUrl = String(p.imageUrl || p["Image URL"] || "").trim();
-      const variationType = String(
+
+      // Multi-level variation columns check
+      const var1Color = String(
+        p["Variation 1 (Color)"] ||
+        p["Variation 1"] ||
+        p["Color"] ||
+        ""
+      ).trim();
+
+      const var2Size = String(
+        p["Variation 2 (Size)"] ||
+        p["Variation 2"] ||
+        p["Size"] ||
+        ""
+      ).trim();
+
+      let variationType = String(
         p.variationType ||
         p["Variation Type"] ||
         p.variation ||
         p["Variation"] ||
         ""
       ).trim();
-      const variationValue = String(
+
+      let variationValue = String(
         p.variationValue ||
         p["Variation Value"] ||
         p.value ||
         p["Value"] ||
         ""
       ).trim();
+
+      const attributes: Record<string, string> = {};
+
+      if (var1Color || var2Size) {
+        if (var1Color) attributes["Color"] = var1Color;
+        if (var2Size) attributes["Size"] = var2Size;
+
+        if (var1Color && var2Size) {
+          variationType = "Color / Size";
+          variationValue = `${var1Color} / ${var2Size}`;
+        } else if (var1Color) {
+          variationType = "Color";
+          variationValue = var1Color;
+        } else if (var2Size) {
+          variationType = "Size";
+          variationValue = var2Size;
+        }
+      } else if (variationType && variationValue) {
+        attributes[variationType] = variationValue;
+      }
 
       const key = `${name.toLowerCase()}:::${catName.toLowerCase()}`;
       if (!groupedProducts.has(key)) {
@@ -169,6 +224,7 @@ export async function POST(request: Request) {
       groupedProducts.get(key)!.push({
         name,
         catName,
+        subCategory,
         price,
         stock,
         bufferStock,
@@ -177,6 +233,7 @@ export async function POST(request: Request) {
         imageUrl,
         variationType,
         variationValue,
+        attributes,
       });
     });
 
@@ -195,22 +252,27 @@ export async function POST(request: Request) {
       const hasVariations = items.length > 1 || items.some((it) => it.variationValue !== "");
 
       if (hasVariations) {
-        const varTypeSet = new Set<string>();
+        const attrKeys = new Set<string>();
         items.forEach((it) => {
-          if (it.variationType) varTypeSet.add(it.variationType);
+          Object.keys(it.attributes).forEach((k) => attrKeys.add(k));
+          if (it.variationType && !it.variationType.includes("/")) {
+            attrKeys.add(it.variationType);
+          }
         });
-        const variationTypes = varTypeSet.size > 0 ? Array.from(varTypeSet) : ["Option"];
+        const variationTypes = attrKeys.size > 0 ? Array.from(attrKeys) : ["Option"];
 
         const variants = items.map((it, vIdx) => {
-          const vType = it.variationType || variationTypes[0] || "Option";
-          const vVal = it.variationValue || `Option ${vIdx + 1}`;
           const vBarcode = it.barcode || generate12DigitBarcode();
           const vSku = `${baseSku}-${vIdx + 1}`;
+          const variantName = it.variationValue || `Option ${vIdx + 1}`;
 
           return {
             id: `var-${Date.now()}-${productIndex}-${vIdx + 1}`,
-            name: `${vType}: ${vVal}`,
-            attributes: { [vType]: vVal },
+            name: variantName,
+            attributes:
+              Object.keys(it.attributes).length > 0
+                ? it.attributes
+                : { [variationTypes[0]]: variantName },
             price: it.price,
             stock: it.stock,
             bufferStock: it.bufferStock,
@@ -229,6 +291,7 @@ export async function POST(request: Request) {
           name: first.name,
           categoryId,
           categoryName: first.catName,
+          subCategory: first.subCategory || "",
           description: first.description,
           imageUrl,
           hasVariations: true,
@@ -251,6 +314,7 @@ export async function POST(request: Request) {
           name: first.name,
           categoryId,
           categoryName: first.catName,
+          subCategory: first.subCategory || "",
           price: first.price,
           stock: first.stock,
           bufferStock: first.bufferStock,
