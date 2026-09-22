@@ -1,5 +1,4 @@
-import { NextResponse } from "next/server";
-import type { NextRequest } from "next/request";
+import { NextResponse, type NextRequest } from "next/server";
 import { jwtVerify } from "jose";
 
 const SESSION_SECRET = new TextEncoder().encode(
@@ -13,6 +12,7 @@ const ACTIVE_STORE_COOKIE = "active_store_id";
 const SOFTWARE_ROUTES = [
   "/dashboard",
   "/pos",
+  "/products",
   "/inventory",
   "/categories",
   "/variations",

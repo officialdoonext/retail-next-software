@@ -1,9 +1,6 @@
-import SoftwareLayout from "@/components/SoftwareLayout";
+import { redirect } from "next/navigation";
 
 export default function InventoryPage() {
-  return (
-    <SoftwareLayout>
-      {/* Inventory & Catalog Page UI - to be added later */}
-    </SoftwareLayout>
-  );
+  redirect("/products");
 }
+
