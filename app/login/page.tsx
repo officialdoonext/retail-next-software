@@ -91,7 +91,7 @@ export default function LoginPage() {
               className="h-12 sm:h-14 w-auto object-contain"
             />
           </div>
-          <p className="text-[11px] font-semibold tracking-[0.22em] text-slate-400 uppercase">
+          <p className="text-[11px] font-medium tracking-[0.22em] text-slate-400 uppercase">
             Smart Retail POS
           </p>
         </div>
@@ -106,7 +106,7 @@ export default function LoginPage() {
                 setActiveTab("admin");
                 setOtpSent(false);
               }}
-              className={`flex-1 h-[34px] max-h-[34px] text-xs font-semibold rounded-[6px] transition-all duration-200 cursor-pointer flex items-center justify-center ${
+              className={`flex-1 h-[34px] max-h-[34px] text-xs font-medium rounded-[6px] transition-all duration-200 cursor-pointer flex items-center justify-center ${
                 activeTab === "admin"
                   ? "bg-white text-slate-900 shadow-xs"
                   : "text-slate-500 hover:text-slate-800"
@@ -120,7 +120,7 @@ export default function LoginPage() {
                 setActiveTab("staff");
                 setOtpSent(false);
               }}
-              className={`flex-1 h-[34px] max-h-[34px] text-xs font-semibold rounded-[6px] transition-all duration-200 cursor-pointer flex items-center justify-center ${
+              className={`flex-1 h-[34px] max-h-[34px] text-xs font-medium rounded-[6px] transition-all duration-200 cursor-pointer flex items-center justify-center ${
                 activeTab === "staff"
                   ? "bg-white text-slate-900 shadow-xs"
                   : "text-slate-500 hover:text-slate-800"
@@ -137,7 +137,7 @@ export default function LoginPage() {
                 <form onSubmit={handleSendOtp} className="flex flex-col">
                   <label
                     htmlFor="email"
-                    className="text-xs font-semibold text-slate-800 mb-1.5 block"
+                    className="text-xs font-medium text-slate-800 mb-1.5 block"
                   >
                     Administrator Email Address
                   </label>
@@ -165,7 +165,7 @@ export default function LoginPage() {
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="admin@pharmanext.com"
-                      className="w-full h-[34px] max-h-[34px] bg-[#f8fafc] border border-slate-200 rounded-[6px] pl-9 pr-3 text-xs text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#5e2b9d] focus:border-[#5e2b9d] transition-all"
+                      className="w-full h-[34px] max-h-[34px] bg-[#f8fafc] border border-slate-200 rounded-[6px] pl-9 pr-3 text-xs font-normal text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#5e2b9d] focus:border-[#5e2b9d] transition-all"
                     />
                   </div>
 
@@ -200,7 +200,7 @@ export default function LoginPage() {
                 /* OTP Verification View */
                 <div className="flex flex-col animate-in fade-in duration-300">
                   <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-xs font-semibold text-slate-800">
+                    <label className="text-xs font-medium text-slate-800">
                       Enter 6-Digit Code
                     </label>
                     <button
@@ -225,13 +225,13 @@ export default function LoginPage() {
                         value={digit}
                         onChange={(e) => handleOtpChange(idx, e.target.value)}
                         onKeyDown={(e) => handleKeyDown(idx, e)}
-                        className="w-[34px] h-[34px] max-h-[34px] text-center text-sm font-semibold bg-[#f8fafc] border border-slate-200 rounded-[6px] focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#5e2b9d] focus:border-[#5e2b9d] text-slate-900 transition-all"
+                        className="w-[34px] h-[34px] max-h-[34px] text-center text-sm font-medium bg-[#f8fafc] border border-slate-200 rounded-[6px] focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#5e2b9d] focus:border-[#5e2b9d] text-slate-900 transition-all"
                       />
                     ))}
                   </div>
 
                   <Link
-                    href="/dashboard"
+                    href="/onboarding"
                     className="w-full h-[34px] max-h-[34px] bg-[#5e2b9d] hover:bg-[#4e2284] text-white font-medium text-xs px-4 rounded-[6px] transition-all duration-200 flex items-center justify-center gap-2 shadow-xs text-center mb-2.5"
                   >
                     <span>Verify & Continue</span>
@@ -245,7 +245,7 @@ export default function LoginPage() {
                     <button
                       type="button"
                       onClick={() => setOtpSent(true)}
-                      className="text-[#5e2b9d] font-semibold hover:underline cursor-pointer"
+                      className="text-[#5e2b9d] font-medium hover:underline cursor-pointer"
                     >
                       Resend OTP
                     </button>
@@ -261,7 +261,7 @@ export default function LoginPage() {
               <div className="mb-3">
                 <label
                   htmlFor="staffId"
-                  className="text-xs font-semibold text-slate-800 mb-1.5 block"
+                  className="text-xs font-medium text-slate-800 mb-1.5 block"
                 >
                   Staff ID / Username
                 </label>
@@ -278,7 +278,7 @@ export default function LoginPage() {
                     value={staffId}
                     onChange={(e) => setStaffId(e.target.value)}
                     placeholder="e.g. STF-1042"
-                    className="w-full h-[34px] max-h-[34px] bg-[#f8fafc] border border-slate-200 rounded-[6px] pl-9 pr-3 text-xs text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#5e2b9d] focus:border-[#5e2b9d] transition-all"
+                    className="w-full h-[34px] max-h-[34px] bg-[#f8fafc] border border-slate-200 rounded-[6px] pl-9 pr-3 text-xs font-normal text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#5e2b9d] focus:border-[#5e2b9d] transition-all"
                   />
                 </div>
               </div>
@@ -286,7 +286,7 @@ export default function LoginPage() {
               <div className="mb-4">
                 <label
                   htmlFor="staffPin"
-                  className="text-xs font-semibold text-slate-800 mb-1.5 block"
+                  className="text-xs font-medium text-slate-800 mb-1.5 block"
                 >
                   Terminal Security PIN
                 </label>
@@ -304,7 +304,7 @@ export default function LoginPage() {
                     value={staffPin}
                     onChange={(e) => setStaffPin(e.target.value)}
                     placeholder="••••••"
-                    className="w-full h-[34px] max-h-[34px] bg-[#f8fafc] border border-slate-200 rounded-[6px] pl-9 pr-3 text-xs text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#5e2b9d] focus:border-[#5e2b9d] tracking-widest transition-all"
+                    className="w-full h-[34px] max-h-[34px] bg-[#f8fafc] border border-slate-200 rounded-[6px] pl-9 pr-3 text-xs font-normal text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#5e2b9d] focus:border-[#5e2b9d] tracking-widest transition-all"
                   />
                 </div>
               </div>
@@ -323,7 +323,7 @@ export default function LoginPage() {
 
           {/* Security Notice Disclaimer */}
           <div className="mt-6 pt-4 border-t border-slate-100 text-center">
-            <p className="text-[11px] text-slate-400 leading-relaxed">
+            <p className="text-[11px] text-slate-400 leading-relaxed font-normal">
               Restricted Access for Authorized Personnel Only.
               <br />
               Unauthorized access attempts are monitored and logged.
@@ -341,14 +341,14 @@ export default function LoginPage() {
             </div>
             <div className="text-left">
               <div className="flex items-center gap-1.5">
-                <span className="text-xs font-semibold text-slate-800">
+                <span className="text-xs font-medium text-slate-800">
                   Install RetailNext App
                 </span>
-                <span className="bg-[#5e2b9d]/10 text-[#5e2b9d] text-[9.5px] font-bold px-1.5 py-0.5 rounded-[4px] tracking-wide uppercase">
+                <span className="bg-[#5e2b9d]/10 text-[#5e2b9d] text-[9.5px] font-medium px-1.5 py-0.5 rounded-[4px] tracking-wide uppercase">
                   PWA
                 </span>
               </div>
-              <p className="text-[11px] text-slate-400">
+              <p className="text-[11px] text-slate-400 font-normal">
                 Install for faster access & auto updates
               </p>
             </div>
@@ -357,7 +357,7 @@ export default function LoginPage() {
           <button
             type="button"
             onClick={handleInstallPwa}
-            className="h-[34px] max-h-[34px] inline-flex items-center gap-1.5 px-4 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-[6px] hover:bg-slate-50 transition-colors shadow-xs cursor-pointer"
+            className="h-[34px] max-h-[34px] inline-flex items-center gap-1.5 px-4 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-[6px] hover:bg-slate-50 transition-colors shadow-xs cursor-pointer"
           >
             {pwaInstalled ? (
               <span className="text-[#00966a] flex items-center gap-1">
