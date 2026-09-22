@@ -12,7 +12,17 @@ interface SoftwareLayoutProps {
 export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const [activeStoreName, setActiveStoreName] = useState("Active Store");
+  const [activeStoreName, setActiveStoreName] = useState("Loading Store...");
+  const [activeStoreId, setActiveStoreId] = useState<string | null>(null);
+  const [userStores, setUserStores] = useState<Array<{
+    id: string;
+    name: string;
+    code: string;
+    status: string;
+    expires?: string | null;
+    isActiveSelection?: boolean;
+  }>>([]);
+  const [switchingStore, setSwitchingStore] = useState(false);
   const [userEmail, setUserEmail] = useState("");
   const [isStoreDropdownOpen, setIsStoreDropdownOpen] = useState(false);
   const [printerConnected, setPrinterConnected] = useState(false);
@@ -30,17 +40,34 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
           setUserEmail(data.user.email);
         }
 
-        // Fetch stores to get active store name
+        let currentActiveId: string | null = null;
+        if (data.activeStore) {
+          setActiveStoreName(data.activeStore.name);
+          setActiveStoreId(data.activeStore.id);
+          currentActiveId = data.activeStore.id;
+        }
+
+        // Fetch stores to populate switcher and fallback if needed
         const storesRes = await fetch("/api/stores");
         if (storesRes.ok) {
           const storesData = await storesRes.json();
           if (storesData.success && Array.isArray(storesData.stores)) {
-            const active = storesData.stores.find(
-              (s: { status: string; expires: string | null }) =>
-                s.status === "Active" && s.expires && new Date(s.expires).getTime() > Date.now()
-            );
-            if (active) {
-              setActiveStoreName(active.name);
+            setUserStores(storesData.stores);
+            const activeId = storesData.activeStoreId || currentActiveId;
+            if (activeId) {
+              const matched = storesData.stores.find((s: any) => s.id === activeId);
+              if (matched) {
+                setActiveStoreName(matched.name);
+                setActiveStoreId(matched.id);
+              }
+            } else {
+              const firstActive = storesData.stores.find(
+                (s: any) => s.status === "Active" && s.expires && new Date(s.expires).getTime() > Date.now()
+              );
+              if (firstActive) {
+                setActiveStoreName(firstActive.name);
+                setActiveStoreId(firstActive.id);
+              }
             }
           }
         }
@@ -51,6 +78,40 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
 
     loadSession();
   }, [router]);
+
+  const handleSwitchStore = async (targetStore: { id: string; status: string; expires?: string | null; name: string }) => {
+    if (targetStore.id === activeStoreId) {
+      setIsStoreDropdownOpen(false);
+      return;
+    }
+
+    const isUnexpired = targetStore.expires && new Date(targetStore.expires).getTime() > Date.now();
+    if (targetStore.status !== "Active" || !isUnexpired) {
+      alert("This store is inactive or awaiting admin approval.");
+      return;
+    }
+
+    try {
+      setSwitchingStore(true);
+      const res = await fetch("/api/stores/select", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ storeId: targetStore.id }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setIsStoreDropdownOpen(false);
+        // Force complete page reload to reset all in-memory cart, products, categories, orders for newly selected store
+        window.location.reload();
+      } else {
+        alert(data.error || "Failed to switch store terminal.");
+        setSwitchingStore(false);
+      }
+    } catch {
+      alert("Network error while switching store.");
+      setSwitchingStore(false);
+    }
+  };
 
   const handleLogout = async () => {
     try {
@@ -192,21 +253,80 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
             </button>
 
             {isStoreDropdownOpen && (
-              <div className="absolute right-0 mt-1 w-44 bg-white border border-slate-200 rounded-[6px] shadow-lg py-1 z-50 animate-in fade-in duration-150">
-                <Link
-                  href="/onboarding"
-                  onClick={() => setIsStoreDropdownOpen(false)}
-                  className="block px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-purple-50 hover:text-[#5e2b9d]"
-                >
-                  Switch Store
-                </Link>
-                <Link
-                  href="/onboarding"
-                  onClick={() => setIsStoreDropdownOpen(false)}
-                  className="block px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-purple-50 hover:text-[#5e2b9d]"
-                >
-                  + Add New Store
-                </Link>
+              <div className="absolute right-0 mt-1.5 w-64 bg-white border border-slate-200 rounded-[6px] shadow-xl py-1.5 z-50 animate-in fade-in duration-150">
+                <div className="px-3 py-1.5 border-b border-slate-100 flex items-center justify-between">
+                  <span className="text-[10.5px] font-semibold text-slate-400 uppercase tracking-wider">
+                    Your Stores
+                  </span>
+                  {switchingStore && (
+                    <span className="text-[10px] text-[#5e2b9d] font-medium flex items-center gap-1">
+                      <svg className="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                      </svg>
+                      Switching...
+                    </span>
+                  )}
+                </div>
+
+                <div className="max-h-56 overflow-y-auto py-1 divide-y divide-slate-50">
+                  {userStores.length === 0 ? (
+                    <div className="px-3 py-2 text-xs text-slate-400">Loading stores...</div>
+                  ) : (
+                    userStores.map((st) => {
+                      const isCurrent = st.id === activeStoreId;
+                      const isUnexpired = st.expires && new Date(st.expires).getTime() > Date.now();
+                      const isActive = st.status === "Active" && isUnexpired;
+
+                      return (
+                        <button
+                          key={st.id}
+                          type="button"
+                          onClick={() => handleSwitchStore(st)}
+                          disabled={switchingStore || !isActive}
+                          className={`w-full text-left px-3 py-2 flex items-center justify-between transition-colors ${
+                            isCurrent
+                              ? "bg-purple-50/70 text-[#5e2b9d] font-medium cursor-default"
+                              : isActive
+                              ? "text-slate-700 hover:bg-slate-50 cursor-pointer"
+                              : "text-slate-400 bg-slate-50/40 cursor-not-allowed"
+                          }`}
+                        >
+                          <div className="min-w-0 pr-2">
+                            <div className="flex items-center gap-1.5">
+                              <span className={`w-1.5 h-1.5 rounded-full ${isActive ? "bg-emerald-500" : "bg-amber-400"}`} />
+                              <span className="text-xs truncate block font-medium">
+                                {st.name}
+                              </span>
+                            </div>
+                            <span className="text-[10px] text-slate-400 font-mono block pl-3">
+                              {st.code} {!isActive && "• (Inactive)"}
+                            </span>
+                          </div>
+
+                          {isCurrent && (
+                            <svg className="w-4 h-4 text-[#5e2b9d] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
+                            </svg>
+                          )}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+
+                <div className="border-t border-slate-100 mt-1 pt-1">
+                  <Link
+                    href="/onboarding"
+                    onClick={() => setIsStoreDropdownOpen(false)}
+                    className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-600 hover:text-[#5e2b9d] hover:bg-purple-50 transition-colors"
+                  >
+                    <svg className="w-3.5 h-3.5 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                    </svg>
+                    <span>Manage / Add New Store</span>
+                  </Link>
+                </div>
               </div>
             )}
           </div>

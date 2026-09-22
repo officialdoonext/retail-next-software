@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { verifySessionToken, AUTH_COOKIE_NAME } from "@/lib/auth";
+import { verifySessionToken, AUTH_COOKIE_NAME, ACTIVE_STORE_COOKIE } from "@/lib/auth";
 import { db } from "@/lib/firebase";
 import { collection, query, where, getDocs, addDoc } from "firebase/firestore";
 
@@ -20,6 +20,9 @@ export async function GET() {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }
 
+    const cookieStore = await cookies();
+    const activeStoreId = cookieStore.get(ACTIVE_STORE_COOKIE)?.value || null;
+
     const storesRef = collection(db, "stores");
     const q = query(storesRef, where("ownerEmail", "==", session.email));
     const querySnapshot = await getDocs(q);
@@ -27,9 +30,10 @@ export async function GET() {
     const stores = querySnapshot.docs.map((docSnap) => ({
       id: docSnap.id,
       ...docSnap.data(),
+      isActiveSelection: docSnap.id === activeStoreId,
     }));
 
-    return NextResponse.json({ success: true, stores });
+    return NextResponse.json({ success: true, stores, activeStoreId });
   } catch (error) {
     console.error("Error fetching stores:", error);
     return NextResponse.json(

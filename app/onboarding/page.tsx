@@ -48,6 +48,7 @@ function parseExpiry(expires: any): { isUnexpired: boolean; display: string } {
 export default function OnboardingPage() {
   const router = useRouter();
   const [stores, setStores] = useState<RetailStore[]>([]);
+  const [activeStoreId, setActiveStoreId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [userEmail, setUserEmail] = useState("");
@@ -84,6 +85,7 @@ export default function OnboardingPage() {
           const storesData = await storesRes.json();
           if (storesData.success && Array.isArray(storesData.stores)) {
             setStores(storesData.stores);
+            setActiveStoreId(storesData.activeStoreId || (meData.activeStore?.id) || null);
           }
         }
       } catch (err) {
@@ -320,12 +322,15 @@ export default function OnboardingPage() {
             {stores.map((store) => {
               const isUnexpired = store.expires && new Date(store.expires).getTime() > Date.now();
               const isStoreActive = store.status === "Active" && isUnexpired;
+              const isCurrentlySelected = store.id === activeStoreId;
 
               return (
                 <div
                   key={store.id}
                   className={`bg-white rounded-[6px] border shadow-[0_4px_16px_rgba(0,0,0,0.03)] transition-all flex flex-col justify-between p-5 sm:p-6 relative ${
-                    isStoreActive
+                    isCurrentlySelected
+                      ? "ring-2 ring-[#5e2b9d] border-purple-300"
+                      : isStoreActive
                       ? "border-slate-200/90 hover:shadow-[0_6px_20px_rgba(0,0,0,0.06)]"
                       : "border-amber-200/80 bg-slate-50/30"
                   }`}
@@ -337,7 +342,9 @@ export default function OnboardingPage() {
                         {/* Storefront Icon */}
                         <div
                           className={`w-11 h-11 rounded-[6px] border flex items-center justify-center flex-shrink-0 ${
-                            isStoreActive
+                            isCurrentlySelected
+                              ? "bg-purple-50 border-purple-200 text-[#5e2b9d]"
+                              : isStoreActive
                               ? "bg-emerald-50 border-emerald-100 text-emerald-600"
                               : "bg-amber-50 border-amber-200/70 text-amber-600"
                           }`}
@@ -366,8 +373,14 @@ export default function OnboardingPage() {
                         </div>
                       </div>
 
-                      {/* Status Badge: Active vs Inactive */}
-                      <div className="flex items-center gap-1.5">
+                      {/* Status Badge: Active vs Inactive vs Current */}
+                      <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                        {isCurrentlySelected && (
+                          <span className="inline-flex items-center gap-1 text-[10.5px] font-medium text-[#5e2b9d] bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-[6px]">
+                            <span className="w-1.5 h-1.5 rounded-full bg-[#5e2b9d]" />
+                            Current
+                          </span>
+                        )}
                         {isStoreActive ? (
                           <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200/80 px-2.5 py-0.5 rounded-[6px]">
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
@@ -442,7 +455,7 @@ export default function OnboardingPage() {
                         onClick={() => handleEnterSoftware(store)}
                         className="w-full h-[34px] max-h-[34px] bg-[#5e2b9d] hover:bg-[#4e2284] active:bg-[#431d73] text-white font-medium text-xs px-4 rounded-[6px] transition-all flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
                       >
-                        <span>Enter Software</span>
+                        <span>{isCurrentlySelected ? "Enter Active Store" : "Switch & Enter Store"}</span>
                         <svg className="w-3.5 h-3.5 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
                         </svg>
