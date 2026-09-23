@@ -107,10 +107,16 @@ export default function EmployeesPage() {
   const openEdit = (e: Employee) => {
     resetForm();
     setActiveEmp(e);
-    setFName(e.name); setFMobile(e.mobile); setFCity(e.city);
-    setFAddress(e.address); setFEmail(e.email || "");
-    setFSalaryType(e.salaryType); setFSalaryAmount(String(e.salaryAmount));
-    setFEcNumber(e.emergencyContactNumber); setFEcRelation(e.emergencyRelation); setFEcName(e.emergencyName);
+    setFName(e.name || "");
+    setFMobile(e.mobile || "");
+    setFCity(e.city || "");
+    setFAddress(e.address || "");
+    setFEmail(e.email || "");
+    setFSalaryType(e.salaryType || "monthly");
+    setFSalaryAmount(e.salaryAmount !== undefined && e.salaryAmount !== null ? String(e.salaryAmount) : "");
+    setFEcNumber(e.emergencyContactNumber || "");
+    setFEcRelation(e.emergencyRelation || "Spouse");
+    setFEcName(e.emergencyName || "");
     setModal("edit");
   };
 
@@ -227,7 +233,7 @@ export default function EmployeesPage() {
             <svg className="w-4 h-4 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 stroke-[1.8]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
-            <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+            <input type="text" value={searchQuery || ""} onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search by name, mobile, city, or email..."
               className="w-full h-[34px] max-h-[34px] pl-8 pr-3 bg-[#f8fafc] border border-slate-200 rounded-[6px] text-xs text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#5e2b9d] focus:border-[#5e2b9d]" />
           </div>
@@ -388,7 +394,7 @@ export default function EmployeesPage() {
                         <label className="block text-xs font-medium text-slate-700">
                           Employee Name <span className="text-rose-500">*</span>
                         </label>
-                        <input type="text" value={fName} onChange={(e) => setFName(e.target.value)}
+                        <input type="text" value={fName || ""} onChange={(e) => setFName(e.target.value)}
                           placeholder="e.g. Suresh Kumar" required className={inputCls} />
                       </div>
                       {/* Mobile */}
@@ -396,7 +402,7 @@ export default function EmployeesPage() {
                         <label className="block text-xs font-medium text-slate-700">
                           Mobile Number <span className="text-rose-500">*</span>
                         </label>
-                        <input type="tel" value={fMobile}
+                        <input type="tel" value={fMobile || ""}
                           onChange={(e) => setFMobile(e.target.value.replace(/\D/g, "").slice(0, 10))}
                           placeholder="9876543210" maxLength={10} required className={`${inputCls} font-mono`} />
                       </div>
@@ -405,7 +411,7 @@ export default function EmployeesPage() {
                         <label className="block text-xs font-medium text-slate-700">
                           City <span className="text-rose-500">*</span>
                         </label>
-                        <input type="text" value={fCity} onChange={(e) => setFCity(e.target.value)}
+                        <input type="text" value={fCity || ""} onChange={(e) => setFCity(e.target.value)}
                           placeholder="e.g. Hyderabad" required className={inputCls} />
                       </div>
                       {/* Email */}
@@ -413,7 +419,7 @@ export default function EmployeesPage() {
                         <label className="block text-xs font-medium text-slate-700">
                           Email <span className="text-slate-400 font-normal">(Optional)</span>
                         </label>
-                        <input type="email" value={fEmail} onChange={(e) => setFEmail(e.target.value)}
+                        <input type="email" value={fEmail || ""} onChange={(e) => setFEmail(e.target.value)}
                           placeholder="employee@email.com" className={inputCls} />
                       </div>
                       {/* Address */}
@@ -421,7 +427,7 @@ export default function EmployeesPage() {
                         <label className="block text-xs font-medium text-slate-700">
                           Full Address <span className="text-rose-500">*</span>
                         </label>
-                        <textarea value={fAddress} onChange={(e) => setFAddress(e.target.value)}
+                        <textarea value={fAddress || ""} onChange={(e) => setFAddress(e.target.value)}
                           placeholder="House / Flat No., Street, Area, City, Pincode"
                           rows={2} required
                           className="w-full px-3 py-2 bg-[#f8fafc] border border-slate-200 rounded-[6px] text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#5e2b9d] focus:border-[#5e2b9d] resize-none" />
@@ -480,7 +486,7 @@ export default function EmployeesPage() {
                         </label>
                         <div className="relative">
                           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-medium text-slate-400">₹</span>
-                          <input type="number" value={fSalaryAmount}
+                          <input type="number" value={fSalaryAmount || ""}
                             onChange={(e) => setFSalaryAmount(e.target.value)}
                             placeholder={fSalaryType === "monthly" ? "e.g. 18000" : "e.g. 650"}
                             min="1" required
@@ -505,7 +511,7 @@ export default function EmployeesPage() {
                         <label className="block text-xs font-medium text-slate-700">
                           Contact Name <span className="text-rose-500">*</span>
                         </label>
-                        <input type="text" value={fEcName} onChange={(e) => setFEcName(e.target.value)}
+                        <input type="text" value={fEcName || ""} onChange={(e) => setFEcName(e.target.value)}
                           placeholder="e.g. Priya Kumar" required className={inputCls} />
                       </div>
                       {/* Relation */}
@@ -513,7 +519,7 @@ export default function EmployeesPage() {
                         <label className="block text-xs font-medium text-slate-700">
                           Relation <span className="text-rose-500">*</span>
                         </label>
-                        <select value={fEcRelation} onChange={(e) => setFEcRelation(e.target.value)}
+                        <select value={fEcRelation || "Spouse"} onChange={(e) => setFEcRelation(e.target.value)}
                           className={inputCls}>
                           {RELATIONS.map((r) => <option key={r} value={r}>{r}</option>)}
                         </select>
@@ -523,7 +529,7 @@ export default function EmployeesPage() {
                         <label className="block text-xs font-medium text-slate-700">
                           Contact Mobile Number <span className="text-rose-500">*</span>
                         </label>
-                        <input type="tel" value={fEcNumber}
+                        <input type="tel" value={fEcNumber || ""}
                           onChange={(e) => setFEcNumber(e.target.value.replace(/\D/g, "").slice(0, 10))}
                           placeholder="9876543210" maxLength={10} required className={`${inputCls} font-mono`} />
                       </div>
