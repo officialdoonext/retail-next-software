@@ -5,6 +5,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { NAV_PAGES } from "@/lib/nav-pages";
+import { usePrinter } from "@/context/PrinterContext";
+import ThermalPrinterModal from "@/components/ThermalPrinterModal";
 
 interface SoftwareLayoutProps {
   children?: React.ReactNode;
@@ -30,7 +32,8 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
   const [staffName, setStaffName] = useState("");
   const [staffAccess, setStaffAccess] = useState<string[]>([]);
   const [isStoreDropdownOpen, setIsStoreDropdownOpen] = useState(false);
-  const [printerConnected, setPrinterConnected] = useState(false);
+  const { isConnected: printerConnected, printerType, printerName } = usePrinter();
+  const [isPrinterModalOpen, setIsPrinterModalOpen] = useState(false);
 
   // Synchronize on mount to eliminate SSR mismatch while keeping instant render
   useEffect(() => {
@@ -322,18 +325,24 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
           {/* Connect Printer Button */}
           <button
             type="button"
-            onClick={() => setPrinterConnected(!printerConnected)}
-            className={`h-[34px] max-h-[34px] border rounded-[6px] px-3 flex items-center gap-1.5 text-xs font-medium transition-colors cursor-pointer ${
+            onClick={() => setIsPrinterModalOpen(true)}
+            title={printerConnected ? `Connected: ${printerName || printerType} (Click to manage)` : "Connect Thermal Printer (WebUSB / Bluetooth)"}
+            className={`h-[34px] max-h-[34px] border rounded-[6px] px-2.5 sm:px-3 flex items-center gap-1.5 text-xs font-medium transition-colors cursor-pointer ${
               printerConnected
-                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                ? "border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100/70"
                 : "border-slate-200 text-slate-700 hover:bg-slate-50"
             }`}
           >
+            <span
+              className={`w-2 h-2 rounded-full shrink-0 ${
+                printerConnected ? "bg-emerald-500 animate-pulse" : "bg-slate-400"
+              }`}
+            />
             <svg className="w-3.5 h-3.5 stroke-[1.8]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4H7v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
             </svg>
             <span className="hidden sm:inline">
-              {printerConnected ? "Printer Online" : "Connect Printer"}
+              {printerConnected ? `Printer Online (${printerType})` : "Connect Printer"}
             </span>
           </button>
 
@@ -470,6 +479,12 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
           {children}
         </main>
       </div>
+
+      {/* Thermal Printer Hardware Connection Modal */}
+      <ThermalPrinterModal
+        isOpen={isPrinterModalOpen}
+        onClose={() => setIsPrinterModalOpen(false)}
+      />
     </div>
   );
 }

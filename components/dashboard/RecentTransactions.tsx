@@ -13,6 +13,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { Order, Product } from "./types";
+import { usePrinter } from "@/context/PrinterContext";
 
 interface RecentTransactionsProps {
   orders: Order[];
@@ -25,6 +26,7 @@ export default function RecentTransactions({
   lowStockProducts,
   storeSettings,
 }: RecentTransactionsProps) {
+  const { isConnected: isPrinterConnected, printerType, printReceipt, printWindow } = usePrinter();
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
 
   const formatCurrency = (val: number) => {
@@ -77,8 +79,17 @@ export default function RecentTransactions({
     }
   };
 
-  const handlePrintReceipt = () => {
-    window.print();
+  const handlePrintReceipt = async (orderToPrint?: Order) => {
+    const target = orderToPrint || selectedOrder;
+    if (!target) return;
+    if (isPrinterConnected) {
+      await printReceipt(target, storeSettings);
+    } else {
+      setSelectedOrder(target);
+      setTimeout(() => {
+        printWindow();
+      }, 100);
+    }
   };
 
   return (
@@ -149,13 +160,22 @@ export default function RecentTransactions({
                       {formatCurrency(order.grandTotal)}
                     </td>
                     <td className="py-2.5 px-4 text-center">
-                      <button
-                        onClick={() => setSelectedOrder(order)}
-                        title="View & Print Bill"
-                        className="p-1 text-slate-400 hover:text-[#5e2b9d] hover:bg-purple-50 rounded transition-colors cursor-pointer inline-flex items-center"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center justify-center gap-1">
+                        <button
+                          onClick={() => setSelectedOrder(order)}
+                          title="View Bill Details"
+                          className="p-1 text-slate-400 hover:text-[#5e2b9d] hover:bg-purple-50 rounded transition-colors cursor-pointer inline-flex items-center"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handlePrintReceipt(order)}
+                          title={isPrinterConnected ? `Print Receipt (${printerType})` : "Print Receipt"}
+                          className="p-1 text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 rounded transition-colors cursor-pointer inline-flex items-center"
+                        >
+                          <Printer className="w-4 h-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -241,111 +261,179 @@ export default function RecentTransactions({
 
       {/* Thermal Receipt Preview Modal */}
       {selectedOrder && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full overflow-hidden animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[90vh]">
-            <div className="p-3 bg-[#f8fafc] border-b border-slate-200 flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                <Receipt className="w-4 h-4 text-[#5e2b9d]" /> Receipt: {selectedOrder.billNumber}
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full overflow-hidden animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[92vh]">
+            <div className="p-3 bg-[#f8fafc] border-b border-slate-200 flex items-center justify-between print:hidden">
+              <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                <Receipt className="w-4 h-4 text-[#5e2b9d]" /> Invoice {selectedOrder.billNumber}
               </span>
-              <button
-                onClick={() => setSelectedOrder(null)}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handlePrintReceipt()}
+                  className="h-[28px] bg-[#5e2b9d] text-white px-2.5 rounded-[4px] text-[11px] font-semibold hover:bg-[#4e2284] cursor-pointer flex items-center gap-1 shadow-2xs"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>{isPrinterConnected ? `Print (${printerType})` : "Print"}</span>
+                </button>
+                <button
+                  onClick={() => setSelectedOrder(null)}
+                  className="text-slate-400 hover:text-slate-700 p-1 rounded cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
-            <div className="p-4 overflow-y-auto font-mono text-xs space-y-3 bg-[#fafafa]">
-              <div className="text-center pb-2 border-b border-dashed border-slate-300">
-                <h4 className="font-bold text-sm text-slate-900">
-                  {storeSettings?.name || "RetailNext Store"}
+            {/* Thermal Slip Content - Fully occupying 80mm roll width */}
+            <div id="thermal-receipt" className="p-4 overflow-y-auto font-mono text-[11px] space-y-2 bg-white text-slate-900 w-full">
+              {/* Store Branding Header */}
+              <div className="text-center pb-2.5 border-b border-dashed border-slate-400">
+                <h4 className="font-sans font-bold text-sm text-slate-950 uppercase tracking-wider">
+                  {storeSettings?.name || "Retail Next Store"}
                 </h4>
-                <p className="text-[10px] text-slate-500">
-                  {storeSettings?.address || "Store Address"}
-                </p>
-                {storeSettings?.gstNumber && (
-                  <p className="text-[10px] text-slate-500">GSTIN: {storeSettings.gstNumber}</p>
+                {storeSettings?.address && (
+                  <p className="text-[10px] text-slate-600 mt-0.5">
+                    {[storeSettings.address, storeSettings.city, storeSettings.state, storeSettings.pincode].filter(Boolean).join(", ")}
+                  </p>
+                )}
+                {(storeSettings?.phone || storeSettings?.email) && (
+                  <p className="text-[10px] text-slate-600">
+                    {storeSettings.phone ? `Ph: ${storeSettings.phone}` : ""}
+                    {storeSettings.phone && storeSettings.email ? " | " : ""}
+                    {storeSettings.email || ""}
+                  </p>
+                )}
+                {storeSettings?.enableGst !== false && storeSettings?.gstNumber && (
+                  <p className="text-[10px] text-slate-800 font-semibold mt-0.5">
+                    GSTIN: {storeSettings.gstNumber}
+                  </p>
                 )}
               </div>
 
-              <div className="text-[11px] space-y-0.5 border-b border-dashed border-slate-300 pb-2">
+              {/* Invoice Metadata */}
+              <div className="text-[10px] space-y-0.5 border-b border-dashed border-slate-400 pb-2">
                 <div className="flex justify-between">
-                  <span>Bill No:</span>
+                  <span className="text-slate-600">Invoice:</span>
                   <span className="font-bold">{selectedOrder.billNumber}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span>Date:</span>
-                  <span>{new Date(selectedOrder.createdAt).toLocaleString("en-IN")}</span>
+                  <span className="text-slate-600">Date & Time:</span>
+                  <span>{new Date(selectedOrder.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span>Customer:</span>
-                  <span>{selectedOrder.customer?.name || "Walk-in"}</span>
+                  <span className="text-slate-600">Customer:</span>
+                  <span className="font-semibold">{selectedOrder.customer?.name || "Walk-in Customer"}</span>
                 </div>
-              </div>
-
-              {/* Items */}
-              <div className="space-y-1 border-b border-dashed border-slate-300 pb-2">
-                {selectedOrder.items.map((it, i) => (
-                  <div key={i} className="flex justify-between text-[11px]">
-                    <span className="truncate max-w-[150px]">
-                      {it.productName} x {it.quantity}
-                    </span>
-                    <span className="font-medium">₹{it.total}</span>
+                {selectedOrder.customer?.phone && (
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">Phone:</span>
+                    <span>{selectedOrder.customer.phone}</span>
                   </div>
-                ))}
+                )}
+                {selectedOrder.settledBy && (
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">Billed By:</span>
+                    <span>{selectedOrder.settledBy}</span>
+                  </div>
+                )}
               </div>
 
-              {/* Totals */}
-              <div className="space-y-1 text-[11px] pt-1">
+              {/* Line Items Table */}
+              <table className="w-full text-[10px] border-b border-dashed border-slate-400 pb-2">
+                <thead>
+                  <tr className="text-slate-700 border-b border-slate-300 font-semibold">
+                    <th className="text-left pb-1 font-semibold">Item</th>
+                    <th className="text-center pb-1 font-semibold">Qty</th>
+                    <th className="text-right pb-1 font-semibold">Rate</th>
+                    <th className="text-right pb-1 font-semibold">Total</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {selectedOrder.items.map((it: any, i: number) => (
+                    <tr key={i}>
+                      <td className="py-1 pr-1">
+                        <div className="leading-tight font-medium">{it.productName}</div>
+                        {it.variantName && (
+                          <div className="text-[9px] text-slate-500">{it.variantName}</div>
+                        )}
+                      </td>
+                      <td className="text-center py-1 whitespace-nowrap">{it.quantity}</td>
+                      <td className="text-right py-1 whitespace-nowrap">₹{Number(it.price || (it.total / (it.quantity || 1))).toFixed(2)}</td>
+                      <td className="text-right py-1 font-semibold whitespace-nowrap">₹{Number(it.total).toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {/* Totals Breakdown */}
+              <div className="space-y-1 text-[10.5px] pt-1">
                 <div className="flex justify-between">
-                  <span>Subtotal:</span>
-                  <span>₹{selectedOrder.subtotal?.toFixed(2)}</span>
+                  <span className="text-slate-600">Subtotal:</span>
+                  <span>₹{Number(selectedOrder.subtotal || 0).toFixed(2)}</span>
                 </div>
                 {selectedOrder.discount > 0 && (
                   <div className="flex justify-between text-rose-600">
                     <span>Discount:</span>
-                    <span>-₹{selectedOrder.discount?.toFixed(2)}</span>
+                    <span>-₹{Number(selectedOrder.discount).toFixed(2)}</span>
                   </div>
                 )}
                 {selectedOrder.cgst > 0 && (
-                  <div className="flex justify-between text-slate-600">
+                  <div className="flex justify-between text-slate-600 text-[10px]">
                     <span>CGST:</span>
-                    <span>₹{selectedOrder.cgst?.toFixed(2)}</span>
+                    <span>₹{Number(selectedOrder.cgst).toFixed(2)}</span>
                   </div>
                 )}
                 {selectedOrder.sgst > 0 && (
-                  <div className="flex justify-between text-slate-600">
+                  <div className="flex justify-between text-slate-600 text-[10px]">
                     <span>SGST:</span>
-                    <span>₹{selectedOrder.sgst?.toFixed(2)}</span>
+                    <span>₹{Number(selectedOrder.sgst).toFixed(2)}</span>
                   </div>
                 )}
-                <div className="flex justify-between text-sm font-bold border-t border-dashed border-slate-300 pt-1.5 text-slate-900">
+                {selectedOrder.roundOff !== undefined && selectedOrder.roundOff !== 0 && (
+                  <div className="flex justify-between text-slate-600 text-[10px]">
+                    <span>Round Off:</span>
+                    <span>₹{Number(selectedOrder.roundOff).toFixed(2)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-xs font-bold border-t border-dashed border-slate-400 pt-1.5 text-slate-950">
                   <span>GRAND TOTAL:</span>
-                  <span>₹{selectedOrder.grandTotal?.toFixed(2)}</span>
+                  <span className="font-extrabold">₹{Number(selectedOrder.grandTotal).toFixed(2)}</span>
                 </div>
-                <div className="flex justify-between text-[10px] text-slate-500 pt-1">
+                <div className="flex justify-between text-[10px] text-slate-600 pt-1">
                   <span>Payment Mode:</span>
-                  <span className="font-bold uppercase">{selectedOrder.paymentMethod}</span>
+                  <span className="font-bold uppercase text-slate-900">{selectedOrder.paymentMethod}</span>
                 </div>
                 {selectedOrder.paymentMethod === "SPLIT" && selectedOrder.splitDetails && (
-                  <div className="text-[10px] text-slate-400 pl-2">
+                  <div className="text-[9.5px] text-slate-500 pl-2">
                     UPI: ₹{selectedOrder.splitDetails.upi} | Cash: ₹{selectedOrder.splitDetails.cash}{" "}
                     | Card: ₹{selectedOrder.splitDetails.card}
                   </div>
                 )}
+                {selectedOrder.notes && (
+                  <div className="text-[9.5px] text-slate-500 pt-1 italic">
+                    Note: {selectedOrder.notes}
+                  </div>
+                )}
+              </div>
+
+              {/* Footer Note */}
+              <div className="text-center text-[9.5px] text-slate-500 pt-3 border-t border-dashed border-slate-300">
+                <div>Thank you for shopping with us!</div>
+                <div className="text-[8.5px] text-slate-400 mt-0.5">Please visit again</div>
               </div>
             </div>
 
-            <div className="p-3 bg-[#f8fafc] border-t border-slate-200 flex items-center justify-between">
+            <div className="p-3 bg-[#f8fafc] border-t border-slate-200 flex items-center justify-between print:hidden">
               <button
-                onClick={handlePrintReceipt}
-                className="px-3 py-1.5 bg-[#5e2b9d] text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 hover:bg-[#4e2284] cursor-pointer"
+                onClick={() => handlePrintReceipt()}
+                className="px-3.5 py-1.5 bg-[#5e2b9d] text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 hover:bg-[#4e2284] cursor-pointer shadow-xs"
               >
-                <Printer className="w-3.5 h-3.5" /> Print Receipt
+                <Printer className="w-3.5 h-3.5" />
+                <span>{isPrinterConnected ? `Print (${printerType})` : "Print Receipt"}</span>
               </button>
               <button
                 onClick={() => setSelectedOrder(null)}
-                className="px-3 py-1.5 bg-slate-200 text-slate-700 rounded-lg text-xs font-medium hover:bg-slate-300 cursor-pointer"
+                className="px-3.5 py-1.5 bg-slate-200 text-slate-700 rounded-lg text-xs font-medium hover:bg-slate-300 cursor-pointer"
               >
                 Close
               </button>

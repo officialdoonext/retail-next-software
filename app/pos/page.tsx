@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import SoftwareLayout from "@/components/SoftwareLayout";
 import { useToast } from "@/components/ToastProvider";
+import { usePrinter } from "@/context/PrinterContext";
 import ConfirmModal from "@/components/ConfirmModal";
 
 interface CartItem {
@@ -63,6 +64,7 @@ interface SavedBill {
 
 export default function PosPage() {
   const toast = useToast();
+  const { isConnected: isPrinterConnected, printerType, printReceipt, printWindow } = usePrinter();
 
   // Reference data
   const [products, setProducts] = useState<any[]>([]);
@@ -668,6 +670,11 @@ export default function PosPage() {
         // Open Printable Receipt
         setSettledReceipt(data.order);
         setIsReceiptModalOpen(true);
+
+        // Hardware ESC/POS auto-print if connected via WebUSB or Bluetooth
+        if (isPrinterConnected) {
+          printReceipt(data.order, storeSettings);
+        }
 
         // Remove from saved bills if it was a draft
         if (activeSavedBillId) {
@@ -1620,13 +1627,19 @@ export default function PosPage() {
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => window.print()}
+                    onClick={() => {
+                      if (isPrinterConnected) {
+                        printReceipt(settledReceipt, storeSettings);
+                      } else {
+                        printWindow();
+                      }
+                    }}
                     className="h-[28px] bg-[#5e2b9d] text-white px-2.5 rounded-[4px] text-[11px] font-medium hover:bg-[#4e2284] cursor-pointer flex items-center gap-1 shadow-2xs"
                   >
                     <svg className="w-3.5 h-3.5 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M6.72 13.829c-.24-1.056-.367-2.155-.367-3.28 0-4.418 3.582-8 8-8s8 3.582 8 8a7.965 7.965 0 01-.367 3.28m-15.266 0A7.962 7.962 0 004 10.549c0 4.418 3.582 8 8 8a7.96 7.96 0 006.72-3.69m-14.72 0h14.72" />
                     </svg>
-                    <span>Print Receipt</span>
+                    <span>{isPrinterConnected ? `Print (${printerType})` : "Print Receipt"}</span>
                   </button>
                   <button
                     type="button"
@@ -1638,74 +1651,82 @@ export default function PosPage() {
                 </div>
               </div>
 
-              {/* Thermal Slip Content */}
-              <div id="thermal-receipt" className="p-4 text-[11px] font-mono text-slate-800 space-y-2 max-h-[75vh] overflow-y-auto">
+              {/* Thermal Slip Content - Fully occupying 80mm roll width */}
+              <div id="thermal-receipt" className="p-4 text-[11px] font-mono text-slate-900 space-y-2 max-h-[75vh] overflow-y-auto w-full">
                 {/* Store Branding Header */}
-                <div className="text-center border-b border-dashed border-slate-300 pb-2.5">
-                  <div className="font-sans font-medium text-sm text-slate-900 tracking-wide uppercase">
+                <div className="text-center border-b border-dashed border-slate-400 pb-2.5">
+                  <div className="font-sans font-bold text-sm text-slate-950 tracking-wider uppercase">
                     {storeSettings?.name || "Retail Next Store"}
                   </div>
                   {storeSettings?.address && (
-                    <div className="text-[10px] text-slate-500 font-normal">
-                      {storeSettings.address}, {storeSettings.city}
+                    <div className="text-[10px] text-slate-600 font-normal mt-0.5">
+                      {[storeSettings.address, storeSettings.city, storeSettings.state, storeSettings.pincode].filter(Boolean).join(", ")}
                     </div>
                   )}
-                  {storeSettings?.phone && (
-                    <div className="text-[10px] text-slate-500 font-normal">
-                      Ph: {storeSettings.phone}
+                  {(storeSettings?.phone || storeSettings?.email) && (
+                    <div className="text-[10px] text-slate-600 font-normal">
+                      {storeSettings.phone ? `Ph: ${storeSettings.phone}` : ""}
+                      {storeSettings.phone && storeSettings.email ? " | " : ""}
+                      {storeSettings.email || ""}
                     </div>
                   )}
                   {storeSettings?.enableGst && storeSettings.gstNumber && (
-                    <div className="text-[10px] text-slate-600 font-normal mt-0.5">
+                    <div className="text-[10px] text-slate-800 font-semibold mt-0.5">
                       GSTIN: {storeSettings.gstNumber}
                     </div>
                   )}
                 </div>
 
                 {/* Invoice Metadata */}
-                <div className="border-b border-dashed border-slate-300 pb-2 text-[10px] space-y-0.5">
+                <div className="border-b border-dashed border-slate-400 pb-2 text-[10px] space-y-0.5">
                   <div className="flex justify-between">
-                    <span>Invoice:</span>
-                    <span className="font-medium">{settledReceipt.billNumber}</span>
+                    <span className="text-slate-600">Invoice:</span>
+                    <span className="font-bold">{settledReceipt.billNumber}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span>Date:</span>
-                    <span>{new Date(settledReceipt.createdAt).toLocaleString("en-IN")}</span>
+                    <span className="text-slate-600">Date & Time:</span>
+                    <span>{new Date(settledReceipt.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span>Customer:</span>
-                    <span>{settledReceipt.customer?.name || "Walk-in"}</span>
+                    <span className="text-slate-600">Customer:</span>
+                    <span className="font-semibold">{settledReceipt.customer?.name || "Walk-in Customer"}</span>
                   </div>
                   {settledReceipt.customer?.phone && (
                     <div className="flex justify-between">
-                      <span>Phone:</span>
+                      <span className="text-slate-600">Phone:</span>
                       <span>{settledReceipt.customer.phone}</span>
+                    </div>
+                  )}
+                  {settledReceipt.settledBy && (
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">Billed By:</span>
+                      <span>{settledReceipt.settledBy}</span>
                     </div>
                   )}
                 </div>
 
                 {/* Line Items Table */}
-                <table className="w-full text-[10px] border-b border-dashed border-slate-300 pb-2">
+                <table className="w-full text-[10px] border-b border-dashed border-slate-400 pb-2">
                   <thead>
-                    <tr className="text-slate-500 border-b border-slate-200">
-                      <th className="text-left pb-1 font-normal">Item</th>
-                      <th className="text-center pb-1 font-normal">Qty</th>
-                      <th className="text-right pb-1 font-normal">Rate</th>
-                      <th className="text-right pb-1 font-normal">Total</th>
+                    <tr className="text-slate-700 border-b border-slate-300 font-semibold">
+                      <th className="text-left pb-1 font-semibold">Item</th>
+                      <th className="text-center pb-1 font-semibold">Qty</th>
+                      <th className="text-right pb-1 font-semibold">Rate</th>
+                      <th className="text-right pb-1 font-semibold">Total</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {settledReceipt.items.map((it: any, i: number) => (
                       <tr key={it.cartId || it.variantId || it.productId || `rec_item_${i}`}>
-                        <td className="py-1">
-                          <div className="leading-tight">{it.productName}</div>
+                        <td className="py-1 pr-1">
+                          <div className="leading-tight font-medium">{it.productName}</div>
                           {it.variantName && (
-                            <div className="text-[9px] text-slate-400">{it.variantName}</div>
+                            <div className="text-[9px] text-slate-500">{it.variantName}</div>
                           )}
                         </td>
-                        <td className="text-center py-1">{it.quantity}</td>
-                        <td className="text-right py-1">₹{it.price}</td>
-                        <td className="text-right py-1 font-medium">₹{it.total}</td>
+                        <td className="text-center py-1 whitespace-nowrap">{it.quantity}</td>
+                        <td className="text-right py-1 whitespace-nowrap">₹{Number(it.price).toFixed(2)}</td>
+                        <td className="text-right py-1 font-semibold whitespace-nowrap">₹{Number(it.total).toFixed(2)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1714,51 +1735,61 @@ export default function PosPage() {
                 {/* Totals Breakdown */}
                 <div className="text-[10.5px] space-y-0.5 pt-1">
                   <div className="flex justify-between">
-                    <span>Subtotal:</span>
-                    <span>₹{settledReceipt.subtotal.toFixed(2)}</span>
+                    <span className="text-slate-600">Total Items:</span>
+                    <span>{settledReceipt.items.length} ({settledReceipt.items.reduce((s: number, it: any) => s + (it.quantity || 1), 0)} pcs)</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">Subtotal:</span>
+                    <span>₹{Number(settledReceipt.subtotal).toFixed(2)}</span>
                   </div>
                   {settledReceipt.discount > 0 && (
                     <div className="flex justify-between text-rose-600">
                       <span>Discount:</span>
-                      <span>-₹{settledReceipt.discount.toFixed(2)}</span>
+                      <span>-₹{Number(settledReceipt.discount).toFixed(2)}</span>
                     </div>
                   )}
                   {settledReceipt.cgst > 0 && (
                     <div className="flex justify-between text-slate-600 text-[10px]">
                       <span>CGST:</span>
-                      <span>₹{settledReceipt.cgst.toFixed(2)}</span>
+                      <span>₹{Number(settledReceipt.cgst).toFixed(2)}</span>
                     </div>
                   )}
                   {settledReceipt.sgst > 0 && (
                     <div className="flex justify-between text-slate-600 text-[10px]">
                       <span>SGST:</span>
-                      <span>₹{settledReceipt.sgst.toFixed(2)}</span>
+                      <span>₹{Number(settledReceipt.sgst).toFixed(2)}</span>
                     </div>
                   )}
-                  {settledReceipt.roundOff > 0 && (
+                  {settledReceipt.roundOff !== undefined && settledReceipt.roundOff !== 0 && (
                     <div className="flex justify-between text-slate-600 text-[10px]">
                       <span>Round Off:</span>
-                      <span>+₹{Number(settledReceipt.roundOff).toFixed(2)}</span>
+                      <span>₹{Number(settledReceipt.roundOff).toFixed(2)}</span>
                     </div>
                   )}
-                  <div className="flex justify-between text-xs font-medium pt-1.5 border-t border-dashed border-slate-300">
+                  <div className="flex justify-between text-xs font-bold pt-1.5 border-t border-dashed border-slate-400 text-slate-950">
                     <span>GRAND TOTAL:</span>
-                    <span className="font-medium">₹{settledReceipt.grandTotal.toFixed(2)}</span>
+                    <span className="font-extrabold">₹{Number(settledReceipt.grandTotal).toFixed(2)}</span>
                   </div>
-                  <div className="flex justify-between text-[10px] text-slate-500 pt-1">
+                  <div className="flex justify-between text-[10px] text-slate-600 pt-1">
                     <span>Payment Mode:</span>
-                    <span className="font-medium uppercase">{settledReceipt.paymentMethod}</span>
+                    <span className="font-bold uppercase text-slate-900">{settledReceipt.paymentMethod}</span>
                   </div>
                   {settledReceipt.paymentMethod === "SPLIT" && settledReceipt.splitDetails && (
-                    <div className="text-[9.5px] text-slate-400 pl-2">
+                    <div className="text-[9.5px] text-slate-500 pl-2">
                       UPI: ₹{settledReceipt.splitDetails.upi} | Cash: ₹{settledReceipt.splitDetails.cash} | Card: ₹{settledReceipt.splitDetails.card}
+                    </div>
+                  )}
+                  {settledReceipt.notes && (
+                    <div className="text-[9.5px] text-slate-500 pt-1 italic">
+                      Note: {settledReceipt.notes}
                     </div>
                   )}
                 </div>
 
                 {/* Footer Note */}
-                <div className="text-center text-[9.5px] text-slate-400 pt-3 border-t border-dashed border-slate-200">
-                  Thank you for shopping with us!
+                <div className="text-center text-[9.5px] text-slate-500 pt-3 border-t border-dashed border-slate-300">
+                  <div>Thank you for shopping with us!</div>
+                  <div className="text-[8.5px] text-slate-400 mt-0.5">Please visit again</div>
                 </div>
               </div>
 

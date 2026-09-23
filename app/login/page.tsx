@@ -1,11 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
+import { useToast } from "@/components/ToastProvider";
 
 export default function LoginPage() {
   const router = useRouter();
+  const toast = useToast();
   const [activeTab, setActiveTab] = useState<"admin" | "staff">("admin");
   const [email, setEmail] = useState("");
   // Staff Login States
@@ -18,7 +20,14 @@ export default function LoginPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+
+  // PWA Install State & Lifecycle
   const [pwaInstalled, setPwaInstalled] = useState(false);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isStandalone, setIsStandalone] = useState(false);
+  const [isInstalling, setIsInstalling] = useState(false);
+  const [showInstallGuideModal, setShowInstallGuideModal] = useState(false);
+  const [guidePlatform, setGuidePlatform] = useState<"ios" | "android" | "desktop">("desktop");
 
   // Send real email OTP via API
   const handleSendOtp = async (e: React.FormEvent) => {
@@ -187,9 +196,109 @@ export default function LoginPage() {
     }
   };
 
-  const handleInstallPwa = () => {
-    setPwaInstalled(true);
-    setTimeout(() => setPwaInstalled(false), 3000);
+  // 1. Detect PWA installation and capture install prompt event
+  useEffect(() => {
+    // Check if running in standalone window mode (already installed)
+    const checkStandalone = () => {
+      if (typeof window === "undefined") return;
+      const isStandaloneMode =
+        window.matchMedia("(display-mode: standalone)").matches ||
+        (window.navigator as any).standalone === true ||
+        document.referrer.includes("android-app://");
+      setIsStandalone(isStandaloneMode);
+      if (isStandaloneMode) {
+        setPwaInstalled(true);
+      }
+    };
+
+    checkStandalone();
+
+    // Check if global prompt was stored early by PwaUpdater
+    if (typeof window !== "undefined" && (window as any).__pwaInstallPrompt) {
+      setDeferredPrompt((window as any).__pwaInstallPrompt);
+    }
+
+    const handlePrompt = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      (window as any).__pwaInstallPrompt = e;
+    };
+
+    const handlePromptAvailable = () => {
+      if (typeof window !== "undefined" && (window as any).__pwaInstallPrompt) {
+        setDeferredPrompt((window as any).__pwaInstallPrompt);
+      }
+    };
+
+    const handleInstalled = () => {
+      setPwaInstalled(true);
+      setIsStandalone(true);
+      setDeferredPrompt(null);
+      if (typeof window !== "undefined") {
+        (window as any).__pwaInstallPrompt = null;
+      }
+      toast.success("RetailNext PWA installed successfully!");
+    };
+
+    window.addEventListener("beforeinstallprompt", handlePrompt);
+    window.addEventListener("pwa-prompt-available", handlePromptAvailable);
+    window.addEventListener("appinstalled", handleInstalled);
+    window.addEventListener("pwa-installed", handleInstalled);
+
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handlePrompt);
+      window.removeEventListener("pwa-prompt-available", handlePromptAvailable);
+      window.removeEventListener("appinstalled", handleInstalled);
+      window.removeEventListener("pwa-installed", handleInstalled);
+    };
+  }, []);
+
+  // 2. Real PWA Install Handler
+  const handleInstallPwa = async () => {
+    // A. Already installed on this device/browser
+    if (isStandalone || pwaInstalled) {
+      toast.success("RetailNext is already installed on your device!");
+      return;
+    }
+
+    // B. Trigger native browser prompt if available
+    const prompt = deferredPrompt || (typeof window !== "undefined" ? (window as any).__pwaInstallPrompt : null);
+    if (prompt) {
+      try {
+        setIsInstalling(true);
+        await prompt.prompt();
+        const choiceResult = await prompt.userChoice;
+        if (choiceResult && choiceResult.outcome === "accepted") {
+          setPwaInstalled(true);
+          setDeferredPrompt(null);
+          if (typeof window !== "undefined") {
+            (window as any).__pwaInstallPrompt = null;
+          }
+          toast.success("RetailNext App Installed Successfully!");
+        } else {
+          toast.info("Install dismissed. You can install anytime.");
+        }
+      } catch (err) {
+        console.error("Install prompt error:", err);
+      } finally {
+        setIsInstalling(false);
+      }
+      return;
+    }
+
+    // C. Fallback for iOS Safari, desktop browsers, or when prompt hasn't fired yet
+    const userAgent = typeof navigator !== "undefined" ? navigator.userAgent.toLowerCase() : "";
+    const isIos = /iphone|ipad|ipod/.test(userAgent);
+    const isAndroid = /android/.test(userAgent);
+
+    if (isIos) {
+      setGuidePlatform("ios");
+    } else if (isAndroid) {
+      setGuidePlatform("android");
+    } else {
+      setGuidePlatform("desktop");
+    }
+    setShowInstallGuideModal(true);
   };
 
   return (
@@ -610,18 +719,31 @@ export default function LoginPage() {
           <button
             type="button"
             onClick={handleInstallPwa}
-            className="h-[34px] max-h-[34px] inline-flex items-center gap-1.5 px-4 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-[6px] hover:bg-slate-50 transition-colors shadow-xs cursor-pointer"
+            disabled={isInstalling}
+            className={`h-[34px] max-h-[34px] inline-flex items-center gap-1.5 px-4 text-xs font-semibold rounded-[6px] transition-all shadow-xs cursor-pointer ${
+              isStandalone || pwaInstalled
+                ? "bg-emerald-50 text-emerald-800 border border-emerald-300"
+                : "bg-white text-slate-700 border border-slate-200 hover:bg-purple-50 hover:text-[#5e2b9d] hover:border-purple-200"
+            }`}
           >
-            {pwaInstalled ? (
-              <span className="text-[#00966a] flex items-center gap-1">
+            {isInstalling ? (
+              <span className="flex items-center gap-1.5 text-[#5e2b9d]">
+                <svg className="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                </svg>
+                Installing...
+              </span>
+            ) : isStandalone || pwaInstalled ? (
+              <span className="text-[#00966a] flex items-center gap-1.5">
                 <svg className="w-3.5 h-3.5 stroke-[2.5]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                 </svg>
-                App Ready
+                App Installed
               </span>
             ) : (
               <>
-                <span>Install</span>
+                <span>Install App</span>
                 <svg className="w-3.5 h-3.5 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
                 </svg>
@@ -629,6 +751,134 @@ export default function LoginPage() {
             )}
           </button>
         </div>
+
+        {/* PWA Install Instructions Modal for browsers without auto-prompt (iOS / Safari / Desktop) */}
+        {showInstallGuideModal && (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+            <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full overflow-hidden border border-slate-200/90 text-left animate-in zoom-in-95 duration-150">
+              <div className="bg-[#5e2b9d] text-white p-4 flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center text-white">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-white">Install RetailNext App</h3>
+                    <p className="text-[11px] text-purple-200">
+                      {guidePlatform === "ios"
+                        ? "Apple iOS / iPadOS Setup"
+                        : guidePlatform === "android"
+                        ? "Android Setup"
+                        : "Desktop / Chrome / Edge Setup"}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowInstallGuideModal(false)}
+                  className="w-7 h-7 rounded-lg text-purple-200 hover:text-white hover:bg-white/10 flex items-center justify-center cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="p-4 space-y-3.5 text-xs text-slate-700">
+                {guidePlatform === "ios" ? (
+                  <div className="space-y-3">
+                    <p className="text-slate-600">
+                      To install on your iPhone or iPad, use Safari:
+                    </p>
+                    <div className="space-y-2.5 bg-slate-50 p-3 rounded-lg border border-slate-200">
+                      <div className="flex items-start gap-2.5">
+                        <div className="w-5 h-5 rounded-full bg-[#5e2b9d] text-white flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
+                          1
+                        </div>
+                        <div>
+                          Tap the <strong>Share</strong> button at the bottom of the screen (square with upward arrow).
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-2.5">
+                        <div className="w-5 h-5 rounded-full bg-[#5e2b9d] text-white flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
+                          2
+                        </div>
+                        <div>
+                          Scroll down and tap <strong>Add to Home Screen</strong>.
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-2.5">
+                        <div className="w-5 h-5 rounded-full bg-[#5e2b9d] text-white flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
+                          3
+                        </div>
+                        <div>
+                          Tap <strong>Add</strong> in the top-right corner to complete installation.
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : guidePlatform === "android" ? (
+                  <div className="space-y-3">
+                    <p className="text-slate-600">
+                      Install on Android via Chrome or Samsung Internet:
+                    </p>
+                    <div className="space-y-2.5 bg-slate-50 p-3 rounded-lg border border-slate-200">
+                      <div className="flex items-start gap-2.5">
+                        <div className="w-5 h-5 rounded-full bg-[#5e2b9d] text-white flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
+                          1
+                        </div>
+                        <div>
+                          Tap the <strong>Menu (⋮)</strong> in the top right corner.
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-2.5">
+                        <div className="w-5 h-5 rounded-full bg-[#5e2b9d] text-white flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
+                          2
+                        </div>
+                        <div>
+                          Select <strong>Install app</strong> or <strong>Add to Home screen</strong>.
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <p className="text-slate-600">
+                      Install directly on your Computer or Laptop:
+                    </p>
+                    <div className="space-y-2.5 bg-slate-50 p-3 rounded-lg border border-slate-200">
+                      <div className="flex items-start gap-2.5">
+                        <div className="w-5 h-5 rounded-full bg-[#5e2b9d] text-white flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
+                          1
+                        </div>
+                        <div>
+                          Look at your browser address bar (top-right) and click the <strong>Install</strong> icon (computer monitor with download arrow).
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-2.5">
+                        <div className="w-5 h-5 rounded-full bg-[#5e2b9d] text-white flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
+                          2
+                        </div>
+                        <div>
+                          Alternatively, click the browser menu <strong>(⋮)</strong> &gt; <strong>Save and share</strong> &gt; <strong>Install RetailNext...</strong>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="pt-2 border-t border-slate-100 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setShowInstallGuideModal(false)}
+                    className="px-4 py-1.5 bg-[#5e2b9d] text-white rounded-lg text-xs font-semibold hover:bg-[#4e2284] cursor-pointer"
+                  >
+                    Got It
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
