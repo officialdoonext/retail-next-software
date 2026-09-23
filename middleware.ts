@@ -21,6 +21,7 @@ const SOFTWARE_ROUTES = [
   "/employees",
   "/staff",
   "/analytics",
+  "/utilities",
   "/settings",
 ];
 

@@ -17,11 +17,14 @@ interface ParsedProduct {
   category: string;
   subCategory?: string;
   price: number;
-  stock: number;
+  stock?: number;
   bufferStock: number;
   description: string;
   barcode: string;
   imageUrl: string;
+  isDiscountAvailable?: boolean;
+  discountType?: "PERCENTAGE" | "RUPEES";
+  discountValue?: number;
   variationType?: string;
   variationValue?: string;
 }
@@ -52,11 +55,13 @@ export default function BulkUploadModal({
         { wch: 38 }, // Product Name
         { wch: 18 }, // Category
         { wch: 10 }, // Price
-        { wch: 10 }, // Stock
         { wch: 14 }, // Buffer Stock
         { wch: 45 }, // Description
         { wch: 18 }, // Barcode (empty)
         { wch: 30 }, // Image URL (empty)
+        { wch: 18 }, // Discount Available
+        { wch: 14 }, // Discount Type
+        { wch: 14 }, // Discount Value
         { wch: 16 }, // Variation Type (optional)
         { wch: 16 }, // Variation Value (optional)
       ];
@@ -82,11 +87,13 @@ export default function BulkUploadModal({
         { wch: 16 }, // Category
         { wch: 18 }, // Sub Category
         { wch: 10 }, // Price
-        { wch: 10 }, // Stock
         { wch: 14 }, // Buffer Stock
         { wch: 55 }, // Description
         { wch: 18 }, // Barcode (empty)
         { wch: 30 }, // Image URL (empty)
+        { wch: 18 }, // Discount Available
+        { wch: 14 }, // Discount Type
+        { wch: 14 }, // Discount Value
         { wch: 22 }, // Variation 1 (Color)
         { wch: 20 }, // Variation 2 (Size)
       ];
@@ -140,11 +147,38 @@ export default function BulkUploadModal({
           ).trim();
 
           const price = Math.max(0, Number(row["Price"] || row["price"]) || 0);
-          const stock = Math.max(0, Number(row["Stock"] || row["stock"]) || 0);
+          const stock = row["Stock"] !== undefined && row["Stock"] !== "" 
+            ? Math.max(0, Number(row["Stock"]) || 0) 
+            : (row["stock"] !== undefined && row["stock"] !== "" ? Math.max(0, Number(row["stock"]) || 0) : 0);
           const bufferStock = Math.max(0, Number(row["Buffer Stock"] || row["bufferStock"] || row["Buffer"]) || 0);
           const description = String(row["Description"] || row["description"] || "").trim();
           const barcode = String(row["Barcode"] || row["barcode"] || "").trim();
           const imageUrl = String(row["Image URL"] || row["imageUrl"] || row["Image"] || "").trim();
+
+          // Discount fields parsing
+          const discountAvailRaw = String(
+            row["Discount Available"] ||
+            row["discountAvailable"] ||
+            row["isDiscountAvailable"] ||
+            row["Discount"] ||
+            ""
+          ).trim().toLowerCase();
+          const isDiscountAvailable = discountAvailRaw === "yes" || discountAvailRaw === "true" || discountAvailRaw === "1";
+
+          const discountTypeRaw = String(
+            row["Discount Type"] ||
+            row["discountType"] ||
+            ""
+          ).trim().toUpperCase();
+          const discountType = (discountTypeRaw.includes("RUPEE") || discountTypeRaw === "₹" || discountTypeRaw === "RS")
+            ? ("RUPEES" as const)
+            : ("PERCENTAGE" as const);
+
+          const discountValue = Math.max(0, Number(
+            row["Discount Value"] ||
+            row["discountValue"] ||
+            0
+          ) || 0);
 
           // Multi-level variation columns check
           const var1Color = String(
@@ -202,6 +236,9 @@ export default function BulkUploadModal({
             description,
             barcode,
             imageUrl,
+            isDiscountAvailable,
+            discountType,
+            discountValue,
             variationType,
             variationValue,
           });
@@ -493,7 +530,7 @@ export default function BulkUploadModal({
                       <th className="py-2 px-3">Category</th>
                       <th className="py-2 px-3">Variation</th>
                       <th className="py-2 px-3">Price</th>
-                      <th className="py-2 px-3">Stock</th>
+                      <th className="py-2 px-3">Discount</th>
                       <th className="py-2 px-3">Barcode</th>
                     </tr>
                   </thead>
@@ -527,8 +564,14 @@ export default function BulkUploadModal({
                         <td className="py-1.5 px-3 font-medium text-slate-900">
                           ₹{item.price}
                         </td>
-                        <td className="py-1.5 px-3 text-slate-700">
-                          {item.stock}
+                        <td className="py-1.5 px-3">
+                          {item.isDiscountAvailable ? (
+                            <span className="inline-flex items-center text-[10.5px] font-semibold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              {item.discountType === "RUPEES" ? `₹${item.discountValue} OFF` : `${item.discountValue}% OFF`}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400 text-[11px]">None</span>
+                          )}
                         </td>
                         <td className="py-1.5 px-3 text-[11px] font-mono text-purple-700">
                           {item.barcode || "🎲 Auto (12-digits)"}

@@ -152,6 +152,9 @@ export async function POST(request: Request) {
       categoryName: body.categoryName || "Uncategorized",
       imageUrl: body.imageUrl || "",
       hasVariations,
+      isDiscountAvailable: Boolean(body.isDiscountAvailable),
+      discountType: body.discountType === "RUPEES" ? "RUPEES" : "PERCENTAGE",
+      discountValue: Math.max(0, Number(body.discountValue) || 0),
       storeId: ctx.storeId,
       createdBy: ctx.session.email,
       createdAt: Date.now(),
@@ -178,6 +181,9 @@ export async function POST(request: Request) {
         bufferStock: Number(v.bufferStock) || 0,
         barcode: String(v.barcode || Math.floor(100000000000 + Math.random() * 900000000000)),
         sku: String(v.sku || `SKU-${Date.now().toString().slice(-6)}-${index + 1}`),
+        isDiscountAvailable: v.isDiscountAvailable !== undefined ? Boolean(v.isDiscountAvailable) : Boolean(body.isDiscountAvailable),
+        discountType: (v.discountType || body.discountType) === "RUPEES" ? "RUPEES" : "PERCENTAGE",
+        discountValue: v.discountValue !== undefined ? Math.max(0, Number(v.discountValue) || 0) : Math.max(0, Number(body.discountValue) || 0),
       }));
 
       // Calculate total stock and lowest price for quick table view
@@ -246,6 +252,9 @@ export async function PUT(request: Request) {
       categoryName: body.categoryName || "Uncategorized",
       imageUrl: body.imageUrl || "",
       hasVariations,
+      isDiscountAvailable: Boolean(body.isDiscountAvailable),
+      discountType: body.discountType === "RUPEES" ? "RUPEES" : "PERCENTAGE",
+      discountValue: Math.max(0, Number(body.discountValue) || 0),
       updatedAt: Date.now(),
     };
 
@@ -257,17 +266,20 @@ export async function PUT(request: Request) {
         name: String(v.name || `Variant ${index + 1}`),
         attributes: v.attributes || {},
         price: Number(v.price) || 0,
-        stock: Number(v.stock) || 0,
+        stock: v.stock !== undefined ? Number(v.stock) || 0 : (existingSnap.data().variants?.[index]?.stock || 0),
         bufferStock: Number(v.bufferStock) || 0,
         barcode: String(v.barcode || Math.floor(100000000000 + Math.random() * 900000000000)),
         sku: String(v.sku || `SKU-${Date.now().toString().slice(-6)}-${index + 1}`),
+        isDiscountAvailable: v.isDiscountAvailable !== undefined ? Boolean(v.isDiscountAvailable) : Boolean(body.isDiscountAvailable),
+        discountType: (v.discountType || body.discountType) === "RUPEES" ? "RUPEES" : "PERCENTAGE",
+        discountValue: v.discountValue !== undefined ? Math.max(0, Number(v.discountValue) || 0) : Math.max(0, Number(body.discountValue) || 0),
       }));
       updateData.totalStock = updateData.variants.reduce((acc: number, curr: any) => acc + (curr.stock || 0), 0);
       updateData.minPrice = Math.min(...updateData.variants.map((v: any) => v.price));
       updateData.maxPrice = Math.max(...updateData.variants.map((v: any) => v.price));
     } else {
       updateData.price = Number(body.price) || 0;
-      updateData.stock = Number(body.stock) || 0;
+      updateData.stock = body.stock !== undefined ? Number(body.stock) || 0 : (existingSnap.data().stock ?? 0);
       updateData.bufferStock = Number(body.bufferStock) || 0;
       updateData.barcode = String(body.barcode || "");
       updateData.sku = String(body.sku || "");

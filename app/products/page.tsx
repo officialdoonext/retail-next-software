@@ -16,6 +16,9 @@ interface ProductVariant {
   bufferStock: number;
   barcode: string;
   sku: string;
+  isDiscountAvailable?: boolean;
+  discountType?: "PERCENTAGE" | "RUPEES";
+  discountValue?: number;
 }
 
 interface Product {
@@ -32,6 +35,9 @@ interface Product {
   bufferStock?: number;
   barcode?: string;
   sku?: string;
+  isDiscountAvailable?: boolean;
+  discountType?: "PERCENTAGE" | "RUPEES";
+  discountValue?: number;
   variationTypes?: string[];
   variants?: ProductVariant[];
   totalStock?: number;
@@ -83,6 +89,11 @@ export default function ProductsPage() {
   const [simpleBufferStock, setSimpleBufferStock] = useState<number | "">("");
   const [simpleBarcode, setSimpleBarcode] = useState("");
   const [simpleSku, setSimpleSku] = useState("");
+
+  // Product Discount Fields
+  const [isDiscountAvailable, setIsDiscountAvailable] = useState(false);
+  const [discountType, setDiscountType] = useState<"PERCENTAGE" | "RUPEES">("PERCENTAGE");
+  const [discountValue, setDiscountValue] = useState<number | "">("");
 
   // Hierarchical Variations Builder Fields
   const [primaryVariation, setPrimaryVariation] = useState("Color");
@@ -280,10 +291,13 @@ export default function ProductsPage() {
     setImageUrl("");
     setHasVariations(false);
     setSimplePrice("");
-    setSimpleStock("");
+    setSimpleStock(0);
     setSimpleBufferStock("");
     setSimpleBarcode(generateRandomBarcode());
     setSimpleSku(`SKU-${Date.now().toString().slice(-6)}`);
+    setIsDiscountAvailable(false);
+    setDiscountType("PERCENTAGE");
+    setDiscountValue("");
 
     const initialPrimary = storeVariations[0]?.name || "Color";
     const initialSub = storeVariations[1]?.name || "Size";
@@ -311,6 +325,13 @@ export default function ProductsPage() {
     setCategoryId(product.categoryId || "");
     setImageUrl(product.imageUrl || "");
     setHasVariations(product.hasVariations);
+    setIsDiscountAvailable(product.isDiscountAvailable ?? false);
+    setDiscountType(product.discountType || "PERCENTAGE");
+    setDiscountValue(
+      product.discountValue !== undefined && product.discountValue !== null
+        ? product.discountValue
+        : ""
+    );
 
     if (product.hasVariations && product.variants) {
       setGeneratedVariants(product.variants);
@@ -356,7 +377,7 @@ export default function ProductsPage() {
       setNewSubInputByPrimary({});
     } else {
       setSimplePrice(product.price ?? "");
-      setSimpleStock(product.stock ?? "");
+      setSimpleStock(product.stock ?? 0);
       setSimpleBufferStock(product.bufferStock ?? "");
       setSimpleBarcode(product.barcode || generateRandomBarcode());
       setSimpleSku(product.sku || "");
@@ -522,13 +543,21 @@ export default function ProductsPage() {
       categoryName: selectedCategory ? selectedCategory.name : "Uncategorized",
       imageUrl: imageUrl.trim(),
       hasVariations,
+      isDiscountAvailable,
+      discountType,
+      discountValue: isDiscountAvailable ? (Number(discountValue) || 0) : 0,
     };
 
     if (hasVariations) {
       payload.variationTypes = enableSubVariation
         ? [primaryDisplayName, subDisplayName]
         : [primaryDisplayName];
-      payload.variants = generatedVariants;
+      payload.variants = generatedVariants.map((v) => ({
+        ...v,
+        isDiscountAvailable: v.isDiscountAvailable !== undefined ? v.isDiscountAvailable : isDiscountAvailable,
+        discountType: v.discountType || discountType,
+        discountValue: v.discountValue !== undefined ? v.discountValue : (isDiscountAvailable ? Number(discountValue) || 0 : 0),
+      }));
     } else {
       payload.price = Number(simplePrice) || 0;
       payload.stock = Number(simpleStock) || 0;
@@ -795,17 +824,26 @@ export default function ProductsPage() {
                         )}
                       </td>
 
-                      {/* Price */}
+                      {/* Price & Discount */}
                       <td className="py-2.5 px-3 font-medium text-slate-900">
-                        {p.hasVariations ? (
-                          p.minPrice === p.maxPrice ? (
-                            `₹${p.minPrice?.toFixed(2)}`
-                          ) : (
-                            `₹${p.minPrice?.toFixed(2)} - ₹${p.maxPrice?.toFixed(2)}`
-                          )
-                        ) : (
-                          `₹${(p.price || 0).toFixed(2)}`
-                        )}
+                        <div>
+                          <span>
+                            {p.hasVariations ? (
+                              p.minPrice === p.maxPrice ? (
+                                `₹${p.minPrice?.toFixed(2)}`
+                              ) : (
+                                `₹${p.minPrice?.toFixed(2)} - ₹${p.maxPrice?.toFixed(2)}`
+                              )
+                            ) : (
+                              `₹${(p.price || 0).toFixed(2)}`
+                            )}
+                          </span>
+                          {p.isDiscountAvailable && (
+                            <span className="block mt-0.5 text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded w-fit">
+                              {p.discountType === "RUPEES" ? `₹${p.discountValue} OFF` : `${p.discountValue}% OFF`}
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       {/* Stock & Buffer Status */}
@@ -1140,10 +1178,10 @@ export default function ProductsPage() {
                   /* Mode A: Simple Product */
                   <div className="bg-[#f8fafc] border border-slate-200 rounded-[6px] p-4">
                     <h3 className="text-xs font-medium text-slate-900 mb-3 pb-2 border-b border-slate-200">
-                      Pricing & Stock Management
+                      Pricing & Barcode Settings
                     </h3>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <div>
                         <label className="block text-xs font-medium text-slate-700 mb-1">
                           Price (₹) *
@@ -1156,21 +1194,6 @@ export default function ProductsPage() {
                           value={simplePrice}
                           onWheel={(e) => e.currentTarget.blur()}
                           onChange={(e) => setSimplePrice(e.target.value === "" ? "" : Number(e.target.value))}
-                          className="w-full h-[34px] max-h-[34px] bg-white border border-slate-200 rounded-[6px] px-3 text-xs font-normal text-slate-900 focus:outline-none focus:ring-1 focus:ring-[#5e2b9d] focus:border-[#5e2b9d] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-medium text-slate-700 mb-1">
-                          Stock Count *
-                        </label>
-                        <input
-                          type="number"
-                          required={!hasVariations}
-                          placeholder="0"
-                          value={simpleStock}
-                          onWheel={(e) => e.currentTarget.blur()}
-                          onChange={(e) => setSimpleStock(e.target.value === "" ? "" : Number(e.target.value))}
                           className="w-full h-[34px] max-h-[34px] bg-white border border-slate-200 rounded-[6px] px-3 text-xs font-normal text-slate-900 focus:outline-none focus:ring-1 focus:ring-[#5e2b9d] focus:border-[#5e2b9d] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                         />
                       </div>
@@ -1213,10 +1236,232 @@ export default function ProductsPage() {
                         </div>
                       </div>
                     </div>
+
+                    {/* Dedicated Discount Settings Section */}
+                    <div className="mt-4 pt-3.5 border-t border-slate-200">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded-[6px] border border-slate-200 shadow-2xs">
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-medium text-slate-800">
+                              Is Discount Available?
+                            </span>
+                            {isDiscountAvailable && (
+                              <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
+                                Active
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[11px] text-slate-400 font-normal">
+                            Enable if this item offers an optional discount that can be toggled during billing in POS.
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setIsDiscountAvailable(false)}
+                            className={`h-[30px] px-3 text-xs font-medium rounded-[4px] border transition-colors cursor-pointer ${
+                              !isDiscountAvailable
+                                ? "bg-slate-700 text-white border-slate-700 shadow-2xs"
+                                : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                            }`}
+                          >
+                            No Discount
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setIsDiscountAvailable(true)}
+                            className={`h-[30px] px-3 text-xs font-medium rounded-[4px] border transition-colors cursor-pointer flex items-center gap-1.5 ${
+                              isDiscountAvailable
+                                ? "bg-[#5e2b9d] text-white border-[#5e2b9d] shadow-2xs"
+                                : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                            }`}
+                          >
+                            <svg className="w-3.5 h-3.5 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                            </svg>
+                            <span>Discount Available</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {isDiscountAvailable && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3 p-3.5 bg-purple-50/40 rounded-[6px] border border-purple-100 animate-in fade-in duration-150">
+                          <div>
+                            <label className="block text-xs font-medium text-slate-700 mb-1">
+                              Discount Type *
+                            </label>
+                            <div className="flex items-center gap-1.5 h-[34px]">
+                              <button
+                                type="button"
+                                onClick={() => setDiscountType("PERCENTAGE")}
+                                className={`flex-1 h-[34px] text-xs font-medium rounded-[6px] border transition-colors cursor-pointer ${
+                                  discountType === "PERCENTAGE"
+                                    ? "bg-[#5e2b9d] text-white border-[#5e2b9d] shadow-2xs"
+                                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                                }`}
+                              >
+                                Percentage (%)
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDiscountType("RUPEES")}
+                                className={`flex-1 h-[34px] text-xs font-medium rounded-[6px] border transition-colors cursor-pointer ${
+                                  discountType === "RUPEES"
+                                    ? "bg-[#5e2b9d] text-white border-[#5e2b9d] shadow-2xs"
+                                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                                }`}
+                              >
+                                Rupees (₹)
+                              </button>
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-medium text-slate-700 mb-1">
+                              Discount Value {discountType === "PERCENTAGE" ? "(%)" : "(₹)"} *
+                            </label>
+                            <div className="relative">
+                              <input
+                                type="number"
+                                min="0"
+                                step={discountType === "PERCENTAGE" ? "1" : "0.5"}
+                                max={discountType === "PERCENTAGE" ? "100" : undefined}
+                                required={isDiscountAvailable}
+                                placeholder={discountType === "PERCENTAGE" ? "e.g. 10 (for 10% off)" : "e.g. 50 (for ₹50 off)"}
+                                value={discountValue}
+                                onWheel={(e) => e.currentTarget.blur()}
+                                onChange={(e) => setDiscountValue(e.target.value === "" ? "" : Number(e.target.value))}
+                                className="w-full h-[34px] bg-white border border-slate-200 rounded-[6px] px-3 pr-8 text-xs font-normal text-slate-900 focus:outline-none focus:ring-1 focus:ring-[#5e2b9d] focus:border-[#5e2b9d] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                              />
+                              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+                                {discountType === "PERCENTAGE" ? "%" : "₹"}
+                              </span>
+                            </div>
+                            {Number(discountValue) > 0 && (
+                              <p className="text-[11px] text-emerald-600 font-medium mt-1">
+                                ✓ In POS billing, cashiers can toggle {discountType === "PERCENTAGE" ? `${discountValue}% OFF` : `₹${discountValue} OFF`} on this item.
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ) : (
                   /* Mode B: Hierarchical Product Variations */
                   <div className="space-y-4">
+                    {/* Discount Configuration for Variable Product */}
+                    <div className="bg-[#f8fafc] border border-slate-200 rounded-[6px] p-4">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded-[6px] border border-slate-200 shadow-2xs">
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-medium text-slate-800">
+                              Is Discount Available for this Product?
+                            </span>
+                            {isDiscountAvailable && (
+                              <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
+                                Active
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[11px] text-slate-400 font-normal">
+                            Enable if this item's variants offer an optional discount that can be toggled during billing in POS.
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setIsDiscountAvailable(false)}
+                            className={`h-[30px] px-3 text-xs font-medium rounded-[4px] border transition-colors cursor-pointer ${
+                              !isDiscountAvailable
+                                ? "bg-slate-700 text-white border-slate-700 shadow-2xs"
+                                : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                            }`}
+                          >
+                            No Discount
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setIsDiscountAvailable(true)}
+                            className={`h-[30px] px-3 text-xs font-medium rounded-[4px] border transition-colors cursor-pointer flex items-center gap-1.5 ${
+                              isDiscountAvailable
+                                ? "bg-[#5e2b9d] text-white border-[#5e2b9d] shadow-2xs"
+                                : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                            }`}
+                          >
+                            <svg className="w-3.5 h-3.5 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                            </svg>
+                            <span>Discount Available</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {isDiscountAvailable && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3 p-3.5 bg-purple-50/40 rounded-[6px] border border-purple-100 animate-in fade-in duration-150">
+                          <div>
+                            <label className="block text-xs font-medium text-slate-700 mb-1">
+                              Discount Type *
+                            </label>
+                            <div className="flex items-center gap-1.5 h-[34px]">
+                              <button
+                                type="button"
+                                onClick={() => setDiscountType("PERCENTAGE")}
+                                className={`flex-1 h-[34px] text-xs font-medium rounded-[6px] border transition-colors cursor-pointer ${
+                                  discountType === "PERCENTAGE"
+                                    ? "bg-[#5e2b9d] text-white border-[#5e2b9d] shadow-2xs"
+                                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                                }`}
+                              >
+                                Percentage (%)
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDiscountType("RUPEES")}
+                                className={`flex-1 h-[34px] text-xs font-medium rounded-[6px] border transition-colors cursor-pointer ${
+                                  discountType === "RUPEES"
+                                    ? "bg-[#5e2b9d] text-white border-[#5e2b9d] shadow-2xs"
+                                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                                }`}
+                              >
+                                Rupees (₹)
+                              </button>
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-medium text-slate-700 mb-1">
+                              Discount Value {discountType === "PERCENTAGE" ? "(%)" : "(₹)"} *
+                            </label>
+                            <div className="relative">
+                              <input
+                                type="number"
+                                min="0"
+                                step={discountType === "PERCENTAGE" ? "1" : "0.5"}
+                                max={discountType === "PERCENTAGE" ? "100" : undefined}
+                                required={isDiscountAvailable}
+                                placeholder={discountType === "PERCENTAGE" ? "e.g. 10 (for 10% off)" : "e.g. 50 (for ₹50 off)"}
+                                value={discountValue}
+                                onWheel={(e) => e.currentTarget.blur()}
+                                onChange={(e) => setDiscountValue(e.target.value === "" ? "" : Number(e.target.value))}
+                                className="w-full h-[34px] bg-white border border-slate-200 rounded-[6px] px-3 pr-8 text-xs font-normal text-slate-900 focus:outline-none focus:ring-1 focus:ring-[#5e2b9d] focus:border-[#5e2b9d] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                              />
+                              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+                                {discountType === "PERCENTAGE" ? "%" : "₹"}
+                              </span>
+                            </div>
+                            {Number(discountValue) > 0 && (
+                              <p className="text-[11px] text-emerald-600 font-medium mt-1">
+                                ✓ In POS billing, cashiers can toggle {discountType === "PERCENTAGE" ? `${discountValue}% OFF` : `₹${discountValue} OFF`} on this item's variants.
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
                     {/* Step 1: Select First Variation Type & Add Values */}
                     <div className="bg-[#f8fafc] border border-slate-200 rounded-[6px] p-4">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 mb-3 border-b border-slate-200">
@@ -1501,23 +1746,6 @@ export default function ProductsPage() {
                             <div className="flex items-center gap-1">
                               <input
                                 type="number"
-                                placeholder="Stock"
-                                value={bulkStock}
-                                onWheel={(e) => e.currentTarget.blur()}
-                                onChange={(e) => setBulkStock(e.target.value === "" ? "" : Number(e.target.value))}
-                                className="w-16 h-[30px] bg-white border border-slate-200 rounded-[4px] px-1.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-[#5e2b9d] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                              />
-                              <button
-                                type="button"
-                                onClick={handleApplyBulkStock}
-                                className="h-[30px] px-2 bg-slate-100 hover:bg-slate-200 rounded-[4px] text-[11px] font-medium text-slate-700 cursor-pointer"
-                              >
-                                Set
-                              </button>
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <input
-                                type="number"
                                 placeholder="Buffer"
                                 value={bulkBufferStock}
                                 onWheel={(e) => e.currentTarget.blur()}
@@ -1541,7 +1769,6 @@ export default function ProductsPage() {
                               <tr>
                                 <th className="py-2.5 px-3">Variant</th>
                                 <th className="py-2.5 px-3 w-28">Price (₹) *</th>
-                                <th className="py-2.5 px-3 w-28">Stock Count *</th>
                                 <th className="py-2.5 px-3 w-28">Buffer Stock</th>
                                 <th className="py-2.5 px-3 w-44">Unique Barcode *</th>
                                 <th className="py-2.5 px-2 w-10 text-center">Action</th>
@@ -1564,17 +1791,6 @@ export default function ProductsPage() {
                                       onWheel={(e) => e.currentTarget.blur()}
                                       onChange={(e) => handleVariantFieldChange(vIdx, "price", e.target.value)}
                                       placeholder="0.00"
-                                      className="w-full h-[32px] bg-[#f8fafc] border border-slate-200 rounded-[4px] px-2 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#5e2b9d] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                                    />
-                                  </td>
-                                  <td className="py-2 px-3">
-                                    <input
-                                      type="number"
-                                      required
-                                      value={variant.stock || ""}
-                                      onWheel={(e) => e.currentTarget.blur()}
-                                      onChange={(e) => handleVariantFieldChange(vIdx, "stock", e.target.value)}
-                                      placeholder="0"
                                       className="w-full h-[32px] bg-[#f8fafc] border border-slate-200 rounded-[4px] px-2 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#5e2b9d] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                     />
                                   </td>
@@ -1744,15 +1960,22 @@ export default function ProductsPage() {
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2 border-t border-slate-200">
                       <div className="bg-white border border-slate-200 rounded-[4px] p-2">
                         <span className="text-[10px] font-medium text-slate-400 block uppercase">
-                          Price
+                          Price & Discount
                         </span>
-                        <span className="text-xs font-medium text-slate-900">
+                        <span className="text-xs font-medium text-slate-900 block truncate">
                           {viewingProduct.hasVariations
                             ? viewingProduct.minPrice === viewingProduct.maxPrice
                               ? `₹${viewingProduct.minPrice?.toFixed(2)}`
                               : `₹${viewingProduct.minPrice?.toFixed(2)} - ₹${viewingProduct.maxPrice?.toFixed(2)}`
                             : `₹${(viewingProduct.price || 0).toFixed(2)}`}
                         </span>
+                        {viewingProduct.isDiscountAvailable ? (
+                          <span className="inline-block mt-0.5 text-[9.5px] font-semibold text-emerald-700 bg-emerald-50 px-1 py-0.2 rounded border border-emerald-200">
+                            {viewingProduct.discountType === "RUPEES" ? `₹${viewingProduct.discountValue} OFF` : `${viewingProduct.discountValue}% OFF`}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-slate-400 block">No Discount</span>
+                        )}
                       </div>
 
                       <div className="bg-white border border-slate-200 rounded-[4px] p-2">

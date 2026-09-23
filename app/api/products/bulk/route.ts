@@ -142,6 +142,9 @@ export async function POST(request: Request) {
       variationType: string;
       variationValue: string;
       attributes: Record<string, string>;
+      isDiscountAvailable?: boolean;
+      discountType?: "PERCENTAGE" | "RUPEES";
+      discountValue?: number;
     }
 
     const groupedProducts = new Map<string, NormalizedItem[]>();
@@ -217,6 +220,12 @@ export async function POST(request: Request) {
         attributes[variationType] = variationValue;
       }
 
+      const rawDiscAvail = String(p.isDiscountAvailable ?? p["Discount Available"] ?? p.discountAvailable ?? "").trim().toLowerCase();
+      const isDiscountAvailable = rawDiscAvail === "yes" || rawDiscAvail === "true" || rawDiscAvail === "1";
+      const rawDiscType = String(p.discountType ?? p["Discount Type"] ?? "").trim().toLowerCase();
+      const discountType = rawDiscType.includes("rupee") || rawDiscType.includes("₹") ? "RUPEES" : "PERCENTAGE";
+      const discountValue = Math.max(0, Number(p.discountValue ?? p["Discount Value"]) || 0);
+
       const key = `${name.toLowerCase()}:::${catName.toLowerCase()}`;
       if (!groupedProducts.has(key)) {
         groupedProducts.set(key, []);
@@ -234,6 +243,9 @@ export async function POST(request: Request) {
         variationType,
         variationValue,
         attributes,
+        isDiscountAvailable,
+        discountType,
+        discountValue,
       });
     });
 
@@ -278,6 +290,9 @@ export async function POST(request: Request) {
             bufferStock: it.bufferStock,
             barcode: vBarcode,
             sku: vSku,
+            isDiscountAvailable: it.isDiscountAvailable,
+            discountType: it.discountType,
+            discountValue: it.discountValue,
           };
         });
 
@@ -305,6 +320,9 @@ export async function POST(request: Request) {
           bufferStock: variants[0]?.bufferStock || 0,
           barcode: variants[0]?.barcode || generate12DigitBarcode(),
           sku: baseSku,
+          isDiscountAvailable: first.isDiscountAvailable,
+          discountType: first.discountType,
+          discountValue: first.discountValue,
           createdAt: Date.now() + productIndex,
         });
       } else {
@@ -326,6 +344,9 @@ export async function POST(request: Request) {
           totalStock: first.stock,
           minPrice: first.price,
           maxPrice: first.price,
+          isDiscountAvailable: first.isDiscountAvailable,
+          discountType: first.discountType,
+          discountValue: first.discountValue,
           createdAt: Date.now() + productIndex,
         });
       }

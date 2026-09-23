@@ -17,6 +17,22 @@ interface CartItem {
   price: number;
   stock: number;
   quantity: number;
+  // Item-level discount
+  isDiscountAvailable?: boolean;
+  discountType?: "PERCENTAGE" | "RUPEES";
+  discountValue?: number;
+  isDiscountApplied?: boolean;
+  itemDiscountAmount?: number;
+  // Employee attribution
+  employeeId?: string;
+  employeeName?: string;
+}
+
+interface Employee {
+  id: string;
+  name: string;
+  mobile?: string;
+  status?: string;
 }
 
 interface Customer {
@@ -69,6 +85,7 @@ export default function PosPage() {
   // Reference data
   const [products, setProducts] = useState<any[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
   const [storeSettings, setStoreSettings] = useState<StoreSettings | null>(null);
   const [savedBills, setSavedBills] = useState<SavedBill[]>([]);
   const [loadingInitial, setLoadingInitial] = useState(true);
@@ -136,18 +153,20 @@ export default function PosPage() {
   const loadInitialData = async () => {
     setLoadingInitial(true);
     try {
-      const [prodRes, custRes, setRes, savedRes] = await Promise.all([
+      const [prodRes, custRes, setRes, savedRes, empRes] = await Promise.all([
         fetch("/api/products"),
         fetch("/api/customers"),
         fetch("/api/settings"),
         fetch("/api/saved-bills"),
+        fetch("/api/employees"),
       ]);
 
-      const [prodData, custData, setData, savedData] = await Promise.all([
+      const [prodData, custData, setData, savedData, empData] = await Promise.all([
         prodRes.json(),
         custRes.json(),
         setRes.json(),
         savedRes.json(),
+        empRes.json(),
       ]);
 
       if (prodRes.ok && prodData.success) {
@@ -161,6 +180,9 @@ export default function PosPage() {
       }
       if (savedRes.ok && savedData.success) {
         setSavedBills(savedData.savedBills || []);
+      }
+      if (empRes.ok && empData.success && Array.isArray(empData.employees)) {
+        setEmployees(empData.employees);
       }
     } catch (err) {
       console.error("Error loading POS data:", err);
@@ -219,6 +241,23 @@ export default function PosPage() {
     const sku = isVariant ? variant.sku || "" : product.sku || "";
     const variantName = isVariant ? variant.name : null;
 
+    // Check discount from variant or product
+    const isDiscountAvailable = Boolean(
+      isVariant
+        ? (variant.isDiscountAvailable !== undefined ? variant.isDiscountAvailable : product.isDiscountAvailable)
+        : product.isDiscountAvailable
+    );
+    const discountType: "PERCENTAGE" | "RUPEES" = (
+      isVariant
+        ? (variant.discountType || product.discountType)
+        : product.discountType
+    ) || "PERCENTAGE";
+    const discountValue = Number(
+      isVariant
+        ? (variant.discountValue !== undefined ? variant.discountValue : product.discountValue)
+        : product.discountValue
+    ) || 0;
+
     if (availableStock <= 0) {
       toast.warning(`Warning: "${product.name}${variantName ? ` (${variantName})` : ""}" is currently out of stock!`);
     }
@@ -250,12 +289,59 @@ export default function PosPage() {
             price,
             stock: availableStock,
             quantity: customQty,
+            isDiscountAvailable,
+            discountType,
+            discountValue,
+            isDiscountApplied: false,
+            employeeId: "",
+            employeeName: "",
           },
         ];
       }
     });
 
     playBeep(true);
+  };
+
+  // Helper to compute individual line discount
+  const calculateLineDiscount = (item: CartItem) => {
+    if (!item.isDiscountApplied || !item.isDiscountAvailable || !item.discountValue || item.discountValue <= 0) {
+      return 0;
+    }
+    if (item.discountType === "RUPEES") {
+      const unitDisc = Math.min(item.price, item.discountValue);
+      return Math.round(unitDisc * item.quantity * 100) / 100;
+    } else {
+      const unitDisc = (item.price * item.discountValue) / 100;
+      return Math.round(unitDisc * item.quantity * 100) / 100;
+    }
+  };
+
+  // Toggle item-level discount ON / OFF
+  const toggleItemDiscount = (cartId: string) => {
+    setCart((prev) =>
+      prev.map((item) =>
+        item.cartId === cartId
+          ? { ...item, isDiscountApplied: !item.isDiscountApplied }
+          : item
+      )
+    );
+  };
+
+  // Update employee attribution on a specific cart item
+  const updateItemEmployee = (cartId: string, employeeId: string) => {
+    const selectedEmp = employees.find((e) => e.id === employeeId);
+    setCart((prev) =>
+      prev.map((item) =>
+        item.cartId === cartId
+          ? {
+              ...item,
+              employeeId: employeeId || undefined,
+              employeeName: selectedEmp ? selectedEmp.name : undefined,
+            }
+          : item
+      )
+    );
   };
 
   // Barcode Scanning / Enter Submission
@@ -407,22 +493,29 @@ export default function PosPage() {
     return cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   }, [cart]);
 
-  // Comprehensive Totals & Taxes Calculation
-  const { subtotal, discountAmount, cgst, sgst, roundOffAmount, grandTotal } = useMemo(() => {
+  // Comprehensive Totals & Taxes Calculation (incorporates both item discounts and bill-level discount)
+  const { subtotal, discountAmount, itemDiscountsTotal, billDiscountOnly, cgst, sgst, roundOffAmount, grandTotal } = useMemo(() => {
     if (grossCartTotal <= 0) {
-      return { subtotal: 0, discountAmount: 0, cgst: 0, sgst: 0, roundOffAmount: 0, grandTotal: 0 };
+      return { subtotal: 0, discountAmount: 0, itemDiscountsTotal: 0, billDiscountOnly: 0, cgst: 0, sgst: 0, roundOffAmount: 0, grandTotal: 0 };
     }
+
+    // 1. Sum up all individual item discounts enabled in the cart
+    const totalItemDiscounts = cart.reduce((sum, item) => sum + calculateLineDiscount(item), 0);
+    const effectiveGross = Math.max(0, grossCartTotal - totalItemDiscounts);
+
+    // 2. Bill-level discount on top of item-discounted gross
+    const billDisc =
+      !discountValue || discountValue <= 0
+        ? 0
+        : discountType === "PERCENT"
+        ? (effectiveGross * Number(discountValue)) / 100
+        : Math.min(Number(discountValue), effectiveGross);
+
+    const totalCombinedDiscount = totalItemDiscounts + billDisc;
 
     if (!enableGst || totalGstRate <= 0) {
       // GST Disabled
-      const disc =
-        !discountValue || discountValue <= 0
-          ? 0
-          : discountType === "PERCENT"
-          ? (grossCartTotal * Number(discountValue)) / 100
-          : Math.min(Number(discountValue), grossCartTotal);
-
-      const rawGTotal = Math.max(0, grossCartTotal - disc);
+      const rawGTotal = Math.max(0, effectiveGross - billDisc);
       let finalGTotal = Math.round(rawGTotal * 100) / 100;
       let rOff = 0;
 
@@ -433,7 +526,9 @@ export default function PosPage() {
 
       return {
         subtotal: Math.round(grossCartTotal * 100) / 100,
-        discountAmount: Math.round(disc * 100) / 100,
+        discountAmount: Math.round(totalCombinedDiscount * 100) / 100,
+        itemDiscountsTotal: Math.round(totalItemDiscounts * 100) / 100,
+        billDiscountOnly: Math.round(billDisc * 100) / 100,
         cgst: 0,
         sgst: 0,
         roundOffAmount: rOff,
@@ -443,16 +538,7 @@ export default function PosPage() {
 
     if (isPriceInclusiveGst) {
       // GST IS INCLUSIVE IN PRODUCT PRICES
-      // Product price already contains GST (e.g. ₹399 at 18% GST).
-      // Base Taxable Subtotal = Gross / (1 + totalGstRate / 100) = 399 / 1.18 = ₹338.14
-      const rawDisc =
-        !discountValue || discountValue <= 0
-          ? 0
-          : discountType === "PERCENT"
-          ? (grossCartTotal * Number(discountValue)) / 100
-          : Math.min(Number(discountValue), grossCartTotal);
-
-      const payableGross = Math.max(0, grossCartTotal - rawDisc);
+      const payableGross = Math.max(0, effectiveGross - billDisc);
       const rawGTotal = Math.round(payableGross * 100) / 100;
 
       // Extract CGST and SGST from payable amount
@@ -461,11 +547,9 @@ export default function PosPage() {
       const calculatedCgst = Math.round(halfTax * 100) / 100;
       const calculatedSgst = Math.round(halfTax * 100) / 100;
 
-      // Base Taxable Subtotal before tax: 399 - 60.86 = ₹338.14
-      const taxableDiscount = Math.round((rawDisc / (1 + totalGstRate / 100)) * 100) / 100;
+      const taxableDiscount = Math.round((totalCombinedDiscount / (1 + totalGstRate / 100)) * 100) / 100;
       const taxableGross = Math.round((grossCartTotal / (1 + totalGstRate / 100)) * 100) / 100;
 
-      // Round off to next integer if active
       let finalGTotal = rawGTotal;
       let rOff = 0;
       if (enableRoundOff && rawGTotal > 0 && Math.ceil(rawGTotal) !== rawGTotal) {
@@ -476,6 +560,8 @@ export default function PosPage() {
       return {
         subtotal: taxableGross,
         discountAmount: taxableDiscount,
+        itemDiscountsTotal: Math.round(totalItemDiscounts * 100) / 100,
+        billDiscountOnly: Math.round(billDisc * 100) / 100,
         cgst: calculatedCgst,
         sgst: calculatedSgst,
         roundOffAmount: rOff,
@@ -483,14 +569,7 @@ export default function PosPage() {
       };
     } else {
       // GST IS EXCLUSIVE (Added on top of subtotal)
-      const disc =
-        !discountValue || discountValue <= 0
-          ? 0
-          : discountType === "PERCENT"
-          ? (grossCartTotal * Number(discountValue)) / 100
-          : Math.min(Number(discountValue), grossCartTotal);
-
-      const taxableBase = Math.max(0, grossCartTotal - disc);
+      const taxableBase = Math.max(0, effectiveGross - billDisc);
       const calculatedCgst = Math.round((taxableBase * (cgstPercent / 100)) * 100) / 100;
       const calculatedSgst = Math.round((taxableBase * (sgstPercent / 100)) * 100) / 100;
       const rawGTotal = Math.round((taxableBase + calculatedCgst + calculatedSgst) * 100) / 100;
@@ -504,14 +583,16 @@ export default function PosPage() {
 
       return {
         subtotal: Math.round(grossCartTotal * 100) / 100,
-        discountAmount: Math.round(disc * 100) / 100,
+        discountAmount: Math.round(totalCombinedDiscount * 100) / 100,
+        itemDiscountsTotal: Math.round(totalItemDiscounts * 100) / 100,
+        billDiscountOnly: Math.round(billDisc * 100) / 100,
         cgst: calculatedCgst,
         sgst: calculatedSgst,
         roundOffAmount: rOff,
         grandTotal: finalGTotal,
       };
     }
-  }, [grossCartTotal, discountValue, discountType, enableGst, isPriceInclusiveGst, cgstPercent, sgstPercent, totalGstRate, enableRoundOff]);
+  }, [grossCartTotal, cart, discountValue, discountType, enableGst, isPriceInclusiveGst, cgstPercent, sgstPercent, totalGstRate, enableRoundOff]);
 
   // Keep split amounts synced when split mode is used
   const currentSplitTotal = Math.round((splitAmounts.upi + splitAmounts.cash + splitAmounts.card) * 100) / 100;
@@ -533,15 +614,29 @@ export default function PosPage() {
 
     setSavingDraft(true);
     try {
+      const enrichedDraftItems = cart.map((it) => {
+        const lineDisc = calculateLineDiscount(it);
+        return {
+          ...it,
+          isDiscountApplied: Boolean(it.isDiscountApplied),
+          itemDiscountAmount: lineDisc,
+          lineTotal: (it.price * it.quantity) - lineDisc,
+          employeeId: it.employeeId || null,
+          employeeName: it.employeeName || null,
+        };
+      });
+
       const res = await fetch("/api/saved-bills", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id: activeSavedBillId,
           customer: selectedCustomer,
-          items: cart,
+          items: enrichedDraftItems,
           subtotal,
           discount: discountAmount,
+          itemDiscountsTotal,
+          billDiscountOnly,
           discountType,
           cgst,
           sgst,
@@ -585,6 +680,12 @@ export default function PosPage() {
         it.cartId ||
         (it.variantId ? `${it.productId}_${it.variantId}` : it.productId) ||
         `loaded_${Date.now()}_${index}`,
+      isDiscountAvailable: Boolean(it.isDiscountAvailable),
+      isDiscountApplied: Boolean(it.isDiscountApplied),
+      discountType: it.discountType || "PERCENTAGE",
+      discountValue: Number(it.discountValue) || 0,
+      employeeId: it.employeeId || "",
+      employeeName: it.employeeName || "",
     }));
     setCart(loadedItems);
     setSelectedCustomer(bill.customer || null);
@@ -638,11 +739,25 @@ export default function PosPage() {
     setSettlingBill(true);
 
     try {
+      const enrichedOrderItems = cart.map((it) => {
+        const lineDisc = calculateLineDiscount(it);
+        return {
+          ...it,
+          isDiscountApplied: Boolean(it.isDiscountApplied),
+          itemDiscountAmount: lineDisc,
+          lineTotal: (it.price * it.quantity) - lineDisc,
+          employeeId: it.employeeId || null,
+          employeeName: it.employeeName || null,
+        };
+      });
+
       const payload: any = {
-        items: cart,
+        items: enrichedOrderItems,
         customer: selectedCustomer,
         subtotal,
         discount: discountAmount,
+        itemDiscountsTotal,
+        billDiscountOnly,
         discountType,
         cgst,
         sgst,
@@ -864,13 +979,17 @@ export default function PosPage() {
                       <th className="py-2 px-3">Barcode</th>
                       <th className="py-2 px-3 text-right">Price</th>
                       <th className="py-2 px-3 text-center">Qty</th>
+                      <th className="py-2 px-3 text-center">Discount</th>
+                      <th className="py-2 px-3">Sales Staff</th>
                       <th className="py-2 px-3 text-right">Total</th>
                       <th className="py-2 px-2.5 text-center"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {cart.map((item, index) => {
-                      const lineTotal = item.price * item.quantity;
+                      const lineDiscount = calculateLineDiscount(item);
+                      const lineGross = item.price * item.quantity;
+                      const lineNet = lineGross - lineDiscount;
                       const rowKey =
                         item.cartId ||
                         (item.variantId ? `${item.productId}_${item.variantId}` : item.productId) ||
@@ -928,9 +1047,74 @@ export default function PosPage() {
                             </div>
                           </td>
 
+                          {/* Discount Toggle Button */}
+                          <td className="py-2.5 px-3 text-center">
+                            {item.isDiscountAvailable ? (
+                              <button
+                                type="button"
+                                onClick={() => toggleItemDiscount(item.cartId)}
+                                className={`px-2 py-1 rounded-[4px] text-[10.5px] font-medium border transition-all cursor-pointer inline-flex items-center gap-1.5 ${
+                                  item.isDiscountApplied
+                                    ? "bg-emerald-50 text-emerald-700 border-emerald-300 shadow-2xs font-semibold"
+                                    : "bg-slate-50 text-slate-600 border-slate-200 hover:border-[#5e2b9d] hover:text-[#5e2b9d]"
+                                }`}
+                                title={
+                                  item.isDiscountApplied
+                                    ? "Click to remove item discount"
+                                    : `Click to apply ${item.discountType === "RUPEES" ? `₹${item.discountValue} OFF` : `${item.discountValue}% OFF`}`
+                                }
+                              >
+                                <span
+                                  className={`w-2 h-2 rounded-full transition-colors ${
+                                    item.isDiscountApplied ? "bg-emerald-500 animate-pulse" : "bg-slate-300"
+                                  }`}
+                                />
+                                <span>
+                                  {item.discountType === "RUPEES" ? `₹${item.discountValue} OFF` : `${item.discountValue}% OFF`}
+                                </span>
+                                {item.isDiscountApplied && (
+                                  <span className="text-[9.5px] text-emerald-600 font-normal">
+                                    (-₹{lineDiscount.toFixed(0)})
+                                  </span>
+                                )}
+                              </button>
+                            ) : (
+                              <span className="text-slate-300 text-[11px]">—</span>
+                            )}
+                          </td>
+
+                          {/* Employee Selection */}
+                          <td className="py-2.5 px-3">
+                            <select
+                              value={item.employeeId || ""}
+                              onChange={(e) => updateItemEmployee(item.cartId, e.target.value)}
+                              className="h-[28px] w-full min-w-[110px] max-w-[130px] bg-white border border-slate-200 rounded-[4px] px-1.5 text-[11px] font-normal text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#5e2b9d] cursor-pointer truncate"
+                            >
+                              <option value="">Staff / Sales</option>
+                              {employees.map((emp) => (
+                                <option key={emp.id} value={emp.id}>
+                                  {emp.name}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+
                           {/* Line Total */}
-                          <td className="py-2.5 px-3 text-right font-medium text-slate-900 font-mono">
-                            ₹{lineTotal.toFixed(2)}
+                          <td className="py-2.5 px-3 text-right font-mono">
+                            {item.isDiscountApplied && lineDiscount > 0 ? (
+                              <div className="flex flex-col items-end">
+                                <span className="line-through text-slate-400 text-[10px]">
+                                  ₹{lineGross.toFixed(2)}
+                                </span>
+                                <span className="font-semibold text-emerald-700">
+                                  ₹{lineNet.toFixed(2)}
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="font-medium text-slate-900">
+                                ₹{lineGross.toFixed(2)}
+                              </span>
+                            )}
                           </td>
 
                           {/* Delete Item */}
@@ -1086,10 +1270,21 @@ export default function PosPage() {
                 <span className="font-mono font-medium text-slate-800">₹{subtotal.toFixed(2)}</span>
               </div>
 
+              {/* Item Discounts (if active) */}
+              {itemDiscountsTotal > 0 && (
+                <div className="flex items-center justify-between text-xs text-emerald-700 bg-emerald-50/70 p-1.5 rounded-[4px] border border-emerald-200/70">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    <span className="font-medium">Item Discounts Applied</span>
+                  </div>
+                  <span className="font-mono font-semibold">-₹{itemDiscountsTotal.toFixed(2)}</span>
+                </div>
+              )}
+
               {/* Discount Input & Selector */}
               <div className="pt-2 border-t border-slate-100 space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-medium text-slate-700">Discount</label>
+                  <label className="text-xs font-medium text-slate-700">Bill Discount (Overall)</label>
                   <div className="flex items-center rounded-[4px] border border-slate-200 p-0.5 bg-slate-50">
                     <button
                       type="button"
@@ -1125,9 +1320,9 @@ export default function PosPage() {
                     placeholder={discountType === "FIXED" ? "Discount amount in ₹" : "Discount in %"}
                     className="w-full h-[32px] max-h-[32px] px-2.5 bg-[#f8fafc] border border-slate-200 rounded-[6px] text-xs font-mono font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#5e2b9d]"
                   />
-                  {discountAmount > 0 && (
+                  {billDiscountOnly > 0 && (
                     <span className="text-xs text-rose-600 font-mono font-medium whitespace-nowrap">
-                      -₹{discountAmount.toFixed(2)}
+                      -₹{billDiscountOnly.toFixed(2)}
                     </span>
                   )}
                 </div>
@@ -1716,19 +1911,30 @@ export default function PosPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {settledReceipt.items.map((it: any, i: number) => (
-                      <tr key={it.cartId || it.variantId || it.productId || `rec_item_${i}`}>
-                        <td className="py-1 pr-1">
-                          <div className="leading-tight font-medium">{it.productName}</div>
-                          {it.variantName && (
-                            <div className="text-[9px] text-slate-500">{it.variantName}</div>
-                          )}
-                        </td>
-                        <td className="text-center py-1 whitespace-nowrap">{it.quantity}</td>
-                        <td className="text-right py-1 whitespace-nowrap">₹{Number(it.price).toFixed(2)}</td>
-                        <td className="text-right py-1 font-semibold whitespace-nowrap">₹{Number(it.total).toFixed(2)}</td>
-                      </tr>
-                    ))}
+                    {settledReceipt.items.map((it: any, i: number) => {
+                      const lineTot = Number(it.lineTotal ?? it.total ?? (Number(it.price) * Number(it.quantity)));
+                      return (
+                        <tr key={it.cartId || it.variantId || it.productId || `rec_item_${i}`}>
+                          <td className="py-1 pr-1">
+                            <div className="leading-tight font-medium">{it.productName}</div>
+                            {it.variantName && (
+                              <div className="text-[9px] text-slate-500">{it.variantName}</div>
+                            )}
+                            {it.employeeName && (
+                              <div className="text-[8.5px] text-[#5e2b9d]">Staff: {it.employeeName}</div>
+                            )}
+                            {it.isDiscountApplied && Number(it.itemDiscountAmount) > 0 && (
+                              <div className="text-[8.5px] text-emerald-700">
+                                Disc ({it.discountType === "RUPEES" ? `₹${it.discountValue}` : `${it.discountValue}%`}): -₹{Number(it.itemDiscountAmount).toFixed(2)}
+                              </div>
+                            )}
+                          </td>
+                          <td className="text-center py-1 whitespace-nowrap">{it.quantity}</td>
+                          <td className="text-right py-1 whitespace-nowrap">₹{Number(it.price).toFixed(2)}</td>
+                          <td className="text-right py-1 font-semibold whitespace-nowrap">₹{lineTot.toFixed(2)}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
 
