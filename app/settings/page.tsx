@@ -482,17 +482,23 @@ export default function SettingsPage() {
                     />
                   </div>
 
-                  {/* Business Email */}
+                  {/* Business Email (Readonly) */}
                   <div className="space-y-1">
-                    <label className="block text-xs font-medium text-slate-700">
-                      Business Email
-                    </label>
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs font-medium text-slate-700">
+                        Business Email
+                      </label>
+                      <span className="text-[10px] text-slate-400 font-medium">
+                        Read-only
+                      </span>
+                    </div>
                     <input
                       type="email"
                       value={email}
-                      onChange={(e) => setEmail(e.target.value)}
+                      disabled
+                      readOnly
                       placeholder="contact@store.com"
-                      className="w-full h-[34px] max-h-[34px] px-3 bg-[#f8fafc] border border-slate-200 rounded-[6px] text-xs font-normal text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#5e2b9d] focus:border-[#5e2b9d]"
+                      className="w-full h-[34px] max-h-[34px] px-3 bg-slate-100 border border-slate-200 rounded-[6px] text-xs font-normal text-slate-600 cursor-not-allowed select-none"
                     />
                   </div>
 

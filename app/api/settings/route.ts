@@ -136,7 +136,7 @@ export async function PUT(request: Request) {
     const updatePayload = {
       name,
       phone: String(body.phone || "").trim(),
-      businessEmail: String(body.email || body.businessEmail || "").trim(),
+      businessEmail: existingData.businessEmail || existingData.ownerEmail || "",
       address: String(body.address || "").trim(),
       location: String(body.address || body.location || "").trim(),
       city: String(body.city || "").trim(),
