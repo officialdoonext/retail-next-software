@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import SoftwareLayout from "@/components/SoftwareLayout";
 import EmployeeSubNav from "@/components/EmployeeSubNav";
 import EmployeeSearchPicker, { EmployeeSummary } from "@/components/EmployeeSearchPicker";
+import CustomDatePicker from "@/components/CustomDatePicker";
 import { useToast } from "@/components/ToastProvider";
 import { getFirstLetter, getFirstLetterColor } from "@/components/BulkUploadEmployeeModal";
 
@@ -439,7 +440,7 @@ export default function EmployeeAdvancesPage() {
             onClick={() => setActiveTab("advances")}
             className={`h-[32px] px-3 text-xs rounded-t-[6px] font-medium flex items-center gap-1.5 transition-colors cursor-pointer border-b-2 -mb-px ${
               activeTab === "advances"
-                ? "border-[#5e2b9d] text-[#5e2b9d] font-semibold bg-white"
+                ? "border-[#5e2b9d] text-[#5e2b9d] bg-white"
                 : "border-transparent text-slate-500 hover:text-slate-900 hover:bg-slate-50"
             }`}
           >
@@ -454,7 +455,7 @@ export default function EmployeeAdvancesPage() {
             onClick={() => setActiveTab("repayment")}
             className={`h-[32px] px-3 text-xs rounded-t-[6px] font-medium flex items-center gap-1.5 transition-colors cursor-pointer border-b-2 -mb-px ${
               activeTab === "repayment"
-                ? "border-[#5e2b9d] text-[#5e2b9d] font-semibold bg-white"
+                ? "border-[#5e2b9d] text-[#5e2b9d] bg-white"
                 : "border-transparent text-slate-500 hover:text-slate-900 hover:bg-slate-50"
             }`}
           >
@@ -469,7 +470,7 @@ export default function EmployeeAdvancesPage() {
             onClick={() => setActiveTab("analysis")}
             className={`h-[32px] px-3 text-xs rounded-t-[6px] font-medium flex items-center gap-1.5 transition-colors cursor-pointer border-b-2 -mb-px ${
               activeTab === "analysis"
-                ? "border-[#5e2b9d] text-[#5e2b9d] font-semibold bg-white"
+                ? "border-[#5e2b9d] text-[#5e2b9d] bg-white"
                 : "border-transparent text-slate-500 hover:text-slate-900 hover:bg-slate-50"
             }`}
           >
@@ -500,7 +501,7 @@ export default function EmployeeAdvancesPage() {
               </div>
 
               <div className="text-[11px] text-slate-500 font-medium whitespace-nowrap">
-                Total Advances: <strong className="text-slate-900 font-semibold">{filteredAdvances.length}</strong>
+                Total Advances: <strong className="text-slate-900 font-medium">{filteredAdvances.length}</strong>
               </div>
             </div>
 
@@ -517,7 +518,7 @@ export default function EmployeeAdvancesPage() {
                       <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                   </div>
-                  <p className="text-xs font-semibold text-slate-800">No advances recorded</p>
+                  <p className="text-xs font-medium text-slate-800">No advances recorded</p>
                   <p className="text-[11px] text-slate-400 mt-0.5">
                     Click &quot;Add Advance&quot; above to issue a salary advance to an employee.
                   </p>
@@ -547,14 +548,14 @@ export default function EmployeeAdvancesPage() {
                             <td className="py-2.5 px-3">
                               <div className="flex items-center gap-2">
                                 <div
-                                  className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs shrink-0 border ${getFirstLetterColor(
+                                  className={`w-7 h-7 rounded-full flex items-center justify-center font-medium text-xs shrink-0 border ${getFirstLetterColor(
                                     getFirstLetter(adv.employeeName)
                                   )}`}
                                 >
                                   {getFirstLetter(adv.employeeName)}
                                 </div>
                                 <div>
-                                  <div className="font-semibold text-slate-900">{adv.employeeName}</div>
+                                  <div className="font-medium text-slate-900">{adv.employeeName}</div>
                                   {adv.employeeNumericId && (
                                     <div className="text-[10px] font-mono text-[#5e2b9d]">
                                       #{adv.employeeNumericId}
@@ -572,13 +573,13 @@ export default function EmployeeAdvancesPage() {
                               })}
                             </td>
 
-                            <td className="py-2.5 px-3 text-right font-bold text-slate-900">
+                            <td className="py-2.5 px-3 text-right font-medium text-slate-900">
                               ₹{orig.toLocaleString()}
                             </td>
 
                             <td className="py-2.5 px-3 text-right">
                               <span
-                                className={`font-bold ${
+                                className={`font-medium ${
                                   rem > 0 ? "text-rose-600" : "text-emerald-600"
                                 }`}
                               >
@@ -662,7 +663,7 @@ export default function EmployeeAdvancesPage() {
                 </div>
               ) : filteredRepayments.length === 0 ? (
                 <div className="p-12 text-center">
-                  <p className="text-xs font-semibold text-slate-800">No repayment entries found</p>
+                  <p className="text-xs font-medium text-slate-800">No repayment entries found</p>
                   <p className="text-[11px] text-slate-400 mt-0.5">
                     Click &quot;Record New Repayment&quot; to settle employee advances using FIFO.
                   </p>
@@ -685,14 +686,14 @@ export default function EmployeeAdvancesPage() {
                           <td className="py-2.5 px-3">
                             <div className="flex items-center gap-2">
                               <div
-                                className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs shrink-0 border ${getFirstLetterColor(
+                                className={`w-7 h-7 rounded-full flex items-center justify-center font-medium text-xs shrink-0 border ${getFirstLetterColor(
                                   getFirstLetter(rep.employeeName)
                                 )}`}
                               >
                                 {getFirstLetter(rep.employeeName)}
                               </div>
                               <div>
-                                <div className="font-semibold text-slate-900">{rep.employeeName}</div>
+                                <div className="font-medium text-slate-900">{rep.employeeName}</div>
                                 {rep.employeeNumericId && (
                                   <div className="text-[10px] font-mono text-[#5e2b9d]">
                                     #{rep.employeeNumericId}
@@ -710,7 +711,7 @@ export default function EmployeeAdvancesPage() {
                             })}
                           </td>
 
-                          <td className="py-2.5 px-3 text-right font-bold text-emerald-600">
+                          <td className="py-2.5 px-3 text-right font-medium text-emerald-600">
                             ₹{(Number(rep.amount) || 0).toLocaleString()}
                           </td>
 
@@ -719,12 +720,12 @@ export default function EmployeeAdvancesPage() {
                               <div className="space-y-1">
                                 {rep.settlementSummary.map((s, idx) => (
                                   <div key={idx} className="text-[11px] text-slate-600 flex items-center gap-1.5">
-                                    <span className="font-semibold text-[#5e2b9d]">
+                                    <span className="font-medium text-[#5e2b9d]">
                                       Adv #{idx + 1}:
                                     </span>
                                     <span>Settled ₹{s.settled?.toLocaleString()}</span>
                                     <span
-                                      className={`px-1 py-0.2 rounded-[3px] text-[9.5px] font-semibold ${
+                                      className={`px-1 py-0.2 rounded-[3px] text-[9.5px] font-medium ${
                                         s.status === "Repaid"
                                           ? "bg-emerald-100 text-emerald-800"
                                           : "bg-amber-100 text-amber-800"
@@ -763,7 +764,7 @@ export default function EmployeeAdvancesPage() {
               <div className="bg-white border border-slate-200/80 rounded-[6px] p-3 shadow-2xs flex items-center justify-between">
                 <div>
                   <p className="text-[11px] text-slate-500 font-medium">Total Advances Issued</p>
-                  <h3 className="text-lg font-bold text-slate-900 mt-0.5">
+                  <h3 className="text-lg font-medium text-slate-900 mt-0.5">
                     ₹{storeTotalAdvances.toLocaleString()}
                   </h3>
                 </div>
@@ -777,7 +778,7 @@ export default function EmployeeAdvancesPage() {
               <div className="bg-white border border-slate-200/80 rounded-[6px] p-3 shadow-2xs flex items-center justify-between">
                 <div>
                   <p className="text-[11px] text-slate-500 font-medium">Total Repaid Back</p>
-                  <h3 className="text-lg font-bold text-emerald-600 mt-0.5">
+                  <h3 className="text-lg font-medium text-emerald-600 mt-0.5">
                     ₹{storeTotalRepaid.toLocaleString()}
                   </h3>
                 </div>
@@ -791,7 +792,7 @@ export default function EmployeeAdvancesPage() {
               <div className="bg-white border border-slate-200/80 rounded-[6px] p-3 shadow-2xs flex items-center justify-between">
                 <div>
                   <p className="text-[11px] text-slate-500 font-medium">Total Outstanding Pending</p>
-                  <h3 className="text-lg font-bold text-rose-600 mt-0.5">
+                  <h3 className="text-lg font-medium text-rose-600 mt-0.5">
                     ₹{storeTotalPending.toLocaleString()}
                   </h3>
                 </div>
@@ -806,7 +807,7 @@ export default function EmployeeAdvancesPage() {
             {/* Employee Breakdown Table */}
             <div className="bg-white border border-slate-200/80 rounded-[6px] shadow-2xs overflow-hidden">
               <div className="px-3.5 py-2.5 border-b border-slate-100 flex items-center justify-between bg-[#f8fafc]">
-                <h3 className="text-xs font-semibold text-slate-800">
+                <h3 className="text-xs font-medium text-slate-800">
                   Employee-Wise Pending Balance Breakdown
                 </h3>
                 <span className="text-[11px] text-slate-500">
@@ -837,14 +838,14 @@ export default function EmployeeAdvancesPage() {
                           <td className="py-2.5 px-3">
                             <div className="flex items-center gap-2">
                               <div
-                                className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs shrink-0 border ${getFirstLetterColor(
+                                className={`w-7 h-7 rounded-full flex items-center justify-center font-medium text-xs shrink-0 border ${getFirstLetterColor(
                                   getFirstLetter(row.employee.name)
                                 )}`}
                               >
                                 {getFirstLetter(row.employee.name)}
                               </div>
                               <div>
-                                <div className="font-semibold text-slate-900">{row.employee.name}</div>
+                                <div className="font-medium text-slate-900">{row.employee.name}</div>
                                 {row.employee.employeeId && (
                                   <div className="text-[10px] font-mono text-[#5e2b9d]">
                                     #{row.employee.employeeId}
@@ -864,7 +865,7 @@ export default function EmployeeAdvancesPage() {
 
                           <td className="py-2.5 px-3 text-right">
                             <span
-                              className={`font-bold ${
+                              className={`font-medium ${
                                 row.totalPending > 0 ? "text-rose-600" : "text-emerald-600"
                               }`}
                             >
@@ -910,9 +911,9 @@ export default function EmployeeAdvancesPage() {
         ══════════════════════════════════════════════════════ */}
         {isAddAdvanceOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
-            <div className="bg-white rounded-[6px] border border-slate-200 shadow-2xl w-full max-w-md overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-[#f8fafc]">
-                <h3 className="text-sm font-semibold text-slate-900">Issue Salary Advance</h3>
+            <div className="bg-white rounded-[6px] border border-slate-200 shadow-2xl w-full max-w-md overflow-visible relative">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-[#f8fafc] rounded-t-[6px]">
+                <h3 className="text-sm font-medium text-slate-900">Issue Salary Advance</h3>
                 <button
                   type="button"
                   onClick={() => setIsAddAdvanceOpen(false)}
@@ -961,15 +962,11 @@ export default function EmployeeAdvancesPage() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1">
-                      Date <span className="text-rose-500">*</span>
-                    </label>
-                    <input
-                      type="date"
+                    <CustomDatePicker
+                      label="Date"
                       required
                       value={advDate}
-                      onChange={(e) => setAdvDate(e.target.value)}
-                      className={inputCls}
+                      onChange={(d) => setAdvDate(d)}
                     />
                   </div>
                 </div>
@@ -1013,10 +1010,10 @@ export default function EmployeeAdvancesPage() {
         ══════════════════════════════════════════════════════ */}
         {isRecordRepaymentOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
-            <div className="bg-white rounded-[6px] border border-slate-200 shadow-2xl w-full max-w-lg overflow-hidden max-h-[90vh] flex flex-col">
-              <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-[#f8fafc] shrink-0">
+            <div className="bg-white rounded-[6px] border border-slate-200 shadow-2xl w-full max-w-lg overflow-visible relative max-h-[90vh] flex flex-col">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-[#f8fafc] shrink-0 rounded-t-[6px]">
                 <div>
-                  <h3 className="text-sm font-semibold text-slate-900">Record Advance Repayment</h3>
+                  <h3 className="text-sm font-medium text-slate-900">Record Advance Repayment</h3>
                   <p className="text-[11px] text-slate-500">
                     Repayments automatically settle oldest pending advances first (FIFO).
                   </p>
@@ -1055,10 +1052,10 @@ export default function EmployeeAdvancesPage() {
                 {repayEmp && (
                   <div className="space-y-1.5 pt-1">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-slate-800">
+                      <span className="text-xs font-medium text-slate-800">
                         Pending Advances ({empPendingAdvances.length})
                       </span>
-                      <span className="text-xs font-bold text-rose-600">
+                      <span className="text-xs font-medium text-rose-600">
                         Total Outstanding: ₹{empTotalOutstanding.toLocaleString()}
                       </span>
                     </div>
@@ -1072,8 +1069,8 @@ export default function EmployeeAdvancesPage() {
                         {empPendingAdvances.map((adv, idx) => (
                           <div key={adv.id} className="p-2 flex items-center justify-between">
                             <div>
-                              <div className="font-semibold text-slate-800 flex items-center gap-1.5">
-                                <span className="text-[10px] px-1.5 py-0.2 rounded-[4px] bg-[#5e2b9d]/10 text-[#5e2b9d] font-bold">
+                              <div className="font-medium text-slate-800 flex items-center gap-1.5">
+                                <span className="text-[10px] px-1.5 py-0.2 rounded-[4px] bg-[#5e2b9d]/10 text-[#5e2b9d] font-medium">
                                   #{idx + 1} Oldest
                                 </span>
                                 <span>Date: {adv.date}</span>
@@ -1083,7 +1080,7 @@ export default function EmployeeAdvancesPage() {
                               </div>
                             </div>
                             <div className="text-right">
-                              <span className="text-xs font-bold text-rose-600 block">
+                              <span className="text-xs font-medium text-rose-600 block">
                                 Pending: ₹{adv.remainingAmount?.toLocaleString()}
                               </span>
                             </div>
@@ -1114,15 +1111,11 @@ export default function EmployeeAdvancesPage() {
                       </div>
 
                       <div>
-                        <label className="block text-xs font-medium text-slate-700 mb-1">
-                          Repayment Date <span className="text-rose-500">*</span>
-                        </label>
-                        <input
-                          type="date"
+                        <CustomDatePicker
+                          label="Repayment Date"
                           required
                           value={repayDate}
-                          onChange={(e) => setRepayDate(e.target.value)}
-                          className={inputCls}
+                          onChange={(d) => setRepayDate(d)}
                         />
                       </div>
                     </div>
@@ -1130,7 +1123,7 @@ export default function EmployeeAdvancesPage() {
                     {simulatedFifoPlan.length > 0 && (
                       <div className="p-2.5 bg-[#5e2b9d]/5 border border-[#5e2b9d]/15 rounded-[6px] space-y-1.5">
                         <div className="flex items-center justify-between text-xs">
-                          <span className="font-semibold text-[#5e2b9d]">
+                          <span className="font-medium text-[#5e2b9d]">
                             FIFO Settlement Distribution:
                           </span>
                           <span className="text-[10.5px] text-slate-500">Oldest first</span>
@@ -1142,11 +1135,11 @@ export default function EmployeeAdvancesPage() {
                                 Advance #{idx + 1} ({item.date}):
                               </span>
                               <div className="flex items-center gap-1.5">
-                                <span className="font-bold text-emerald-700">
+                                <span className="font-medium text-emerald-700">
                                   -₹{item.settled.toLocaleString()}
                                 </span>
                                 <span
-                                  className={`px-1 py-0.2 rounded-[3px] text-[9.5px] font-semibold ${
+                                  className={`px-1 py-0.2 rounded-[3px] text-[9.5px] font-medium ${
                                     item.status === "Repaid"
                                       ? "bg-emerald-100 text-emerald-800"
                                       : item.status === "Partially Repaid"

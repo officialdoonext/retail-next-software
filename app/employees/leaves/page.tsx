@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import SoftwareLayout from "@/components/SoftwareLayout";
 import EmployeeSubNav from "@/components/EmployeeSubNav";
 import EmployeeSearchPicker, { EmployeeSummary } from "@/components/EmployeeSearchPicker";
+import CustomDatePicker from "@/components/CustomDatePicker";
 import { useToast } from "@/components/ToastProvider";
 import ConfirmModal from "@/components/ConfirmModal";
 import { getFirstLetter, getFirstLetterColor } from "@/components/BulkUploadEmployeeModal";
@@ -229,7 +230,7 @@ export default function EmployeeLeavesPage() {
           <div className="bg-white border border-slate-200/80 rounded-[6px] p-3 shadow-2xs flex items-center justify-between">
             <div>
               <p className="text-[11px] text-slate-500 font-medium">Total Leave Requests</p>
-              <h3 className="text-lg font-bold text-slate-900 mt-0.5">{leaves.length}</h3>
+              <h3 className="text-lg font-medium text-slate-900 mt-0.5">{leaves.length}</h3>
             </div>
             <div className="w-8 h-8 rounded-[6px] bg-[#5e2b9d]/10 text-[#5e2b9d] flex items-center justify-center">
               <svg className="w-4 h-4 stroke-[1.8]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -241,7 +242,7 @@ export default function EmployeeLeavesPage() {
           <div className="bg-white border border-slate-200/80 rounded-[6px] p-3 shadow-2xs flex items-center justify-between">
             <div>
               <p className="text-[11px] text-slate-500 font-medium">On Leave Today</p>
-              <h3 className="text-lg font-bold text-amber-600 mt-0.5">{onLeaveTodayCount}</h3>
+              <h3 className="text-lg font-medium text-amber-600 mt-0.5">{onLeaveTodayCount}</h3>
             </div>
             <div className="w-8 h-8 rounded-[6px] bg-amber-50 text-amber-600 flex items-center justify-center">
               <svg className="w-4 h-4 stroke-[1.8]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -253,7 +254,7 @@ export default function EmployeeLeavesPage() {
           <div className="bg-white border border-slate-200/80 rounded-[6px] p-3 shadow-2xs flex items-center justify-between">
             <div>
               <p className="text-[11px] text-slate-500 font-medium">Total Days Approved</p>
-              <h3 className="text-lg font-bold text-emerald-600 mt-0.5">{totalDaysApproved} Days</h3>
+              <h3 className="text-lg font-medium text-emerald-600 mt-0.5">{totalDaysApproved} Days</h3>
             </div>
             <div className="w-8 h-8 rounded-[6px] bg-emerald-50 text-emerald-600 flex items-center justify-center">
               <svg className="w-4 h-4 stroke-[1.8]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -284,7 +285,7 @@ export default function EmployeeLeavesPage() {
           </div>
 
           <div className="text-[11px] text-slate-500 font-medium whitespace-nowrap">
-            Showing <strong className="text-slate-900 font-semibold">{filteredLeaves.length}</strong> leaves
+            Showing <strong className="text-slate-900 font-medium">{filteredLeaves.length}</strong> leaves
           </div>
         </div>
 
@@ -302,7 +303,7 @@ export default function EmployeeLeavesPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
               </div>
-              <p className="text-xs font-semibold text-slate-800">No leave records found</p>
+              <p className="text-xs font-medium text-slate-800">No leave records found</p>
               <p className="text-[11px] text-slate-400 mt-0.5">
                 Click &quot;Add Leave&quot; above to record approved leaves for your employees.
               </p>
@@ -328,14 +329,14 @@ export default function EmployeeLeavesPage() {
                         <td className="py-2.5 px-3">
                           <div className="flex items-center gap-2">
                             <div
-                              className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs shrink-0 border ${getFirstLetterColor(
+                              className={`w-7 h-7 rounded-full flex items-center justify-center font-medium text-xs shrink-0 border ${getFirstLetterColor(
                                 getFirstLetter(l.employeeName)
                               )}`}
                             >
                               {getFirstLetter(l.employeeName)}
                             </div>
                             <div>
-                              <div className="font-semibold text-slate-900">{l.employeeName}</div>
+                              <div className="font-medium text-slate-900">{l.employeeName}</div>
                               {l.employeeNumericId && (
                                 <div className="text-[10px] font-mono text-[#5e2b9d]">
                                   #{l.employeeNumericId}
@@ -362,7 +363,7 @@ export default function EmployeeLeavesPage() {
                         </td>
 
                         <td className="py-2.5 px-3 text-center">
-                          <span className="inline-flex px-2 py-0.5 rounded-[4px] text-[11px] font-semibold bg-slate-100 text-slate-700">
+                          <span className="inline-flex px-2 py-0.5 rounded-[4px] text-[11px] font-medium bg-slate-100 text-slate-700">
                             {l.daysCount} {l.daysCount === 1 ? "Day" : "Days"}
                           </span>
                         </td>
@@ -410,9 +411,9 @@ export default function EmployeeLeavesPage() {
         {/* Add Leave Modal */}
         {isModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
-            <div className="bg-white rounded-[6px] border border-slate-200 shadow-2xl w-full max-w-md overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-[#f8fafc]">
-                <h3 className="text-sm font-semibold text-slate-900">Add Employee Leave</h3>
+            <div className="bg-white rounded-[6px] border border-slate-200 shadow-2xl w-full max-w-md overflow-visible relative">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-[#f8fafc] rounded-t-[6px]">
+                <h3 className="text-sm font-medium text-slate-900">Add Employee Leave</h3>
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
@@ -445,32 +446,29 @@ export default function EmployeeLeavesPage() {
                   helperText="Search is required to pick an employee (no pre-loaded full list)."
                 />
 
-                {/* Dates Row */}
+                {/* Dates Row with Custom Date Pickers */}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1">
-                      From Date <span className="text-rose-500">*</span>
-                    </label>
-                    <input
-                      type="date"
+                    <CustomDatePicker
+                      label="From Date"
                       required
                       value={fromDate}
-                      onChange={(e) => setFromDate(e.target.value)}
-                      className={inputCls}
+                      onChange={(d) => {
+                        setFromDate(d);
+                        if (toDate && d > toDate) {
+                          setToDate(d);
+                        }
+                      }}
                     />
                   </div>
 
                   <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1">
-                      To Date <span className="text-rose-500">*</span>
-                    </label>
-                    <input
-                      type="date"
+                    <CustomDatePicker
+                      label="To Date"
                       required
                       value={toDate}
-                      min={fromDate}
-                      onChange={(e) => setToDate(e.target.value)}
-                      className={inputCls}
+                      minDate={fromDate}
+                      onChange={(d) => setToDate(d)}
                     />
                   </div>
                 </div>
@@ -478,7 +476,7 @@ export default function EmployeeLeavesPage() {
                 {/* Duration indicator */}
                 <div className="p-2 rounded-[6px] bg-[#5e2b9d]/5 border border-[#5e2b9d]/15 flex items-center justify-between text-xs">
                   <span className="text-[#5e2b9d] font-medium">Leave Duration:</span>
-                  <span className="font-bold text-[#5e2b9d]">
+                  <span className="font-medium text-[#5e2b9d]">
                     {calculatedDays} {calculatedDays === 1 ? "Day" : "Days"}
                   </span>
                 </div>

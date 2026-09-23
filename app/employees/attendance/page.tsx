@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import SoftwareLayout from "@/components/SoftwareLayout";
 import EmployeeSubNav from "@/components/EmployeeSubNav";
+import CustomDatePicker from "@/components/CustomDatePicker";
 import { useToast } from "@/components/ToastProvider";
 import ConfirmModal from "@/components/ConfirmModal";
 import { getFirstLetter, getFirstLetterColor } from "@/components/BulkUploadEmployeeModal";
@@ -402,7 +403,7 @@ export default function AttendancePage() {
             onClick={() => setActiveTab("attendance")}
             className={`h-[32px] px-3 text-xs rounded-t-[6px] font-medium flex items-center gap-1.5 transition-colors cursor-pointer border-b-2 -mb-px ${
               activeTab === "attendance"
-                ? "border-[#5e2b9d] text-[#5e2b9d] font-semibold bg-white"
+                ? "border-[#5e2b9d] text-[#5e2b9d] bg-white"
                 : "border-transparent text-slate-500 hover:text-slate-900 hover:bg-slate-50"
             }`}
           >
@@ -417,7 +418,7 @@ export default function AttendancePage() {
             onClick={() => setActiveTab("holidays")}
             className={`h-[32px] px-3 text-xs rounded-t-[6px] font-medium flex items-center gap-1.5 transition-colors cursor-pointer border-b-2 -mb-px ${
               activeTab === "holidays"
-                ? "border-[#5e2b9d] text-[#5e2b9d] font-semibold bg-white"
+                ? "border-[#5e2b9d] text-[#5e2b9d] bg-white"
                 : "border-transparent text-slate-500 hover:text-slate-900 hover:bg-slate-50"
             }`}
           >
@@ -432,7 +433,7 @@ export default function AttendancePage() {
             onClick={() => setActiveTab("salary-logic")}
             className={`h-[32px] px-3 text-xs rounded-t-[6px] font-medium flex items-center gap-1.5 transition-colors cursor-pointer border-b-2 -mb-px ${
               activeTab === "salary-logic"
-                ? "border-[#5e2b9d] text-[#5e2b9d] font-semibold bg-white"
+                ? "border-[#5e2b9d] text-[#5e2b9d] bg-white"
                 : "border-transparent text-slate-500 hover:text-slate-900 hover:bg-slate-50"
             }`}
           >
@@ -451,13 +452,10 @@ export default function AttendancePage() {
             {/* Control Bar: Date Selector, Quick Marks, and Bulk Save */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5 bg-white border border-slate-200/80 rounded-[6px] p-2.5 shadow-2xs mb-3">
               <div className="flex flex-wrap items-center gap-2">
-                <div className="flex items-center gap-1.5">
-                  <label className="text-xs font-semibold text-slate-700">Date:</label>
-                  <input
-                    type="date"
+                <div className="flex items-center gap-1.5 w-44">
+                  <CustomDatePicker
                     value={selectedDate}
-                    onChange={(e) => setSelectedDate(e.target.value)}
-                    className="h-[34px] px-2.5 bg-[#f8fafc] border border-slate-200 rounded-[6px] text-xs font-semibold text-slate-800 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#5e2b9d]"
+                    onChange={(d) => setSelectedDate(d)}
                   />
                 </div>
 
@@ -500,21 +498,21 @@ export default function AttendancePage() {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-3">
               <div className="bg-white border border-slate-200/80 rounded-[6px] p-3 shadow-2xs">
                 <p className="text-[11px] text-slate-500 font-medium">Total Staff</p>
-                <h4 className="text-lg font-bold text-slate-900 mt-0.5">{employees.length}</h4>
+                <h4 className="text-lg font-medium text-slate-900 mt-0.5">{employees.length}</h4>
               </div>
               <div className="bg-white border border-slate-200/80 rounded-[6px] p-3 shadow-2xs">
                 <p className="text-[11px] text-emerald-600 font-medium">Present</p>
-                <h4 className="text-lg font-bold text-emerald-700 mt-0.5">{presentCount}</h4>
+                <h4 className="text-lg font-medium text-emerald-700 mt-0.5">{presentCount}</h4>
               </div>
               <div className="bg-white border border-slate-200/80 rounded-[6px] p-3 shadow-2xs">
                 <p className="text-[11px] text-amber-600 font-medium">Half Day</p>
-                <h4 className="text-lg font-bold text-amber-700 mt-0.5">{halfDayCount}</h4>
+                <h4 className="text-lg font-medium text-amber-700 mt-0.5">{halfDayCount}</h4>
               </div>
               <div className="bg-white border border-slate-200/80 rounded-[6px] p-3 shadow-2xs">
                 <p className="text-[11px] text-rose-600 font-medium">
                   Absent / Leave {onLeaveEmpIdMap.size > 0 && `(${onLeaveEmpIdMap.size} leave)`}
                 </p>
-                <h4 className="text-lg font-bold text-rose-700 mt-0.5">{absentCount}</h4>
+                <h4 className="text-lg font-medium text-rose-700 mt-0.5">{absentCount}</h4>
               </div>
             </div>
 
@@ -533,7 +531,7 @@ export default function AttendancePage() {
                 />
               </div>
               <span className="text-[11px] text-slate-500 whitespace-nowrap">
-                Date: <strong className="text-slate-800 font-semibold">{new Date(selectedDate).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric" })}</strong>
+                Date: <strong className="text-slate-800 font-medium">{new Date(selectedDate).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric" })}</strong>
               </span>
             </div>
 
@@ -581,7 +579,7 @@ export default function AttendancePage() {
                                   />
                                 ) : (
                                   <div
-                                    className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs shrink-0 border ${getFirstLetterColor(
+                                    className={`w-7 h-7 rounded-full flex items-center justify-center font-medium text-xs shrink-0 border ${getFirstLetterColor(
                                       getFirstLetter(emp.name)
                                     )}`}
                                   >
@@ -589,7 +587,7 @@ export default function AttendancePage() {
                                   </div>
                                 )}
                                 <div>
-                                  <div className="font-semibold text-slate-900">{emp.name}</div>
+                                  <div className="font-medium text-slate-900">{emp.name}</div>
                                   <div className="text-[10px] text-slate-500 flex items-center gap-1.5">
                                     {emp.employeeId && (
                                       <span className="font-mono text-[#5e2b9d]">
@@ -605,7 +603,7 @@ export default function AttendancePage() {
                             <td className="py-2.5 px-3">
                               {isOnLeave ? (
                                 <div className="inline-flex flex-col">
-                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-[4px] text-[10px] font-semibold bg-amber-100 text-amber-800 border border-amber-300">
+                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-[4px] text-[10px] font-medium bg-amber-100 text-amber-800 border border-amber-300">
                                     <span>🌴</span>
                                     <span>On Leave</span>
                                   </span>
@@ -635,7 +633,7 @@ export default function AttendancePage() {
                                     isOnLeave
                                       ? "opacity-40 cursor-not-allowed bg-slate-50 border-slate-200 text-slate-400"
                                       : currentStatus === "Present"
-                                      ? "bg-emerald-50 border-emerald-500 text-emerald-800 font-semibold shadow-2xs"
+                                      ? "bg-emerald-50 border-emerald-500 text-emerald-800 shadow-2xs"
                                       : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
                                   }`}
                                 >
@@ -655,7 +653,7 @@ export default function AttendancePage() {
                                     isOnLeave
                                       ? "opacity-40 cursor-not-allowed bg-slate-50 border-slate-200 text-slate-400"
                                       : currentStatus === "Half Day"
-                                      ? "bg-amber-50 border-amber-500 text-amber-800 font-semibold shadow-2xs"
+                                      ? "bg-amber-50 border-amber-500 text-amber-800 shadow-2xs"
                                       : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
                                   }`}
                                 >
@@ -673,9 +671,9 @@ export default function AttendancePage() {
                                 <label
                                   className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[6px] text-xs font-medium cursor-pointer transition-all border ${
                                     isOnLeave
-                                      ? "bg-rose-50 border-rose-300 text-rose-700 font-semibold"
+                                      ? "bg-rose-50 border-rose-300 text-rose-700 font-medium"
                                       : currentStatus === "Absent"
-                                      ? "bg-rose-50 border-rose-500 text-rose-800 font-semibold shadow-2xs"
+                                      ? "bg-rose-50 border-rose-500 text-rose-800 shadow-2xs"
                                       : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
                                   }`}
                                 >
@@ -689,7 +687,7 @@ export default function AttendancePage() {
                                   />
                                   <span>Absent</span>
                                   {isOnLeave && (
-                                    <span className="text-[9.5px] px-1 py-0.2 bg-rose-200/80 rounded-[3px] text-rose-800 font-bold">
+                                    <span className="text-[9.5px] px-1 py-0.2 bg-rose-200/80 rounded-[3px] text-rose-800 font-medium">
                                       Leave
                                     </span>
                                   )}
@@ -725,7 +723,7 @@ export default function AttendancePage() {
           <div className="flex flex-col">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white border border-slate-200/80 rounded-[6px] p-3 shadow-2xs mb-3">
               <div>
-                <h3 className="text-sm font-semibold text-slate-900">Declared Store Holidays</h3>
+                <h3 className="text-sm font-medium text-slate-900">Declared Store Holidays</h3>
                 <p className="text-xs text-slate-500 mt-0.5">
                   Set public holidays and festive calendar off-days for your staff.
                 </p>
@@ -752,9 +750,9 @@ export default function AttendancePage() {
               <div className="flex items-center gap-2.5">
                 <span className="text-base">📅</span>
                 <div>
-                  <p className="text-xs font-semibold text-[#5e2b9d]">
+                  <p className="text-xs font-medium text-[#5e2b9d]">
                     Sunday Weekly Off Status:{" "}
-                    <strong className="font-bold">
+                    <strong className="font-medium">
                       {settings.sundayIsHoliday ? "Enabled as Weekly Holiday" : "Disabled (Working Day)"}
                     </strong>
                   </p>
@@ -766,7 +764,7 @@ export default function AttendancePage() {
               <button
                 type="button"
                 onClick={() => setActiveTab("salary-logic")}
-                className="text-xs font-semibold text-[#5e2b9d] hover:underline cursor-pointer"
+                className="text-xs font-medium text-[#5e2b9d] hover:underline cursor-pointer"
               >
                 Configure →
               </button>
@@ -786,7 +784,7 @@ export default function AttendancePage() {
                       <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                     </svg>
                   </div>
-                  <p className="text-xs font-semibold text-slate-800">No holidays declared yet</p>
+                  <p className="text-xs font-medium text-slate-800">No holidays declared yet</p>
                   <p className="text-[11px] text-slate-400 mt-0.5">
                     Click &quot;Add Holiday&quot; above to declare festival and national off-days.
                   </p>
@@ -808,7 +806,7 @@ export default function AttendancePage() {
                         const dayName = dateObj.toLocaleDateString("en-IN", { weekday: "long" });
                         return (
                           <tr key={h.id} className="hover:bg-slate-50/70 transition-colors">
-                            <td className="py-2.5 px-3 font-semibold text-slate-900 flex items-center gap-2">
+                            <td className="py-2.5 px-3 font-medium text-slate-900 flex items-center gap-2">
                               <span>🎉</span>
                               <span>{h.name}</span>
                             </td>
@@ -848,9 +846,9 @@ export default function AttendancePage() {
             {/* Add Holiday Modal */}
             {isAddHolidayOpen && (
               <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
-                <div className="bg-white rounded-[6px] border border-slate-200 shadow-2xl w-full max-w-sm overflow-hidden">
-                  <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-[#f8fafc]">
-                    <h3 className="text-sm font-semibold text-slate-900">Add Store Holiday</h3>
+                <div className="bg-white rounded-[6px] border border-slate-200 shadow-2xl w-full max-w-sm overflow-visible relative">
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-[#f8fafc] rounded-t-[6px]">
+                    <h3 className="text-sm font-medium text-slate-900">Add Store Holiday</h3>
                     <button
                       type="button"
                       onClick={() => setIsAddHolidayOpen(false)}
@@ -878,15 +876,11 @@ export default function AttendancePage() {
                     </div>
 
                     <div>
-                      <label className="block text-xs font-medium text-slate-700 mb-1">
-                        Holiday Date <span className="text-rose-500">*</span>
-                      </label>
-                      <input
-                        type="date"
+                      <CustomDatePicker
+                        label="Holiday Date"
                         required
                         value={holidayDate}
-                        onChange={(e) => setHolidayDate(e.target.value)}
-                        className={inputCls}
+                        onChange={(d) => setHolidayDate(d)}
                       />
                     </div>
 
@@ -932,7 +926,7 @@ export default function AttendancePage() {
         {activeTab === "salary-logic" && (
           <div className="max-w-2xl bg-white border border-slate-200/80 rounded-[6px] p-4 shadow-2xs">
             <div className="mb-4">
-              <h3 className="text-sm font-semibold text-slate-900">Salary Calculation Logic</h3>
+              <h3 className="text-sm font-medium text-slate-900">Salary Calculation Logic</h3>
               <p className="text-xs text-slate-500 mt-0.5">
                 Configure month divisor rates, Sunday weekly holiday status, and full attendance incentive bonuses.
               </p>
@@ -941,7 +935,7 @@ export default function AttendancePage() {
             <form onSubmit={handleSaveSettings} className="space-y-4 divide-y divide-slate-100">
               {/* 1. Month Divisor (30 vs 31 days) */}
               <div className="pt-2">
-                <label className="block text-xs font-semibold text-slate-800 mb-1">
+                <label className="block text-xs font-medium text-slate-800 mb-1">
                   Per-Day Salary Divisor Rate
                 </label>
                 <p className="text-[11px] text-slate-500 mb-2.5">
@@ -951,7 +945,7 @@ export default function AttendancePage() {
                   <label
                     className={`flex items-center gap-2 p-2.5 rounded-[6px] border text-xs cursor-pointer transition-colors ${
                       settings.monthDivisor === 30
-                        ? "bg-[#5e2b9d]/5 border-[#5e2b9d] text-[#5e2b9d] font-semibold"
+                        ? "bg-[#5e2b9d]/5 border-[#5e2b9d] text-[#5e2b9d] font-medium"
                         : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
                     }`}
                   >
@@ -963,7 +957,7 @@ export default function AttendancePage() {
                       className="w-3.5 h-3.5 text-[#5e2b9d] focus:ring-[#5e2b9d]"
                     />
                     <div>
-                      <span className="block font-bold">30 Days Standard</span>
+                      <span className="block font-medium">30 Days Standard</span>
                       <span className="text-[10px] text-slate-500">Monthly Salary ÷ 30</span>
                     </div>
                   </label>
@@ -971,7 +965,7 @@ export default function AttendancePage() {
                   <label
                     className={`flex items-center gap-2 p-2.5 rounded-[6px] border text-xs cursor-pointer transition-colors ${
                       settings.monthDivisor === 31
-                        ? "bg-[#5e2b9d]/5 border-[#5e2b9d] text-[#5e2b9d] font-semibold"
+                        ? "bg-[#5e2b9d]/5 border-[#5e2b9d] text-[#5e2b9d] font-medium"
                         : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
                     }`}
                   >
@@ -983,7 +977,7 @@ export default function AttendancePage() {
                       className="w-3.5 h-3.5 text-[#5e2b9d] focus:ring-[#5e2b9d]"
                     />
                     <div>
-                      <span className="block font-bold">31 Days Standard</span>
+                      <span className="block font-medium">31 Days Standard</span>
                       <span className="text-[10px] text-slate-500">Monthly Salary ÷ 31</span>
                     </div>
                   </label>
@@ -994,7 +988,7 @@ export default function AttendancePage() {
               <div className="pt-3">
                 <div className="flex items-center justify-between">
                   <div>
-                    <label className="text-xs font-semibold text-slate-800">
+                    <label className="text-xs font-medium text-slate-800">
                       Consider Sundays as Weekly Holiday
                     </label>
                     <p className="text-[11px] text-slate-500 mt-0.5">
@@ -1017,7 +1011,7 @@ export default function AttendancePage() {
               <div className="pt-3 space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
-                    <label className="text-xs font-semibold text-slate-800">
+                    <label className="text-xs font-medium text-slate-800">
                       Enable Full Attendance Bonus
                     </label>
                     <p className="text-[11px] text-slate-500 mt-0.5">
@@ -1038,7 +1032,7 @@ export default function AttendancePage() {
                 {settings.enableAttendanceBonus && (
                   <div className="p-2.5 bg-[#5e2b9d]/5 rounded-[6px] border border-[#5e2b9d]/15 flex items-center justify-between gap-4">
                     <div>
-                      <span className="text-xs font-semibold text-[#5e2b9d] block">
+                      <span className="text-xs font-medium text-[#5e2b9d] block">
                         Full Attendance Bonus Days:
                       </span>
                       <span className="text-[11px] text-slate-600">
@@ -1054,9 +1048,9 @@ export default function AttendancePage() {
                         onChange={(e) =>
                           setSettings((s) => ({ ...s, bonusDays: Math.max(1, Number(e.target.value) || 1) }))
                         }
-                        className="w-16 h-[32px] px-2 text-xs text-center font-bold bg-white border border-[#5e2b9d]/30 rounded-[6px] focus:outline-none focus:ring-1 focus:ring-[#5e2b9d]"
+                        className="w-16 h-[32px] px-2 text-xs text-center font-medium bg-white border border-[#5e2b9d]/30 rounded-[6px] focus:outline-none focus:ring-1 focus:ring-[#5e2b9d]"
                       />
-                      <span className="text-xs font-semibold text-slate-700">Days</span>
+                      <span className="text-xs font-medium text-slate-700">Days</span>
                     </div>
                   </div>
                 )}

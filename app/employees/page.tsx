@@ -7,6 +7,7 @@ import ConfirmModal from "@/components/ConfirmModal";
 import { compressClientImage } from "@/lib/imageCompression";
 import BulkUploadEmployeeModal, { getFirstLetter, getFirstLetterColor } from "@/components/BulkUploadEmployeeModal";
 import EmployeeSubNav from "@/components/EmployeeSubNav";
+import CustomSelect from "@/components/CustomSelect";
 
 interface Employee {
   id: string;
@@ -488,7 +489,7 @@ export default function EmployeesPage() {
                               className="w-8 h-8 rounded-full object-cover border border-purple-200 shadow-2xs flex-shrink-0"
                             />
                           ) : (
-                            <div className={`w-8 h-8 rounded-full border text-xs font-bold flex items-center justify-center flex-shrink-0 ${colorCls}`}>
+                            <div className={`w-8 h-8 rounded-full border text-xs font-medium flex items-center justify-center flex-shrink-0 ${colorCls}`}>
                               {firstLetter}
                             </div>
                           )}
@@ -499,7 +500,7 @@ export default function EmployeesPage() {
                         </div>
                       </td>
                       <td className="py-2.5 px-3">
-                        <span className="font-mono text-[11px] font-semibold bg-purple-50 text-[#5e2b9d] border border-purple-200/60 px-2 py-0.5 rounded-[4px] inline-block tracking-wider">
+                        <span className="font-mono text-[11px] font-medium bg-purple-50 text-[#5e2b9d] border border-purple-200/60 px-2 py-0.5 rounded-[4px] inline-block tracking-wider">
                           {e.employeeId || "—"}
                         </span>
                       </td>
@@ -509,7 +510,7 @@ export default function EmployeesPage() {
                       </td>
                       <td className="py-2.5 px-3">
                         <div>
-                          <span className="font-semibold text-slate-900">{formatCurrency(e.salaryAmount)}</span>
+                          <span className="font-medium text-slate-900">{formatCurrency(e.salaryAmount)}</span>
                           <span className={`ml-1.5 text-[10px] font-medium px-1.5 py-0.5 rounded-[3px] ${e.salaryType === "monthly" ? "bg-blue-100 text-blue-700" : "bg-amber-100 text-amber-700"}`}>
                             {e.salaryType === "monthly" ? "Monthly" : "Daily"}
                           </span>
@@ -673,7 +674,7 @@ export default function EmployeesPage() {
                       <div className="flex-1 w-full space-y-2.5">
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
                           <div>
-                            <label className="block text-xs font-semibold text-slate-900">
+                            <label className="block text-xs font-medium text-slate-900">
                               Employee Profile Picture <span className="text-slate-400 font-normal">(ImageKit Hosted)</span>
                             </label>
                             <p className="text-[11px] text-slate-500">
@@ -716,7 +717,7 @@ export default function EmployeesPage() {
                                 placeholder="1000001"
                                 maxLength={7}
                                 required
-                                className="h-[32px] px-3 font-mono font-bold text-xs tracking-wider bg-white border border-slate-300 rounded-[6px] text-[#5e2b9d] w-36 focus:outline-none focus:ring-1 focus:ring-[#5e2b9d]"
+                                className="h-[32px] px-3 font-mono font-medium text-xs tracking-wider bg-white border border-slate-300 rounded-[6px] text-[#5e2b9d] w-36 focus:outline-none focus:ring-1 focus:ring-[#5e2b9d]"
                               />
                               {modal === "add" && (
                                 <button
@@ -743,8 +744,8 @@ export default function EmployeesPage() {
 
                   {/* ── Section 2: Personal Info ── */}
                   <div>
-                    <p className="text-[10.5px] font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                      <span className="w-4 h-4 rounded-full bg-[#5e2b9d] text-white text-[9px] flex items-center justify-center font-bold flex-shrink-0">1</span>
+                    <p className="text-[10.5px] font-medium text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                      <span className="w-4 h-4 rounded-full bg-[#5e2b9d] text-white text-[9px] flex items-center justify-center font-medium flex-shrink-0">1</span>
                       Personal Information
                     </p>
                     <div className="grid grid-cols-2 gap-3">
@@ -823,8 +824,8 @@ export default function EmployeesPage() {
 
                   {/* ── Section 3: Salary ── */}
                   <div>
-                    <p className="text-[10.5px] font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                      <span className="w-4 h-4 rounded-full bg-[#5e2b9d] text-white text-[9px] flex items-center justify-center font-bold flex-shrink-0">2</span>
+                    <p className="text-[10.5px] font-medium text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                      <span className="w-4 h-4 rounded-full bg-[#5e2b9d] text-white text-[9px] flex items-center justify-center font-medium flex-shrink-0">2</span>
                       Salary Details
                     </p>
                     <div className="grid grid-cols-2 gap-3">
@@ -909,8 +910,8 @@ export default function EmployeesPage() {
 
                   {/* ── Section 4: Emergency Contact ── */}
                   <div>
-                    <p className="text-[10.5px] font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                      <span className="w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] flex items-center justify-center font-bold flex-shrink-0">!</span>
+                    <p className="text-[10.5px] font-medium text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                      <span className="w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] flex items-center justify-center font-medium flex-shrink-0">!</span>
                       Emergency Contact
                     </p>
                     <div className="grid grid-cols-2 gap-3">
@@ -933,13 +934,11 @@ export default function EmployeesPage() {
                         <label className="block text-xs font-medium text-slate-700">
                           Relation <span className="text-rose-500">*</span>
                         </label>
-                        <select
+                        <CustomSelect
+                          options={RELATIONS}
                           value={fEcRelation || "Spouse"}
-                          onChange={(e) => setFEcRelation(e.target.value)}
-                          className={inputCls}
-                        >
-                          {RELATIONS.map((r) => <option key={r} value={r}>{r}</option>)}
-                        </select>
+                          onChange={(val) => setFEcRelation(val)}
+                        />
                       </div>
                       {/* EC Mobile */}
                       <div className="space-y-1 col-span-2">
@@ -1022,13 +1021,13 @@ export default function EmployeesPage() {
                       className="w-20 h-20 rounded-full object-cover border-2 border-[#5e2b9d]/30 shadow-md mb-2"
                     />
                   ) : (
-                    <div className={`w-20 h-20 rounded-full border-2 text-2xl font-bold flex items-center justify-center mb-2 shadow-sm ${getFirstLetterColor(getFirstLetter(activeEmp.name))}`}>
+                    <div className={`w-20 h-20 rounded-full border-2 text-2xl font-medium flex items-center justify-center mb-2 shadow-sm ${getFirstLetterColor(getFirstLetter(activeEmp.name))}`}>
                       {getFirstLetter(activeEmp.name)}
                     </div>
                   )}
-                  <h3 className="text-base font-semibold text-slate-900">{activeEmp.name}</h3>
+                  <h3 className="text-base font-medium text-slate-900">{activeEmp.name}</h3>
                   <div className="flex items-center gap-1.5 mt-1">
-                    <span className="font-mono text-xs font-bold px-2 py-0.5 rounded-[4px] bg-purple-50 text-[#5e2b9d] border border-purple-200/70">
+                    <span className="font-mono text-xs font-medium px-2 py-0.5 rounded-[4px] bg-purple-50 text-[#5e2b9d] border border-purple-200/70">
                       ID: {activeEmp.employeeId || "—"}
                     </span>
                     <span className={`text-[10.5px] font-medium px-2 py-0.5 rounded-[4px] ${activeEmp.salaryType === "monthly" ? "bg-blue-100 text-blue-700" : "bg-amber-100 text-amber-700"}`}>
@@ -1040,7 +1039,7 @@ export default function EmployeesPage() {
                 {/* QR Code Section */}
                 {activeEmp.qrCodeUrl && (
                   <div className="p-3.5 mb-4 rounded-[8px] bg-slate-50 border border-slate-200 text-center flex flex-col items-center">
-                    <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Employee QR Code (ImageKit Hosted)</p>
+                    <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider mb-2">Employee QR Code (ImageKit Hosted)</p>
                     <div className="p-2 bg-white rounded-[6px] border border-slate-200 shadow-2xs mb-2">
                       <img
                         src={activeEmp.qrCodeUrl}
@@ -1065,7 +1064,7 @@ export default function EmployeesPage() {
                 )}
 
                 {/* Personal */}
-                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Personal Info</p>
+                <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider mb-2">Personal Info</p>
                 <div className="space-y-2 mb-4">
                   {[
                     ["Mobile", activeEmp.mobile],
@@ -1081,7 +1080,7 @@ export default function EmployeesPage() {
                 </div>
 
                 {/* Salary */}
-                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Salary</p>
+                <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider mb-2">Salary</p>
                 <div className="space-y-2 mb-4">
                   <div className="flex items-center justify-between py-1.5 border-b border-slate-100">
                     <span className="text-xs text-slate-500 font-medium">Type</span>
@@ -1093,18 +1092,18 @@ export default function EmployeesPage() {
                     <span className="text-xs text-slate-500 font-medium">
                       {activeEmp.salaryType === "monthly" ? "Monthly Salary" : "Daily Wages"}
                     </span>
-                    <span className="text-sm font-bold text-slate-900">{formatCurrency(activeEmp.salaryAmount)}</span>
+                    <span className="text-sm font-medium text-slate-900">{formatCurrency(activeEmp.salaryAmount)}</span>
                   </div>
                   <div className="flex items-center justify-between py-1.5 border-b border-slate-100">
                     <span className="text-xs text-slate-500 font-medium">Accepted Leaves</span>
-                    <span className="text-xs font-semibold text-slate-800 font-mono">
+                    <span className="text-xs font-medium text-slate-800 font-mono">
                       {activeEmp.acceptedLeaves ?? 0} days / month
                     </span>
                   </div>
                 </div>
 
                 {/* Emergency */}
-                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Emergency Contact</p>
+                <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider mb-2">Emergency Contact</p>
                 <div className="space-y-2 mb-5">
                   {[
                     ["Name", activeEmp.emergencyName],
@@ -1157,7 +1156,7 @@ export default function EmployeesPage() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
                     </svg>
                   </div>
-                  <h3 className="text-xs font-semibold text-slate-900">Employee QR Code</h3>
+                  <h3 className="text-xs font-medium text-slate-900">Employee QR Code</h3>
                 </div>
                 <button
                   type="button"
@@ -1179,13 +1178,13 @@ export default function EmployeesPage() {
                       className="w-9 h-9 rounded-full object-cover border border-purple-200 shadow-2xs"
                     />
                   ) : (
-                    <div className={`w-9 h-9 rounded-full text-xs font-bold flex items-center justify-center border ${getFirstLetterColor(getFirstLetter(qrModalEmp.name))}`}>
+                    <div className={`w-9 h-9 rounded-full text-xs font-medium flex items-center justify-center border ${getFirstLetterColor(getFirstLetter(qrModalEmp.name))}`}>
                       {getFirstLetter(qrModalEmp.name)}
                     </div>
                   )}
                   <div className="text-left">
-                    <h4 className="text-sm font-semibold text-slate-900 leading-tight">{qrModalEmp.name}</h4>
-                    <span className="font-mono text-[11px] font-bold text-[#5e2b9d]">
+                    <h4 className="text-sm font-medium text-slate-900 leading-tight">{qrModalEmp.name}</h4>
+                    <span className="font-mono text-[11px] font-medium text-[#5e2b9d]">
                       ID: {qrModalEmp.employeeId || "—"}
                     </span>
                   </div>
@@ -1206,7 +1205,7 @@ export default function EmployeesPage() {
                 </div>
 
                 <div className="w-full bg-slate-50 border border-slate-100 rounded-[6px] py-1.5 px-3 mb-4">
-                  <p className="text-[10px] text-slate-400 font-semibold uppercase">QR Code Data</p>
+                  <p className="text-[10px] text-slate-400 font-medium uppercase">QR Code Data</p>
                   <p className="text-xs font-mono text-slate-800 break-all font-medium">
                     {qrModalEmp.storeId || "STORE"}/{qrModalEmp.employeeId || "—"}
                   </p>

@@ -122,7 +122,7 @@ export default function EmployeeSearchPicker({
               />
             ) : (
               <div
-                className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shrink-0 border ${getFirstLetterColor(
+                className={`w-8 h-8 rounded-full flex items-center justify-center font-medium text-xs shrink-0 border ${getFirstLetterColor(
                   getFirstLetter(selectedEmployee.name)
                 )}`}
               >
@@ -131,7 +131,7 @@ export default function EmployeeSearchPicker({
             )}
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
-                <span className="font-semibold text-xs text-slate-900 truncate">
+                <span className="font-medium text-xs text-slate-900 truncate">
                   {selectedEmployee.name}
                 </span>
                 {selectedEmployee.employeeId && (
@@ -225,7 +225,7 @@ export default function EmployeeSearchPicker({
                         />
                       ) : (
                         <div
-                          className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs shrink-0 border ${getFirstLetterColor(
+                          className={`w-7 h-7 rounded-full flex items-center justify-center font-medium text-xs shrink-0 border ${getFirstLetterColor(
                             getFirstLetter(emp.name)
                           )}`}
                         >
@@ -233,7 +233,7 @@ export default function EmployeeSearchPicker({
                         </div>
                       )}
                       <div className="min-w-0">
-                        <div className="text-xs font-semibold text-slate-900 truncate">
+                        <div className="text-xs font-medium text-slate-900 truncate">
                           {emp.name}
                         </div>
                         <div className="text-[10px] text-slate-500 flex items-center gap-1.5">

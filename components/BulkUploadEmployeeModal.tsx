@@ -207,7 +207,7 @@ export default function BulkUploadEmployeeModal({
               </svg>
             </div>
             <div>
-              <h2 className="text-sm font-semibold text-slate-900">Bulk Upload Employees</h2>
+              <h2 className="text-sm font-medium text-slate-900">Bulk Upload Employees</h2>
               <p className="text-[11px] text-slate-500">Auto 7-digit IDs, first letter identification, &amp; ImageKit QR codes.</p>
             </div>
           </div>
@@ -235,8 +235,8 @@ export default function BulkUploadEmployeeModal({
           <div className="p-4 rounded-[8px] bg-gradient-to-r from-purple-50/70 via-slate-50 to-indigo-50/50 border border-purple-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <div className="flex items-center gap-1.5">
-                <span className="w-5 h-5 rounded-full bg-[#5e2b9d] text-white text-[10px] font-bold flex items-center justify-center">1</span>
-                <h4 className="text-xs font-semibold text-slate-900">Need a template with pre-filled data?</h4>
+                <span className="w-5 h-5 rounded-full bg-[#5e2b9d] text-white text-[10px] font-medium flex items-center justify-center">1</span>
+                <h4 className="text-xs font-medium text-slate-900">Need a template with pre-filled data?</h4>
               </div>
               <p className="text-[11.5px] text-slate-500 mt-1 max-w-xl">
                 Download the sample Excel template containing <strong>50 realistic employee records</strong> with roles, salaries, cities, and emergency contacts.
@@ -245,7 +245,7 @@ export default function BulkUploadEmployeeModal({
             <button
               type="button"
               onClick={handleDownloadSampleExcel}
-              className="h-[34px] px-3.5 bg-white hover:bg-purple-50 text-[#5e2b9d] border border-purple-200 rounded-[6px] text-xs font-semibold flex items-center gap-2 cursor-pointer shadow-2xs transition-all flex-shrink-0"
+              className="h-[34px] px-3.5 bg-white hover:bg-purple-50 text-[#5e2b9d] border border-purple-200 rounded-[6px] text-xs font-medium flex items-center gap-2 cursor-pointer shadow-2xs transition-all flex-shrink-0"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -257,8 +257,8 @@ export default function BulkUploadEmployeeModal({
           {/* Step 2: Upload Excel File */}
           <div>
             <div className="flex items-center gap-1.5 mb-2">
-              <span className="w-5 h-5 rounded-full bg-[#5e2b9d] text-white text-[10px] font-bold flex items-center justify-center">2</span>
-              <h4 className="text-xs font-semibold text-slate-900">Upload your Excel or CSV spreadsheet</h4>
+              <span className="w-5 h-5 rounded-full bg-[#5e2b9d] text-white text-[10px] font-medium flex items-center justify-center">2</span>
+              <h4 className="text-xs font-medium text-slate-900">Upload your Excel or CSV spreadsheet</h4>
             </div>
 
             <div
@@ -291,7 +291,7 @@ export default function BulkUploadEmployeeModal({
 
               {selectedFile ? (
                 <div>
-                  <p className="text-xs font-semibold text-emerald-700">{selectedFile.name}</p>
+                  <p className="text-xs font-medium text-emerald-700">{selectedFile.name}</p>
                   <p className="text-[11px] text-slate-500 mt-0.5">
                     {(selectedFile.size / 1024).toFixed(1)} KB &bull; Click to change file
                   </p>
@@ -299,7 +299,7 @@ export default function BulkUploadEmployeeModal({
               ) : (
                 <div>
                   <p className="text-xs font-medium text-slate-700">
-                    <span className="text-[#5e2b9d] font-semibold">Click to upload</span> or drag and drop your spreadsheet
+                    <span className="text-[#5e2b9d] font-medium">Click to upload</span> or drag and drop your spreadsheet
                   </p>
                   <p className="text-[11px] text-slate-400 mt-1">Supported formats: .XLSX, .XLS, or .CSV</p>
                 </div>
@@ -317,8 +317,8 @@ export default function BulkUploadEmployeeModal({
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <span className="w-5 h-5 rounded-full bg-[#5e2b9d] text-white text-[10px] font-bold flex items-center justify-center">3</span>
-                  <h4 className="text-xs font-semibold text-slate-900">
+                  <span className="w-5 h-5 rounded-full bg-[#5e2b9d] text-white text-[10px] font-medium flex items-center justify-center">3</span>
+                  <h4 className="text-xs font-medium text-slate-900">
                     Preview: {parsedEmployees.length} Valid Employee Records
                   </h4>
                 </div>
@@ -355,15 +355,15 @@ export default function BulkUploadEmployeeModal({
                       return (
                         <tr key={idx} className="hover:bg-slate-50/70">
                           <td className="py-2 px-3">
-                            <div className={`w-7 h-7 rounded-full border flex items-center justify-center text-xs font-bold ${colorCls}`}>
+                            <div className={`w-7 h-7 rounded-full border flex items-center justify-center text-xs font-medium ${colorCls}`}>
                               {letter}
                             </div>
                           </td>
-                          <td className="py-2 px-3 font-semibold text-slate-900">{name}</td>
+                          <td className="py-2 px-3 font-medium text-slate-900">{name}</td>
                           <td className="py-2 px-3 font-mono text-slate-700">{mobile}</td>
                           <td className="py-2 px-3 text-slate-600">{city}</td>
                           <td className="py-2 px-3">
-                            <span className="font-semibold text-slate-900">₹{salaryAmount.toLocaleString("en-IN")}</span>
+                            <span className="font-medium text-slate-900">₹{salaryAmount.toLocaleString("en-IN")}</span>
                             <span className="text-[10px] text-slate-400 ml-1">({salaryType})</span>
                           </td>
                           <td className="py-2 px-3">

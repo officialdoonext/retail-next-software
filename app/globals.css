@@ -13,6 +13,10 @@
   --color-primary: #5e2b9d;
   --color-primary-hover: #4e2284;
   --font-sans: var(--font-sora), "Sora", sans-serif;
+  --font-weight-semibold: 500;
+  --font-weight-bold: 500;
+  --font-weight-extrabold: 500;
+  --font-weight-black: 500;
 }
 
 body {
@@ -44,6 +48,13 @@ body {
 * {
   scrollbar-width: thin !important;
   scrollbar-color: #cbd5e1 transparent !important;
+}
+
+/* Enforce maximum font weight of 500 across the entire application */
+h1, h2, h3, h4, h5, h6, b, strong, th,
+.font-semibold, .font-bold, .font-extrabold, .font-black,
+[class*="font-semibold"], [class*="font-bold"], [class*="font-extrabold"], [class*="font-black"] {
+  font-weight: 500 !important;
 }
 
 /* Remove spin buttons from number inputs across all browsers */

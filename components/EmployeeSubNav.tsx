@@ -65,7 +65,7 @@ export default function EmployeeSubNav() {
             href={tab.href}
             className={`h-[32px] px-3 rounded-[6px] text-xs font-medium flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer ${
               isActive
-                ? "bg-[#5e2b9d] text-white shadow-2xs font-semibold"
+                ? "bg-[#5e2b9d] text-white shadow-2xs font-medium"
                 : "bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-100/80 border border-slate-200/80"
             }`}
           >

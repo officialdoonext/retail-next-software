@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import SoftwareLayout from "@/components/SoftwareLayout";
 import EmployeeSubNav from "@/components/EmployeeSubNav";
+import CustomMonthPicker from "@/components/CustomMonthPicker";
 import { useToast } from "@/components/ToastProvider";
 import { getFirstLetter, getFirstLetterColor } from "@/components/BulkUploadEmployeeModal";
 
@@ -213,13 +214,10 @@ export default function EmployeePayrollPage() {
           </div>
 
           <div className="flex items-center gap-2 self-start sm:self-auto">
-            <div className="flex items-center gap-1.5 bg-white px-2.5 h-[34px] rounded-[6px] border border-slate-300 shadow-2xs">
-              <label className="text-xs font-semibold text-slate-700">Month:</label>
-              <input
-                type="month"
+            <div className="w-44">
+              <CustomMonthPicker
                 value={selectedMonth}
-                onChange={(e) => setSelectedMonth(e.target.value)}
-                className="text-xs font-semibold text-slate-800 bg-transparent focus:outline-none cursor-pointer"
+                onChange={(m) => setSelectedMonth(m)}
               />
             </div>
 
@@ -243,7 +241,7 @@ export default function EmployeePayrollPage() {
             <div className="flex flex-wrap items-center gap-4">
               <div>
                 <span className="text-slate-500 font-medium">Month Divisor:</span>{" "}
-                <strong className="text-[#5e2b9d] font-bold">
+                <strong className="text-[#5e2b9d] font-medium">
                   {payrollData.monthDivisor} Days
                 </strong>{" "}
                 <span className="text-[11px] text-slate-400">
@@ -255,7 +253,7 @@ export default function EmployeePayrollPage() {
 
               <div>
                 <span className="text-slate-500 font-medium">Full Attendance Bonus:</span>{" "}
-                <strong className="text-[#5e2b9d] font-bold">
+                <strong className="text-[#5e2b9d] font-medium">
                   {payrollData.enableAttendanceBonus
                     ? `Enabled (${payrollData.bonusDays}d)`
                     : "Disabled"}
@@ -266,7 +264,7 @@ export default function EmployeePayrollPage() {
 
               <div>
                 <span className="text-slate-500 font-medium">Sunday Holiday:</span>{" "}
-                <strong className="text-[#5e2b9d] font-bold">
+                <strong className="text-[#5e2b9d] font-medium">
                   {payrollData.sundayIsHoliday ? "Weekly Off" : "Working Day"}
                 </strong>
               </div>
@@ -275,14 +273,14 @@ export default function EmployeePayrollPage() {
 
               <div>
                 <span className="text-slate-500 font-medium">Declared Holidays:</span>{" "}
-                <strong className="text-[#5e2b9d] font-bold">
+                <strong className="text-[#5e2b9d] font-medium">
                   {payrollData.holidaysCount} Days
                 </strong>
               </div>
             </div>
 
             {payrollData.savedPayroll && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-[4px] text-[10.5px] font-semibold bg-emerald-100 text-emerald-800">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-[4px] text-[10.5px] font-medium bg-emerald-100 text-emerald-800">
                 ✓ Finalized
               </span>
             )}
@@ -293,28 +291,28 @@ export default function EmployeePayrollPage() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-3">
           <div className="bg-white border border-slate-200/80 rounded-[6px] p-3 shadow-2xs">
             <p className="text-[11px] text-slate-500 font-medium">Gross Payroll</p>
-            <h4 className="text-lg font-bold text-slate-900 mt-0.5">
+            <h4 className="text-lg font-medium text-slate-900 mt-0.5">
               ₹{totalGrossPayroll.toLocaleString()}
             </h4>
           </div>
 
           <div className="bg-white border border-slate-200/80 rounded-[6px] p-3 shadow-2xs">
             <p className="text-[11px] text-[#5e2b9d] font-medium">Attendance Bonuses</p>
-            <h4 className="text-lg font-bold text-[#5e2b9d] mt-0.5">
+            <h4 className="text-lg font-medium text-[#5e2b9d] mt-0.5">
               ₹{totalBonusPaid.toLocaleString()}
             </h4>
           </div>
 
           <div className="bg-white border border-slate-200/80 rounded-[6px] p-3 shadow-2xs">
             <p className="text-[11px] text-rose-600 font-medium">Advance Deductions</p>
-            <h4 className="text-lg font-bold text-rose-600 mt-0.5">
+            <h4 className="text-lg font-medium text-rose-600 mt-0.5">
               -₹{totalAdvanceDeducted.toLocaleString()}
             </h4>
           </div>
 
           <div className="bg-white border border-slate-200/80 rounded-[6px] p-3 shadow-2xs">
             <p className="text-[11px] text-emerald-600 font-medium">Net Payable to Staff</p>
-            <h4 className="text-lg font-bold text-emerald-700 mt-0.5">
+            <h4 className="text-lg font-medium text-emerald-700 mt-0.5">
               ₹{totalNetPayable.toLocaleString()}
             </h4>
           </div>
@@ -336,7 +334,7 @@ export default function EmployeePayrollPage() {
           </div>
 
           <div className="text-[11px] text-slate-500 font-medium whitespace-nowrap">
-            Staff Count: <strong className="text-slate-900 font-semibold">{filteredRecords.length}</strong>
+            Staff Count: <strong className="text-slate-900 font-medium">{filteredRecords.length}</strong>
           </div>
         </div>
 
@@ -380,7 +378,7 @@ export default function EmployeePayrollPage() {
                               />
                             ) : (
                               <div
-                                className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs shrink-0 border ${getFirstLetterColor(
+                                className={`w-7 h-7 rounded-full flex items-center justify-center font-medium text-xs shrink-0 border ${getFirstLetterColor(
                                   getFirstLetter(r.employeeName)
                                 )}`}
                               >
@@ -388,7 +386,7 @@ export default function EmployeePayrollPage() {
                               </div>
                             )}
                             <div>
-                              <div className="font-semibold text-slate-900">{r.employeeName}</div>
+                              <div className="font-medium text-slate-900">{r.employeeName}</div>
                               <div className="text-[10px] text-slate-500 font-mono">
                                 #{r.employeeNumericId || "—"}
                               </div>
@@ -397,7 +395,7 @@ export default function EmployeePayrollPage() {
                         </td>
 
                         <td className="py-2.5 px-3 text-right">
-                          <div className="font-bold text-slate-900">
+                          <div className="font-medium text-slate-900">
                             ₹{r.baseSalary.toLocaleString()}
                           </div>
                           <div className="text-[10px] text-slate-400">
@@ -407,16 +405,16 @@ export default function EmployeePayrollPage() {
 
                         <td className="py-2.5 px-3 text-center">
                           <div className="inline-flex items-center gap-1.5 text-[11px]">
-                            <span className="text-emerald-700 font-semibold" title="Days Present">
+                            <span className="text-emerald-700 font-medium" title="Days Present">
                               {r.presentDays}P
                             </span>
                             {r.halfDays > 0 && (
-                              <span className="text-amber-700 font-semibold" title="Half Days (0.5)">
+                              <span className="text-amber-700 font-medium" title="Half Days (0.5)">
                                 +{r.halfDays}HD
                               </span>
                             )}
                             {r.unexcusedAbsences > 0 && (
-                              <span className="text-rose-600 font-bold" title="Unexcused Absences">
+                              <span className="text-rose-600 font-medium" title="Unexcused Absences">
                                 -{r.unexcusedAbsences}A
                               </span>
                             )}
@@ -425,7 +423,7 @@ export default function EmployeePayrollPage() {
 
                         <td className="py-2.5 px-3 text-center">
                           <div className="text-[11px]">
-                            <span className="font-semibold text-slate-800">
+                            <span className="font-medium text-slate-800">
                               {r.acceptedLeaves} allowed
                             </span>
                             <div className="text-[10px] text-[#5e2b9d]">
@@ -444,7 +442,7 @@ export default function EmployeePayrollPage() {
                                 className="w-3.5 h-3.5 text-[#5e2b9d] rounded focus:ring-[#5e2b9d]"
                               />
                               <span
-                                className={`text-[11px] font-bold ${
+                                className={`text-[11px] font-medium ${
                                   r.applyBonus ? "text-[#5e2b9d]" : "text-slate-400"
                                 }`}
                               >
@@ -453,11 +451,11 @@ export default function EmployeePayrollPage() {
                             </label>
 
                             {r.isBonusEligible ? (
-                              <span className="text-[9px] font-semibold text-emerald-700 bg-emerald-50 px-1 py-0.2 rounded border border-emerald-200">
+                              <span className="text-[9px] font-medium text-emerald-700 bg-emerald-50 px-1 py-0.2 rounded border border-emerald-200">
                                 ✓ Eligible
                               </span>
                             ) : (
-                              <span className="text-[9px] font-semibold text-slate-400 bg-slate-50 px-1 py-0.2 rounded">
+                              <span className="text-[9px] font-medium text-slate-400 bg-slate-50 px-1 py-0.2 rounded">
                                 Unexcused Absences
                               </span>
                             )}
@@ -474,7 +472,7 @@ export default function EmployeePayrollPage() {
                                 max={Math.min(r.pendingAdvance, r.grossEarnings)}
                                 value={r.advanceDeduction}
                                 onChange={(e) => handleDeductionChange(r.employeeId, e.target.value)}
-                                className="w-20 h-[28px] px-1.5 text-xs text-right font-bold text-rose-600 bg-[#f8fafc] border border-slate-200 rounded-[4px] focus:outline-none focus:ring-1 focus:ring-rose-500"
+                                className="w-20 h-[28px] px-1.5 text-xs text-right font-medium text-rose-600 bg-[#f8fafc] border border-slate-200 rounded-[4px] focus:outline-none focus:ring-1 focus:ring-rose-500"
                               />
                             </div>
                             {r.pendingAdvance > 0 && (
@@ -486,7 +484,7 @@ export default function EmployeePayrollPage() {
                         </td>
 
                         <td className="py-2.5 px-3 text-right">
-                          <span className="font-bold text-xs text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-[4px] border border-emerald-200">
+                          <span className="font-medium text-xs text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-[4px] border border-emerald-200">
                             ₹{r.netSalary.toLocaleString()}
                           </span>
                         </td>
@@ -495,7 +493,7 @@ export default function EmployeePayrollPage() {
                           <button
                             type="button"
                             onClick={() => setSelectedPayslipRecord(r)}
-                            className="h-[28px] px-2.5 text-xs font-semibold text-[#5e2b9d] hover:text-white bg-purple-50 hover:bg-[#5e2b9d] rounded-[6px] border border-purple-200 transition-colors cursor-pointer"
+                            className="h-[28px] px-2.5 text-xs font-medium text-[#5e2b9d] hover:text-white bg-purple-50 hover:bg-[#5e2b9d] rounded-[6px] border border-purple-200 transition-colors cursor-pointer"
                           >
                             Payslip
                           </button>
@@ -519,7 +517,7 @@ export default function EmployeePayrollPage() {
               <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-[#f8fafc] shrink-0">
                 <div className="flex items-center gap-2">
                   <span className="text-base">📄</span>
-                  <h3 className="text-sm font-semibold text-slate-900">
+                  <h3 className="text-sm font-medium text-slate-900">
                     Salary Payslip — {monthTitle}
                   </h3>
                 </div>
@@ -551,18 +549,18 @@ export default function EmployeePayrollPage() {
                 {/* Store & Payslip Header */}
                 <div className="flex items-start justify-between border-b pb-3 border-slate-200">
                   <div>
-                    <h2 className="text-base font-bold text-slate-900 tracking-tight">
+                    <h2 className="text-base font-medium text-slate-900 tracking-tight">
                       RETAIL NEXT STORE
                     </h2>
                     <p className="text-xs text-slate-500 mt-0.5">
                       Employee Monthly Salary Slip
                     </p>
-                    <p className="text-xs font-semibold text-[#5e2b9d] mt-1">
+                    <p className="text-xs font-medium text-[#5e2b9d] mt-1">
                       Pay Period: {monthTitle}
                     </p>
                   </div>
                   <div className="text-right">
-                    <span className="px-2 py-0.5 rounded-[4px] text-xs font-mono font-bold bg-[#5e2b9d]/10 text-[#5e2b9d]">
+                    <span className="px-2 py-0.5 rounded-[4px] text-xs font-mono font-medium bg-[#5e2b9d]/10 text-[#5e2b9d]">
                       #{selectedPayslipRecord.employeeNumericId || "STAFF"}
                     </span>
                     <p className="text-[11px] text-slate-400 mt-1">
@@ -574,34 +572,34 @@ export default function EmployeePayrollPage() {
                 {/* Employee Details Card */}
                 <div className="bg-[#f8fafc] p-3 rounded-[6px] border border-slate-200 grid grid-cols-2 gap-2.5 text-xs">
                   <div>
-                    <span className="text-slate-400 block text-[10px] uppercase font-bold">
+                    <span className="text-slate-400 block text-[10px] uppercase font-medium">
                       Employee Name
                     </span>
-                    <span className="font-bold text-slate-900">
+                    <span className="font-medium text-slate-900">
                       {selectedPayslipRecord.employeeName}
                     </span>
                   </div>
                   <div>
-                    <span className="text-slate-400 block text-[10px] uppercase font-bold">
+                    <span className="text-slate-400 block text-[10px] uppercase font-medium">
                       Mobile Number
                     </span>
-                    <span className="font-semibold text-slate-800">
+                    <span className="font-medium text-slate-800">
                       {selectedPayslipRecord.mobile || "—"}
                     </span>
                   </div>
                   <div>
-                    <span className="text-slate-400 block text-[10px] uppercase font-bold">
+                    <span className="text-slate-400 block text-[10px] uppercase font-medium">
                       Salary Structure
                     </span>
-                    <span className="font-semibold text-slate-800 capitalize">
+                    <span className="font-medium text-slate-800 capitalize">
                       {selectedPayslipRecord.salaryType} (₹{selectedPayslipRecord.baseSalary.toLocaleString()})
                     </span>
                   </div>
                   <div>
-                    <span className="text-slate-400 block text-[10px] uppercase font-bold">
+                    <span className="text-slate-400 block text-[10px] uppercase font-medium">
                       Daily Divisor Rate
                     </span>
-                    <span className="font-semibold text-slate-800">
+                    <span className="font-medium text-slate-800">
                       ₹{selectedPayslipRecord.perDaySalary} / day
                     </span>
                   </div>
@@ -611,25 +609,25 @@ export default function EmployeePayrollPage() {
                 <div className="grid grid-cols-4 gap-2 text-center text-xs">
                   <div className="p-2 rounded-[6px] bg-[#f8fafc] border border-slate-200">
                     <span className="text-[10px] text-slate-500 block">Present</span>
-                    <strong className="text-slate-900 font-bold">{selectedPayslipRecord.presentDays}</strong>
+                    <strong className="text-slate-900 font-medium">{selectedPayslipRecord.presentDays}</strong>
                   </div>
                   <div className="p-2 rounded-[6px] bg-[#f8fafc] border border-slate-200">
                     <span className="text-[10px] text-slate-500 block">Half Day</span>
-                    <strong className="text-slate-900 font-bold">{selectedPayslipRecord.halfDays}</strong>
+                    <strong className="text-slate-900 font-medium">{selectedPayslipRecord.halfDays}</strong>
                   </div>
                   <div className="p-2 rounded-[6px] bg-[#f8fafc] border border-slate-200">
                     <span className="text-[10px] text-slate-500 block">Paid Leaves</span>
-                    <strong className="text-[#5e2b9d] font-bold">{selectedPayslipRecord.payableLeaves}</strong>
+                    <strong className="text-[#5e2b9d] font-medium">{selectedPayslipRecord.payableLeaves}</strong>
                   </div>
                   <div className="p-2 rounded-[6px] bg-[#f8fafc] border border-slate-200">
                     <span className="text-[10px] text-slate-500 block">Absences</span>
-                    <strong className="text-rose-600 font-bold">{selectedPayslipRecord.unexcusedAbsences}</strong>
+                    <strong className="text-rose-600 font-medium">{selectedPayslipRecord.unexcusedAbsences}</strong>
                   </div>
                 </div>
 
                 {/* Earnings & Deductions Breakdown */}
                 <div className="border border-slate-200 rounded-[6px] overflow-hidden text-xs">
-                  <div className="grid grid-cols-2 divide-x divide-slate-200 bg-[#f8fafc] font-bold text-[11px] text-slate-700 py-1.5 px-3">
+                  <div className="grid grid-cols-2 divide-x divide-slate-200 bg-[#f8fafc] font-medium text-[11px] text-slate-700 py-1.5 px-3">
                     <div>EARNINGS</div>
                     <div className="pl-3">DEDUCTIONS</div>
                   </div>
@@ -638,17 +636,17 @@ export default function EmployeePayrollPage() {
                     <div className="space-y-1.5 pr-3">
                       <div className="flex justify-between">
                         <span className="text-slate-600">Base Salary:</span>
-                        <strong className="text-slate-900">
+                        <strong className="text-slate-900 font-medium">
                           ₹{selectedPayslipRecord.baseSalary.toLocaleString()}
                         </strong>
                       </div>
                       {selectedPayslipRecord.applyBonus && (
-                        <div className="flex justify-between text-[#5e2b9d] font-semibold">
+                        <div className="flex justify-between text-[#5e2b9d] font-medium">
                           <span>Full Attendance Bonus ({selectedPayslipRecord.bonusDays}d):</span>
                           <span>+₹{selectedPayslipRecord.bonusAmount.toLocaleString()}</span>
                         </div>
                       )}
-                      <div className="border-t border-slate-100 pt-1 flex justify-between font-bold text-slate-800">
+                      <div className="border-t border-slate-100 pt-1 flex justify-between font-medium text-slate-800">
                         <span>Gross Earnings:</span>
                         <span>₹{selectedPayslipRecord.grossEarnings.toLocaleString()}</span>
                       </div>
@@ -673,7 +671,7 @@ export default function EmployeePayrollPage() {
                           <span>-₹{selectedPayslipRecord.advanceDeduction.toLocaleString()}</span>
                         </div>
                       )}
-                      <div className="border-t border-slate-100 pt-1 flex justify-between font-bold text-rose-700">
+                      <div className="border-t border-slate-100 pt-1 flex justify-between font-medium text-rose-700">
                         <span>Total Deductions:</span>
                         <span>
                           -₹
@@ -691,14 +689,14 @@ export default function EmployeePayrollPage() {
                 {/* Net Payable Highlight Card */}
                 <div className="bg-emerald-50 border border-emerald-200 p-3.5 rounded-[6px] flex items-center justify-between">
                   <div>
-                    <span className="text-[11px] font-semibold text-emerald-800 uppercase tracking-wider block">
+                    <span className="text-[11px] font-medium text-emerald-800 uppercase tracking-wider block">
                       Net Salary Payable
                     </span>
                     <span className="text-[10.5px] text-emerald-600">
                       Disbursement after all additions and deductions
                     </span>
                   </div>
-                  <span className="text-xl font-bold text-emerald-700">
+                  <span className="text-xl font-medium text-emerald-700">
                     ₹{selectedPayslipRecord.netSalary.toLocaleString()}
                   </span>
                 </div>
