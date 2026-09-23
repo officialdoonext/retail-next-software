@@ -3,6 +3,7 @@ import { Sora } from "next/font/google";
 import "./globals.css";
 import NumberInputScrollPrevention from "@/components/NumberInputScrollPrevention";
 import { ToastProvider } from "@/components/ToastProvider";
+import WelcomeScreen from "@/components/WelcomeScreen";
 
 const sora = Sora({
   variable: "--font-sora",
@@ -26,6 +27,7 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col font-sans">
         <ToastProvider>
           <NumberInputScrollPrevention />
+          <WelcomeScreen />
           {children}
         </ToastProvider>
       </body>
