@@ -479,8 +479,8 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
               style={{ top: hoveredNav.top }}
               className="fixed left-[94px] -translate-y-1/2 z-[999] pointer-events-none flex items-center animate-in fade-in zoom-in-95 duration-100"
             >
-              <div className="relative bg-slate-900 text-white text-[11px] font-medium px-2.5 py-1 rounded-[5px] shadow-xl whitespace-nowrap flex items-center">
-                <div className="absolute -left-1 top-1/2 -translate-y-1/2 w-2 h-2 bg-slate-900 rotate-45" />
+              <div className="relative bg-[#5e2b9d] text-white text-xs font-semibold px-2.5 py-1 rounded-[6px] shadow-md whitespace-nowrap flex items-center gap-1.5">
+                <div className="absolute -left-1 top-1/2 -translate-y-1/2 w-2 h-2 bg-[#5e2b9d] rotate-45" />
                 <span className="relative z-10">{hoveredNav.label}</span>
               </div>
             </div>

@@ -21,6 +21,31 @@ body {
   font-family: var(--font-sora), "Sora", sans-serif;
 }
 
+/* Universal 2px scrollbar across the entire application */
+*::-webkit-scrollbar {
+  width: 2px !important;
+  height: 2px !important;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #cbd5e1 !important;
+  border-radius: 9999px !important;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: #5e2b9d !important;
+}
+
+/* Firefox thin scrollbar */
+* {
+  scrollbar-width: thin !important;
+  scrollbar-color: #cbd5e1 transparent !important;
+}
+
 /* Remove spin buttons from number inputs across all browsers */
 input[type="number"]::-webkit-outer-spin-button,
 input[type="number"]::-webkit-inner-spin-button {
