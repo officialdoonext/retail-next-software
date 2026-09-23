@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { verifySessionToken, AUTH_COOKIE_NAME, ACTIVE_STORE_COOKIE } from "@/lib/auth";
 import imagekit from "@/lib/imagekit";
+import { compressImageToTargetSize } from "@/lib/compressImage";
 
 export async function POST(request: Request) {
   try {
@@ -27,15 +28,21 @@ export async function POST(request: Request) {
 
     // Read file buffer
     const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+    const rawBuffer = Buffer.from(arrayBuffer);
+
+    // Compress image to <= 60KB without losing quality
+    const { buffer: compressedBuffer, format, size } = await compressImageToTargetSize(rawBuffer, 60 * 1024);
+    console.log(`[Upload] Image compressed: Original ${rawBuffer.length} bytes -> ${size} bytes (${(size / 1024).toFixed(1)} KB)`);
 
     // Sanitize file name
-    const cleanFileName = `${storeId}_${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
-    const subfolder = String(formData.get("folder") || "products").replace(/[^a-zA-Z0-9_-]/g, "");
+    const ext = format === "webp" ? ".webp" : format === "jpeg" ? ".jpg" : "";
+    const baseName = file.name.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9.-]/g, "_");
+    const cleanFileName = `${storeId}_${Date.now()}_${baseName}${ext || ".webp"}`;
+    const subfolder = String(formData.get("folder") || "general").replace(/[^a-zA-Z0-9_-]/g, "");
 
-    // Upload to ImageKit
+    // Upload compressed buffer to ImageKit
     const uploadResponse = await imagekit.upload({
-      file: buffer,
+      file: compressedBuffer,
       fileName: cleanFileName,
       folder: `/retailnext/${storeId}/${subfolder}`,
       useUniqueFileName: true,
