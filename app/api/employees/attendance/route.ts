@@ -38,27 +38,23 @@ export async function GET(request: Request) {
     const month = searchParams.get("month"); // e.g. "2026-09"
 
     const attRef = collection(db, "employee_attendance");
-    let attQuery;
+    let attendance: any[] = [];
     if (month) {
-      // Query for an entire month e.g. for payroll
       const startOfMonth = `${month}-01`;
       const endOfMonth = `${month}-31`;
-      attQuery = query(
-        attRef,
-        where("storeId", "==", ctx.storeId),
-        where("date", ">=", startOfMonth),
-        where("date", "<=", endOfMonth)
-      );
+      const snap = await getDocs(query(attRef, where("storeId", "==", ctx.storeId)));
+      attendance = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .filter((a: any) => a.date >= startOfMonth && a.date <= endOfMonth);
     } else {
-      attQuery = query(
+      const attQuery = query(
         attRef,
         where("storeId", "==", ctx.storeId),
         where("date", "==", date)
       );
+      const snap = await getDocs(attQuery);
+      attendance = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     }
-
-    const snap = await getDocs(attQuery);
-    const attendance = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
     // Fetch leaves active on this date (or during this month)
     const leavesRef = collection(db, "employee_leaves");

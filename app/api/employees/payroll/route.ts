@@ -68,17 +68,12 @@ export async function GET(request: Request) {
       .filter((h: any) => h.date >= startOfMonth && h.date <= endOfMonth);
     const holidayDates = new Set(holidays.map((h: any) => h.date));
 
-    // 4. Fetch Attendance records for this month
+    // 4. Fetch Attendance records for this month (filter date in memory to avoid requiring Firestore composite indexes)
     const attRef = collection(db, "employee_attendance");
-    const attSnap = await getDocs(
-      query(
-        attRef,
-        where("storeId", "==", ctx.storeId),
-        where("date", ">=", startOfMonth),
-        where("date", "<=", endOfMonth)
-      )
-    );
-    const attendanceRecords = attSnap.docs.map((d) => d.data());
+    const attSnap = await getDocs(query(attRef, where("storeId", "==", ctx.storeId)));
+    const attendanceRecords = attSnap.docs
+      .map((d) => d.data())
+      .filter((a: any) => a.date >= startOfMonth && a.date <= endOfMonth);
 
     // 5. Fetch Approved Leaves for this month
     const leavesRef = collection(db, "employee_leaves");

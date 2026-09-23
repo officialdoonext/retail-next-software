@@ -34,6 +34,7 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
   const [isStoreDropdownOpen, setIsStoreDropdownOpen] = useState(false);
   const { isConnected: printerConnected, printerType, printerName } = usePrinter();
   const [isPrinterModalOpen, setIsPrinterModalOpen] = useState(false);
+  const [hoveredNav, setHoveredNav] = useState<{ label: string; top: number } | null>(null);
 
   // Synchronize on mount to eliminate SSR mismatch while keeping instant render
   useEffect(() => {
@@ -420,9 +421,13 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
       {/* Main Body with Sidebar + Content */}
       <div className="flex-1 flex min-h-[calc(100vh-57px)]">
         {/* Left Sidebar - 90px width */}
-        <aside className="w-[90px] bg-white border-r border-slate-200/80 flex flex-col justify-between py-3 flex-shrink-0 sticky top-[57px] h-[calc(100vh-57px)]">
+        <aside className="w-[90px] bg-white border-r border-slate-200/80 flex flex-col justify-between py-3 flex-shrink-0 sticky top-[57px] h-[calc(100vh-57px)] overflow-x-hidden">
           {/* Top Nav Items */}
-          <nav className="flex flex-col items-center gap-1 px-1.5 overflow-y-auto flex-1" suppressHydrationWarning>
+          <nav
+            className="flex flex-col items-center gap-1 px-1.5 overflow-y-auto overflow-x-hidden flex-1 select-none"
+            onScroll={() => setHoveredNav(null)}
+            suppressHydrationWarning
+          >
             {!mounted || (navItems.length === 0 && userRole === null) ? (
               <div className="flex flex-col items-center gap-2 py-2 w-full animate-pulse">
                 {[1, 2, 3].map((i) => (
@@ -442,7 +447,15 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
                   <Link
                     key={item.href}
                     href={item.href}
-                    className={`w-[76px] py-2 px-1 flex flex-col items-center justify-center gap-1 rounded-[6px] transition-all duration-150 ${
+                    onMouseEnter={(e) => {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      setHoveredNav({
+                        label: item.label,
+                        top: rect.top + rect.height / 2,
+                      });
+                    }}
+                    onMouseLeave={() => setHoveredNav(null)}
+                    className={`w-[76px] py-2 px-1 flex flex-col items-center justify-center gap-1 rounded-[6px] transition-all duration-150 relative ${
                       isActive
                         ? "bg-[#5e2b9d] text-white shadow-xs"
                         : "text-slate-500 hover:text-[#5e2b9d] hover:bg-purple-50/60"
@@ -451,7 +464,7 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
                     <span className="flex items-center justify-center">
                       {item.icon}
                     </span>
-                    <span className="text-[11px] font-medium leading-tight text-center">
+                    <span className="text-[11px] font-medium leading-tight text-center w-full max-w-[68px] truncate block">
                       {item.label}
                     </span>
                   </Link>
@@ -459,6 +472,19 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
               })
             )}
           </nav>
+
+          {/* Floating Popover on Hover for Menu Names */}
+          {hoveredNav && (
+            <div
+              style={{ top: hoveredNav.top }}
+              className="fixed left-[94px] -translate-y-1/2 z-[999] pointer-events-none flex items-center animate-in fade-in zoom-in-95 duration-100"
+            >
+              <div className="relative bg-slate-900 text-white text-[11px] font-medium px-2.5 py-1 rounded-[5px] shadow-xl whitespace-nowrap flex items-center">
+                <div className="absolute -left-1 top-1/2 -translate-y-1/2 w-2 h-2 bg-slate-900 rotate-45" />
+                <span className="relative z-10">{hoveredNav.label}</span>
+              </div>
+            </div>
+          )}
 
           {/* Bottom Sidebar Action: Switch Store / Onboarding */}
           <div className="px-1.5 flex flex-col items-center pt-2 border-t border-slate-100">
