@@ -108,7 +108,63 @@ export async function POST(request: Request) {
     const randomSuffix = Math.floor(1000 + Math.random() * 9000);
     const billNumber = `INV-${yyyymmdd}-${randomSuffix}`;
 
-    // 1. DEDUCT STOCK FOR EACH ITEM IN FIRESTORE
+    // 1. DEDUCT STOCK FOR EACH ITEM IN FIRESTORE (WATERFALL: STORE STOCK -> 1ST GODOWN -> 2ND GODOWN...)
+    // Fetch godowns for the active store sorted by createdAt ascending (First Godown, Next Second Godown, etc.)
+    const godownsSnap = await getDocs(
+      query(collection(db, "godowns"), where("storeId", "==", ctx.storeId))
+    );
+    const storeGodowns = godownsSnap.docs.map((d) => ({
+      id: d.id,
+      name: d.data().name || "",
+      createdAt: d.data().createdAt || 0,
+    }));
+    storeGodowns.sort((a, b) => a.createdAt - b.createdAt);
+
+    // Waterfall deduction helper: Store Stock -> 1st Godown -> 2nd Godown...
+    const deductStockWaterfall = (
+      storeStock: number,
+      godownStock: Record<string, number>,
+      qtyToDeduct: number
+    ) => {
+      let remaining = qtyToDeduct;
+      let newStoreStock = storeStock;
+      const newGodownStock: Record<string, number> = { ...godownStock };
+
+      // 1. Deduct from storeStock first
+      if (newStoreStock > 0 && remaining > 0) {
+        const fromStore = Math.min(newStoreStock, remaining);
+        newStoreStock -= fromStore;
+        remaining -= fromStore;
+      }
+
+      // 2. Deduct from first godown, next second godown, like that
+      if (remaining > 0) {
+        for (const g of storeGodowns) {
+          const gQty = Number(newGodownStock[g.id]) || 0;
+          if (gQty > 0) {
+            const fromG = Math.min(gQty, remaining);
+            newGodownStock[g.id] = gQty - fromG;
+            remaining -= fromG;
+          }
+          if (remaining <= 0) break;
+        }
+      }
+
+      // 3. If remaining still > 0, deduct remainder from storeStock down to 0
+      if (remaining > 0) {
+        newStoreStock = Math.max(0, newStoreStock - remaining);
+      }
+
+      const totalGodown = Object.values(newGodownStock).reduce((sum, q) => sum + (Number(q) || 0), 0);
+      const totalStock = newStoreStock + totalGodown;
+
+      return {
+        storeStock: newStoreStock,
+        godownStock: newGodownStock,
+        totalStock,
+      };
+    };
+
     // We group items by productId to avoid race conditions when multiple variants of the same product are in the cart
     const itemsByProduct = new Map<string, any[]>();
     for (const item of items) {
@@ -127,16 +183,24 @@ export async function POST(request: Request) {
           const prodData = productSnap.data();
 
           if (prodData.hasVariations && Array.isArray(prodData.variants)) {
-            // Update variants stock
+            // Update variants stock using waterfall deduction
             const updatedVariants = [...prodData.variants];
             for (const item of productItems) {
               const vIdx = updatedVariants.findIndex((v: any) => v.id === item.variantId);
               if (vIdx !== -1) {
-                const currentStock = Number(updatedVariants[vIdx].stock) || 0;
-                const newStock = Math.max(0, currentStock - (Number(item.quantity) || 1));
+                const targetVariant = updatedVariants[vIdx];
+                const vStoreStock = targetVariant.storeStock !== undefined
+                  ? Number(targetVariant.storeStock) || 0
+                  : Number(targetVariant.stock) || 0;
+                const vGodownStock = targetVariant.godownStock || {};
+                const qty = Number(item.quantity) || 1;
+
+                const deduction = deductStockWaterfall(vStoreStock, vGodownStock, qty);
                 updatedVariants[vIdx] = {
-                  ...updatedVariants[vIdx],
-                  stock: newStock,
+                  ...targetVariant,
+                  storeStock: deduction.storeStock,
+                  godownStock: deduction.godownStock,
+                  stock: deduction.totalStock,
                 };
               }
             }
@@ -148,17 +212,22 @@ export async function POST(request: Request) {
               updatedAt: Date.now(),
             });
           } else {
-            // Simple product stock deduction
+            // Simple product waterfall stock deduction
             const totalQtyDeducted = productItems.reduce(
               (sum: number, it: any) => sum + (Number(it.quantity) || 1),
               0
             );
-            const currentStock = Number(prodData.stock) || 0;
-            const newStock = Math.max(0, currentStock - totalQtyDeducted);
+            const pStoreStock = prodData.storeStock !== undefined
+              ? Number(prodData.storeStock) || 0
+              : Number(prodData.stock) || 0;
+            const pGodownStock = prodData.godownStock || {};
 
+            const deduction = deductStockWaterfall(pStoreStock, pGodownStock, totalQtyDeducted);
             await updateDoc(productRef, {
-              stock: newStock,
-              totalStock: newStock,
+              storeStock: deduction.storeStock,
+              godownStock: deduction.godownStock,
+              stock: deduction.totalStock,
+              totalStock: deduction.totalStock,
               updatedAt: Date.now(),
             });
           }
