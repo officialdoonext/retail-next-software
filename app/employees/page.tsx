@@ -5,6 +5,7 @@ import SoftwareLayout from "@/components/SoftwareLayout";
 import { useToast } from "@/components/ToastProvider";
 import ConfirmModal from "@/components/ConfirmModal";
 import { compressClientImage } from "@/lib/imageCompression";
+import BulkUploadEmployeeModal, { getFirstLetter, getFirstLetterColor } from "@/components/BulkUploadEmployeeModal";
 
 interface Employee {
   id: string;
@@ -28,12 +29,6 @@ interface Employee {
 
 const RELATIONS = ["Spouse", "Parent", "Sibling", "Child", "Friend", "Other"];
 
-function getInitials(fullName: string) {
-  const parts = fullName.trim().split(/\s+/);
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
-
 function formatCurrency(amount: number) {
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(amount);
 }
@@ -48,6 +43,7 @@ export default function EmployeesPage() {
 
   /* ─── modal states ─── */
   const [modal, setModal] = useState<"closed" | "add" | "edit" | "view">("closed");
+  const [bulkModalOpen, setBulkModalOpen] = useState(false);
   const [activeEmp, setActiveEmp] = useState<Employee | null>(null);
   const [empToDelete, setEmpToDelete] = useState<Employee | null>(null);
   const [qrModalEmp, setQrModalEmp] = useState<Employee | null>(null);
@@ -90,7 +86,9 @@ export default function EmployeesPage() {
     }
   };
 
-  useEffect(() => { loadEmployees(); }, []); // eslint-disable-line
+  useEffect(() => {
+    loadEmployees();
+  }, []); // eslint-disable-line
 
   /* ─── generate unique 7-digit ID ─── */
   const generateRandom7Digit = () => {
@@ -251,7 +249,6 @@ export default function EmployeesPage() {
           return;
         }
       } else if (!fAvatarPreview && modal === "edit") {
-        // User removed existing avatar
         finalAvatarUrl = "";
       }
 
@@ -343,7 +340,6 @@ export default function EmployeesPage() {
       toast.success("QR Code downloaded!");
     } catch (err) {
       console.error("QR download error:", err);
-      // Fallback: open in new tab
       window.open(emp.qrCodeUrl, "_blank");
     }
   };
@@ -369,16 +365,29 @@ export default function EmployeesPage() {
               Manage store employees, profile photos, 7-digit numeric IDs, ImageKit QR codes, and salary.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={openAdd}
-            className="h-[34px] max-h-[34px] bg-[#5e2b9d] hover:bg-[#4e2284] text-white font-medium text-xs px-3.5 rounded-[6px] transition-all flex items-center gap-1.5 shadow-xs cursor-pointer self-start sm:self-auto"
-          >
-            <svg className="w-3.5 h-3.5 stroke-[2.2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-            </svg>
-            Add Employee
-          </button>
+
+          <div className="flex items-center gap-2 self-start sm:self-auto">
+            <button
+              type="button"
+              onClick={() => setBulkModalOpen(true)}
+              className="h-[34px] max-h-[34px] bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 font-medium text-xs px-3 rounded-[6px] transition-all flex items-center gap-1.5 shadow-2xs cursor-pointer"
+            >
+              <svg className="w-3.5 h-3.5 stroke-[2] text-[#5e2b9d]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+              </svg>
+              Bulk Upload
+            </button>
+            <button
+              type="button"
+              onClick={openAdd}
+              className="h-[34px] max-h-[34px] bg-[#5e2b9d] hover:bg-[#4e2284] text-white font-medium text-xs px-3.5 rounded-[6px] transition-all flex items-center gap-1.5 shadow-xs cursor-pointer"
+            >
+              <svg className="w-3.5 h-3.5 stroke-[2.2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+              Add Employee
+            </button>
+          </div>
         </div>
 
         {/* ── Search ── */}
@@ -419,16 +428,25 @@ export default function EmployeesPage() {
               {searchQuery ? "No matching employees found" : "No employees added yet"}
             </h3>
             <p className="text-xs text-slate-500 max-w-sm mx-auto mb-4">
-              {searchQuery ? "Try adjusting your search criteria." : "Add your store employees with profile pictures, 7-digit IDs, and automatic QR codes."}
+              {searchQuery ? "Try adjusting your search criteria." : "Add your store employees or bulk upload 50 sample employees from Excel."}
             </p>
             {!searchQuery && (
-              <button
-                type="button"
-                onClick={openAdd}
-                className="h-[34px] bg-[#5e2b9d] hover:bg-[#4e2284] text-white px-4 rounded-[6px] text-xs font-medium inline-flex items-center gap-1.5 transition-colors cursor-pointer"
-              >
-                + Add First Employee
-              </button>
+              <div className="flex items-center justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setBulkModalOpen(true)}
+                  className="h-[34px] bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3.5 rounded-[6px] text-xs font-medium inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  Bulk Upload Excel
+                </button>
+                <button
+                  type="button"
+                  onClick={openAdd}
+                  className="h-[34px] bg-[#5e2b9d] hover:bg-[#4e2284] text-white px-4 rounded-[6px] text-xs font-medium inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  + Add First Employee
+                </button>
+              </div>
             )}
           </div>
         ) : (
@@ -447,105 +465,110 @@ export default function EmployeesPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filtered.map((e) => (
-                  <tr key={e.id} className="hover:bg-slate-50/70 transition-colors">
-                    <td className="py-2.5 px-3.5">
-                      <div className="flex items-center gap-2.5">
-                        {e.avatarUrl ? (
-                          <img
-                            src={e.avatarUrl}
-                            alt={e.name}
-                            className="w-8 h-8 rounded-full object-cover border border-purple-200 shadow-2xs flex-shrink-0"
-                          />
-                        ) : (
-                          <div className="w-8 h-8 rounded-full bg-blue-50 border border-blue-200/80 text-blue-600 font-medium text-xs flex items-center justify-center flex-shrink-0">
-                            {getInitials(e.name)}
+                {filtered.map((e) => {
+                  const firstLetter = getFirstLetter(e.name);
+                  const colorCls = getFirstLetterColor(firstLetter);
+
+                  return (
+                    <tr key={e.id} className="hover:bg-slate-50/70 transition-colors">
+                      <td className="py-2.5 px-3.5">
+                        <div className="flex items-center gap-2.5">
+                          {e.avatarUrl ? (
+                            <img
+                              src={e.avatarUrl}
+                              alt={e.name}
+                              className="w-8 h-8 rounded-full object-cover border border-purple-200 shadow-2xs flex-shrink-0"
+                            />
+                          ) : (
+                            <div className={`w-8 h-8 rounded-full border text-xs font-bold flex items-center justify-center flex-shrink-0 ${colorCls}`}>
+                              {firstLetter}
+                            </div>
+                          )}
+                          <div>
+                            <span className="font-medium text-slate-900 block leading-tight">{e.name}</span>
+                            {e.email && <span className="text-[10.5px] text-slate-400 block">{e.email}</span>}
                           </div>
-                        )}
-                        <div>
-                          <span className="font-medium text-slate-900 block leading-tight">{e.name}</span>
-                          {e.email && <span className="text-[10.5px] text-slate-400 block">{e.email}</span>}
                         </div>
-                      </div>
-                    </td>
-                    <td className="py-2.5 px-3">
-                      <span className="font-mono text-[11px] font-semibold bg-purple-50 text-[#5e2b9d] border border-purple-200/60 px-2 py-0.5 rounded-[4px] inline-block tracking-wider">
-                        {e.employeeId || "—"}
-                      </span>
-                    </td>
-                    <td className="py-2.5 px-3 font-mono text-slate-800 text-[11.5px]">{e.mobile}</td>
-                    <td className="py-2.5 px-3">
-                      <span className="bg-slate-100 text-slate-700 text-[10.5px] font-medium px-2 py-0.5 rounded-[4px]">{e.city}</span>
-                    </td>
-                    <td className="py-2.5 px-3">
-                      <div>
-                        <span className="font-semibold text-slate-900">{formatCurrency(e.salaryAmount)}</span>
-                        <span className={`ml-1.5 text-[10px] font-medium px-1.5 py-0.5 rounded-[3px] ${e.salaryType === "monthly" ? "bg-blue-100 text-blue-700" : "bg-amber-100 text-amber-700"}`}>
-                          {e.salaryType === "monthly" ? "Monthly" : "Daily"}
+                      </td>
+                      <td className="py-2.5 px-3">
+                        <span className="font-mono text-[11px] font-semibold bg-purple-50 text-[#5e2b9d] border border-purple-200/60 px-2 py-0.5 rounded-[4px] inline-block tracking-wider">
+                          {e.employeeId || "—"}
                         </span>
-                      </div>
-                    </td>
-                    <td className="py-2.5 px-3">
-                      {e.qrCodeUrl ? (
-                        <button
-                          type="button"
-                          onClick={() => setQrModalEmp(e)}
-                          className="inline-flex items-center gap-1.5 px-2 py-1 rounded-[4px] bg-slate-100 hover:bg-[#5e2b9d]/10 hover:text-[#5e2b9d] text-slate-700 text-[10.5px] font-medium transition-colors cursor-pointer border border-slate-200"
-                          title="View / Download QR Code"
-                        >
-                          <svg className="w-3.5 h-3.5 text-[#5e2b9d]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
-                          </svg>
-                          <span>QR Code</span>
-                        </button>
-                      ) : (
-                        <span className="text-slate-400 text-[11px]">—</span>
-                      )}
-                    </td>
-                    <td className="py-2.5 px-3">
-                      <div>
-                        <span className="font-medium text-slate-800 block leading-tight">{e.emergencyName}</span>
-                        <span className="text-[10.5px] text-slate-400 font-mono">{e.emergencyContactNumber}</span>
-                        <span className="text-[10px] text-slate-400 ml-1">({e.emergencyRelation})</span>
-                      </div>
-                    </td>
-                    <td className="py-2.5 px-3 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => openView(e)}
-                          title="View Details"
-                          className="h-[28px] w-[28px] rounded-[4px] border border-slate-200 text-slate-600 hover:text-blue-600 hover:border-blue-300 hover:bg-blue-50 transition-colors flex items-center justify-center cursor-pointer"
-                        >
-                          <svg className="w-3.5 h-3.5 stroke-[1.8]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                          </svg>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => openEdit(e)}
-                          title="Edit"
-                          className="h-[28px] w-[28px] rounded-[4px] border border-slate-200 text-slate-600 hover:text-[#5e2b9d] hover:border-[#5e2b9d] hover:bg-purple-50 transition-colors flex items-center justify-center cursor-pointer"
-                        >
-                          <svg className="w-3.5 h-3.5 stroke-[1.8]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
-                          </svg>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setEmpToDelete(e)}
-                          title="Delete"
-                          className="h-[28px] w-[28px] rounded-[4px] border border-slate-200 text-slate-600 hover:text-rose-600 hover:border-rose-300 hover:bg-rose-50 transition-colors flex items-center justify-center cursor-pointer"
-                        >
-                          <svg className="w-3.5 h-3.5 stroke-[1.8]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-                          </svg>
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="py-2.5 px-3 font-mono text-slate-800 text-[11.5px]">{e.mobile}</td>
+                      <td className="py-2.5 px-3">
+                        <span className="bg-slate-100 text-slate-700 text-[10.5px] font-medium px-2 py-0.5 rounded-[4px]">{e.city}</span>
+                      </td>
+                      <td className="py-2.5 px-3">
+                        <div>
+                          <span className="font-semibold text-slate-900">{formatCurrency(e.salaryAmount)}</span>
+                          <span className={`ml-1.5 text-[10px] font-medium px-1.5 py-0.5 rounded-[3px] ${e.salaryType === "monthly" ? "bg-blue-100 text-blue-700" : "bg-amber-100 text-amber-700"}`}>
+                            {e.salaryType === "monthly" ? "Monthly" : "Daily"}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="py-2.5 px-3">
+                        {e.qrCodeUrl ? (
+                          <button
+                            type="button"
+                            onClick={() => setQrModalEmp(e)}
+                            className="inline-flex items-center gap-1.5 px-2 py-1 rounded-[4px] bg-slate-100 hover:bg-[#5e2b9d]/10 hover:text-[#5e2b9d] text-slate-700 text-[10.5px] font-medium transition-colors cursor-pointer border border-slate-200"
+                            title="View / Download QR Code"
+                          >
+                            <svg className="w-3.5 h-3.5 text-[#5e2b9d]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
+                            </svg>
+                            <span>QR Code</span>
+                          </button>
+                        ) : (
+                          <span className="text-slate-400 text-[11px]">—</span>
+                        )}
+                      </td>
+                      <td className="py-2.5 px-3">
+                        <div>
+                          <span className="font-medium text-slate-800 block leading-tight">{e.emergencyName}</span>
+                          <span className="text-[10.5px] text-slate-400 font-mono">{e.emergencyContactNumber}</span>
+                          <span className="text-[10px] text-slate-400 ml-1">({e.emergencyRelation})</span>
+                        </div>
+                      </td>
+                      <td className="py-2.5 px-3 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => openView(e)}
+                            title="View Details"
+                            className="h-[28px] w-[28px] rounded-[4px] border border-slate-200 text-slate-600 hover:text-blue-600 hover:border-blue-300 hover:bg-blue-50 transition-colors flex items-center justify-center cursor-pointer"
+                          >
+                            <svg className="w-3.5 h-3.5 stroke-[1.8]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            </svg>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openEdit(e)}
+                            title="Edit"
+                            className="h-[28px] w-[28px] rounded-[4px] border border-slate-200 text-slate-600 hover:text-[#5e2b9d] hover:border-[#5e2b9d] hover:bg-purple-50 transition-colors flex items-center justify-center cursor-pointer"
+                          >
+                            <svg className="w-3.5 h-3.5 stroke-[1.8]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
+                            </svg>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEmpToDelete(e)}
+                            title="Delete"
+                            className="h-[28px] w-[28px] rounded-[4px] border border-slate-200 text-slate-600 hover:text-rose-600 hover:border-rose-300 hover:bg-rose-50 transition-colors flex items-center justify-center cursor-pointer"
+                          >
+                            <svg className="w-3.5 h-3.5 stroke-[1.8]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                            </svg>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -568,7 +591,7 @@ export default function EmployeesPage() {
                     <h2 className="text-sm font-medium text-slate-900 leading-tight">
                       {modal === "edit" ? "Edit Employee" : "Add New Employee"}
                     </h2>
-                    <p className="text-[11px] text-slate-500 font-normal">Profile picture uploaded to ImageKit (under 60KB) & auto QR code.</p>
+                    <p className="text-[11px] text-slate-500 font-normal">Profile picture uploaded to ImageKit (&le;60KB) &amp; auto QR code.</p>
                   </div>
                 </div>
                 <button
@@ -968,8 +991,8 @@ export default function EmployeesPage() {
                       className="w-20 h-20 rounded-full object-cover border-2 border-[#5e2b9d]/30 shadow-md mb-2"
                     />
                   ) : (
-                    <div className="w-20 h-20 rounded-full bg-blue-100 border-2 border-blue-200 text-blue-600 font-semibold text-2xl flex items-center justify-center mb-2">
-                      {getInitials(activeEmp.name)}
+                    <div className={`w-20 h-20 rounded-full border-2 text-2xl font-bold flex items-center justify-center mb-2 shadow-sm ${getFirstLetterColor(getFirstLetter(activeEmp.name))}`}>
+                      {getFirstLetter(activeEmp.name)}
                     </div>
                   )}
                   <h3 className="text-base font-semibold text-slate-900">{activeEmp.name}</h3>
@@ -1086,7 +1109,7 @@ export default function EmployeesPage() {
           </div>
         )}
 
-        {/* ══════════ QR CODE MODAL ══════════ */}
+        {/* ══════════ QR CODE QUICK MODAL ══════════ */}
         {qrModalEmp && (
           <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
             <div className="bg-white rounded-[8px] border border-slate-200/80 shadow-2xl w-full max-w-sm overflow-hidden">
@@ -1119,8 +1142,8 @@ export default function EmployeesPage() {
                       className="w-9 h-9 rounded-full object-cover border border-purple-200 shadow-2xs"
                     />
                   ) : (
-                    <div className="w-9 h-9 rounded-full bg-blue-50 text-blue-600 font-semibold text-xs flex items-center justify-center border border-blue-200">
-                      {getInitials(qrModalEmp.name)}
+                    <div className={`w-9 h-9 rounded-full text-xs font-bold flex items-center justify-center border ${getFirstLetterColor(getFirstLetter(qrModalEmp.name))}`}>
+                      {getFirstLetter(qrModalEmp.name)}
                     </div>
                   )}
                   <div className="text-left">
@@ -1175,6 +1198,13 @@ export default function EmployeesPage() {
             </div>
           </div>
         )}
+
+        {/* ══════════ BULK UPLOAD MODAL ══════════ */}
+        <BulkUploadEmployeeModal
+          isOpen={bulkModalOpen}
+          onClose={() => setBulkModalOpen(false)}
+          onSuccess={loadEmployees}
+        />
 
         {/* Delete Confirm */}
         <ConfirmModal
