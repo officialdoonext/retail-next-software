@@ -93,6 +93,12 @@ export const NAV_PAGES: NavPage[] = [
       "M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z",
   },
   {
+    label: "ID Cards",
+    href: "/employees/id-card",
+    iconPath:
+      "M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0",
+  },
+  {
     label: "Staff",
     href: "/staff",
     iconPath:

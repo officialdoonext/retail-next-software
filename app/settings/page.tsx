@@ -18,6 +18,8 @@ interface StoreSettings {
   code?: string;
   license?: string;
   logoUrl: string;
+  tagline?: string;
+  website?: string;
 
   // GST Configuration
   enableGst: boolean;
@@ -92,6 +94,8 @@ export default function SettingsPage() {
   const [code, setCode] = useState("");
   const [license, setLicense] = useState("");
   const [logoUrl, setLogoUrl] = useState("");
+  const [tagline, setTagline] = useState("");
+  const [website, setWebsite] = useState("");
 
   // GST State
   const [enableGst, setEnableGst] = useState(false);
@@ -127,6 +131,8 @@ export default function SettingsPage() {
           setCode(s.code || "");
           setLicense(s.license || "");
           setLogoUrl(s.logoUrl || "");
+          setTagline(s.tagline || "");
+          setWebsite(s.website || "");
 
           setEnableGst(Boolean(s.enableGst));
           setGstNumber(s.gstNumber || "");
@@ -199,6 +205,8 @@ export default function SettingsPage() {
     setBusinessType(initialData.businessType || "Supermarket / Grocery");
     setLicense(initialData.license || "");
     setLogoUrl(initialData.logoUrl || "");
+    setTagline(initialData.tagline || "");
+    setWebsite(initialData.website || "");
     setEnableGst(Boolean(initialData.enableGst));
     setGstNumber(initialData.gstNumber || "");
     setIsPriceInclusiveGst(Boolean(initialData.isPriceInclusiveGst));
@@ -242,6 +250,8 @@ export default function SettingsPage() {
         businessType: businessType.trim(),
         license: license.trim(),
         logoUrl: logoUrl.trim(),
+        tagline: tagline.trim(),
+        website: website.trim(),
 
         enableGst,
         gstNumber: gstNumber.trim().toUpperCase(),
@@ -587,6 +597,36 @@ export default function SettingsPage() {
                       onChange={(e) => setPincode(e.target.value)}
                       placeholder="500001"
                       maxLength={6}
+                      className="w-full h-[34px] max-h-[34px] px-3 bg-[#f8fafc] border border-slate-200 rounded-[6px] text-xs font-normal text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#5e2b9d] focus:border-[#5e2b9d]"
+                    />
+                  </div>
+
+                  {/* Company Tagline */}
+                  <div className="sm:col-span-2 space-y-1">
+                    <label className="block text-xs font-medium text-slate-700">
+                      Company Tagline <span className="text-slate-400 font-normal">(shown on ID cards &amp; receipts)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={tagline}
+                      onChange={(e) => setTagline(e.target.value)}
+                      placeholder="e.g. People • Ideas • Growth"
+                      maxLength={80}
+                      className="w-full h-[34px] max-h-[34px] px-3 bg-[#f8fafc] border border-slate-200 rounded-[6px] text-xs font-normal text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#5e2b9d] focus:border-[#5e2b9d]"
+                    />
+                  </div>
+
+                  {/* Website */}
+                  <div className="space-y-1">
+                    <label className="block text-xs font-medium text-slate-700">
+                      Website <span className="text-slate-400 font-normal">(shown on ID cards)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={website}
+                      onChange={(e) => setWebsite(e.target.value)}
+                      placeholder="www.yourstore.com"
+                      maxLength={80}
                       className="w-full h-[34px] max-h-[34px] px-3 bg-[#f8fafc] border border-slate-200 rounded-[6px] text-xs font-normal text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#5e2b9d] focus:border-[#5e2b9d]"
                     />
                   </div>

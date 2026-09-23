@@ -60,6 +60,8 @@ export async function GET() {
       code: data.code || "",
       license: data.license || "",
       logoUrl: data.logoUrl || "",
+      tagline: data.tagline || "",
+      website: data.website || "",
 
       // GST Settings
       enableGst: Boolean(data.enableGst),
@@ -145,6 +147,8 @@ export async function PUT(request: Request) {
       businessType: String(body.businessType || "Retail Store").trim(),
       license: String(body.license || existingData.license || "").trim(),
       logoUrl: String(body.logoUrl || "").trim(),
+      tagline: String(body.tagline || "").trim(),
+      website: String(body.website || "").trim(),
 
       // GST Configuration
       enableGst,
