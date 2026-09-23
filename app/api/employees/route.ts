@@ -189,6 +189,7 @@ export async function POST(request: Request) {
 
     // Generate StoreID/EmployeeID QR code, compress to <= 60KB, and upload to ImageKit
     const qrCodeUrl = await generateAndUploadEmployeeQr(ctx.storeId, finalEmployeeId);
+    const acceptedLeaves = Math.max(0, parseInt(String(body.acceptedLeaves ?? 0), 10) || 0);
 
     const payload = {
       storeId: ctx.storeId,
@@ -202,6 +203,7 @@ export async function POST(request: Request) {
       email,
       salaryType,
       salaryAmount,
+      acceptedLeaves,
       emergencyContactNumber,
       emergencyRelation,
       emergencyName,
@@ -305,6 +307,10 @@ export async function PUT(request: Request) {
 
     if (body.avatarUrl !== undefined) {
       updatePayload.avatarUrl = String(body.avatarUrl || "").trim();
+    }
+
+    if (body.acceptedLeaves !== undefined) {
+      updatePayload.acceptedLeaves = Math.max(0, parseInt(String(body.acceptedLeaves), 10) || 0);
     }
 
     await updateDoc(empDocRef, updatePayload);

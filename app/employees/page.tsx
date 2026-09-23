@@ -6,6 +6,7 @@ import { useToast } from "@/components/ToastProvider";
 import ConfirmModal from "@/components/ConfirmModal";
 import { compressClientImage } from "@/lib/imageCompression";
 import BulkUploadEmployeeModal, { getFirstLetter, getFirstLetterColor } from "@/components/BulkUploadEmployeeModal";
+import EmployeeSubNav from "@/components/EmployeeSubNav";
 
 interface Employee {
   id: string;
@@ -20,6 +21,7 @@ interface Employee {
   email?: string;
   salaryType: "monthly" | "daily";
   salaryAmount: number;
+  acceptedLeaves?: number;
   emergencyContactNumber: string;
   emergencyRelation: string;
   emergencyName: string;
@@ -62,6 +64,7 @@ export default function EmployeesPage() {
   const [fEmail, setFEmail] = useState("");
   const [fSalaryType, setFSalaryType] = useState<"monthly" | "daily">("monthly");
   const [fSalaryAmount, setFSalaryAmount] = useState("");
+  const [fAcceptedLeaves, setFAcceptedLeaves] = useState("0");
   const [fEcNumber, setFEcNumber] = useState("");
   const [fEcRelation, setFEcRelation] = useState("Spouse");
   const [fEcName, setFEcName] = useState("");
@@ -126,6 +129,7 @@ export default function EmployeesPage() {
     setFEmail("");
     setFSalaryType("monthly");
     setFSalaryAmount("");
+    setFAcceptedLeaves("0");
     setFEcNumber("");
     setFEcRelation("Spouse");
     setFEcName("");
@@ -151,6 +155,7 @@ export default function EmployeesPage() {
     setFEmail(e.email || "");
     setFSalaryType(e.salaryType || "monthly");
     setFSalaryAmount(e.salaryAmount !== undefined && e.salaryAmount !== null ? String(e.salaryAmount) : "");
+    setFAcceptedLeaves(String(e.acceptedLeaves ?? 0));
     setFEcNumber(e.emergencyContactNumber || "");
     setFEcRelation(e.emergencyRelation || "Spouse");
     setFEcName(e.emergencyName || "");
@@ -262,6 +267,7 @@ export default function EmployeesPage() {
         avatarUrl: finalAvatarUrl,
         salaryType: fSalaryType,
         salaryAmount: cleanAmount,
+        acceptedLeaves: Math.max(0, parseInt(fAcceptedLeaves, 10) || 0),
         emergencyContactNumber: cleanEcNumber,
         emergencyRelation: cleanEcRelation,
         emergencyName: cleanEcName,
@@ -351,6 +357,7 @@ export default function EmployeesPage() {
   return (
     <SoftwareLayout>
       <div className="w-full flex flex-col font-sans">
+        <EmployeeSubNav />
 
         {/* ── Header ── */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
@@ -459,6 +466,7 @@ export default function EmployeesPage() {
                   <th className="py-2.5 px-3">Mobile</th>
                   <th className="py-2.5 px-3">City</th>
                   <th className="py-2.5 px-3">Salary</th>
+                  <th className="py-2.5 px-3">Leaves</th>
                   <th className="py-2.5 px-3">QR Code</th>
                   <th className="py-2.5 px-3">Emergency Contact</th>
                   <th className="py-2.5 px-3 text-right">Actions</th>
@@ -506,6 +514,11 @@ export default function EmployeesPage() {
                             {e.salaryType === "monthly" ? "Monthly" : "Daily"}
                           </span>
                         </div>
+                      </td>
+                      <td className="py-2.5 px-3">
+                        <span className="bg-slate-100 text-slate-700 text-[10.5px] font-medium px-2 py-0.5 rounded-[4px] font-mono">
+                          {e.acceptedLeaves ?? 0} {e.acceptedLeaves === 1 ? "day" : "days"}
+                        </span>
                       </td>
                       <td className="py-2.5 px-3">
                         {e.qrCodeUrl ? (
@@ -873,6 +886,24 @@ export default function EmployeesPage() {
                           {fSalaryType === "monthly" ? "Amount paid per month." : "Amount paid per working day."}
                         </p>
                       </div>
+
+                      {/* Accepted Leaves */}
+                      <div className="space-y-1 col-span-2">
+                        <label className="block text-xs font-medium text-slate-700">
+                          Accepted Leaves <span className="text-slate-400 font-normal">(per month, 0 if none)</span>
+                        </label>
+                        <input
+                          type="number"
+                          value={fAcceptedLeaves}
+                          onChange={(e) => setFAcceptedLeaves(e.target.value)}
+                          placeholder="0"
+                          min="0"
+                          className={`${inputCls} font-mono`}
+                        />
+                        <p className="text-[10.5px] text-slate-400">
+                          Allowed leaves count per month without loss of pay or bonus penalty. Default is 0.
+                        </p>
+                      </div>
                     </div>
                   </div>
 
@@ -1063,6 +1094,12 @@ export default function EmployeesPage() {
                       {activeEmp.salaryType === "monthly" ? "Monthly Salary" : "Daily Wages"}
                     </span>
                     <span className="text-sm font-bold text-slate-900">{formatCurrency(activeEmp.salaryAmount)}</span>
+                  </div>
+                  <div className="flex items-center justify-between py-1.5 border-b border-slate-100">
+                    <span className="text-xs text-slate-500 font-medium">Accepted Leaves</span>
+                    <span className="text-xs font-semibold text-slate-800 font-mono">
+                      {activeEmp.acceptedLeaves ?? 0} days / month
+                    </span>
                   </div>
                 </div>
 

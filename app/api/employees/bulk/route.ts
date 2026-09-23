@@ -126,6 +126,8 @@ export async function POST(request: Request) {
           const rawAmount = Number(row.salaryAmount || row["Salary Amount (INR)"] || row.salary || row.Salary || 0);
           const salaryAmount = rawAmount > 0 ? rawAmount : (salaryType === "monthly" ? 20000 : 700);
 
+          const acceptedLeaves = Math.max(0, parseInt(String(row["Accepted Leaves"] ?? row.acceptedLeaves ?? 0), 10) || 0);
+
           const emergencyName = String(row.emergencyName || row["Emergency Contact Name"] || row.EmergencyName || "").trim() || "Family Contact";
           const emergencyRelation = String(row.emergencyRelation || row["Emergency Contact Relation"] || row.EmergencyRelation || "").trim() || "Spouse";
           const rawEcMobile = String(row.emergencyContactNumber || row["Emergency Contact Number"] || row.EmergencyContact || "").replace(/\D/g, "");
@@ -165,6 +167,7 @@ export async function POST(request: Request) {
             email,
             salaryType,
             salaryAmount,
+            acceptedLeaves,
             emergencyContactNumber,
             emergencyRelation,
             emergencyName,

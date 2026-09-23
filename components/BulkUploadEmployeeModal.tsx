@@ -62,6 +62,7 @@ export default function BulkUploadEmployeeModal({
         { wch: 30 }, // Email
         { wch: 14 }, // Salary Type
         { wch: 20 }, // Salary Amount (INR)
+        { wch: 16 }, // Accepted Leaves
         { wch: 25 }, // Emergency Contact Name
         { wch: 24 }, // Emergency Contact Relation
         { wch: 24 }, // Emergency Contact Number
@@ -335,6 +336,7 @@ export default function BulkUploadEmployeeModal({
                       <th className="py-2 px-3">Mobile</th>
                       <th className="py-2 px-3">City</th>
                       <th className="py-2 px-3">Salary</th>
+                      <th className="py-2 px-3">Accepted Leaves</th>
                       <th className="py-2 px-3">Emergency Contact</th>
                     </tr>
                   </thead>
@@ -345,6 +347,7 @@ export default function BulkUploadEmployeeModal({
                       const city = String(row.City || row.city || "—");
                       const salaryType = String(row["Salary Type"] || row.salaryType || "Monthly");
                       const salaryAmount = Number(row["Salary Amount (INR)"] || row.salaryAmount || row.salary || 0);
+                      const acceptedLeaves = Number(row["Accepted Leaves"] ?? row.acceptedLeaves ?? 0);
                       const ecName = String(row["Emergency Contact Name"] || row.emergencyName || "—");
                       const letter = getFirstLetter(name);
                       const colorCls = getFirstLetterColor(letter);
@@ -362,6 +365,11 @@ export default function BulkUploadEmployeeModal({
                           <td className="py-2 px-3">
                             <span className="font-semibold text-slate-900">₹{salaryAmount.toLocaleString("en-IN")}</span>
                             <span className="text-[10px] text-slate-400 ml-1">({salaryType})</span>
+                          </td>
+                          <td className="py-2 px-3">
+                            <span className="px-2 py-0.5 rounded-[4px] bg-slate-100 text-slate-700 font-mono text-[11px] font-medium">
+                              {acceptedLeaves} {acceptedLeaves === 1 ? "day" : "days"}
+                            </span>
                           </td>
                           <td className="py-2 px-3 text-slate-600">{ecName}</td>
                         </tr>
