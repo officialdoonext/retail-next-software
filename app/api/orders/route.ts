@@ -290,6 +290,8 @@ export async function POST(request: Request) {
         price: Number(it.price) || 0,
         quantity: Number(it.quantity) || 1,
         total: (Number(it.price) || 0) * (Number(it.quantity) || 1),
+        employeeId: it.employeeId || null,
+        employeeName: it.employeeName || null,
       })),
       totalItemsCount: items.reduce((sum: number, it: any) => sum + (Number(it.quantity) || 1), 0),
       subtotal,

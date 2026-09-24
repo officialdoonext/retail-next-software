@@ -373,6 +373,7 @@ export default function AttendancePage() {
     ).length;
   }, [employees, onLeaveEmpIdMap, attendanceMap]);
 
+
   return (
     <SoftwareLayout>
       <div className="w-full flex flex-col font-sans">
@@ -442,6 +443,7 @@ export default function AttendancePage() {
             </svg>
             <span>Salary Logic &amp; Bonus</span>
           </button>
+
         </div>
 
         {/* ══════════════════════════════════════════════════════
@@ -1069,6 +1071,8 @@ export default function AttendancePage() {
             </form>
           </div>
         )}
+
+
       </div>
     </SoftwareLayout>
   );

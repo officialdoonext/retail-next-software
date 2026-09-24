@@ -19,6 +19,7 @@ const SOFTWARE_ROUTES = [
   "/orders",
   "/customers",
   "/employees",
+  "/attendance-scan",
   "/staff",
   "/analytics",
   "/utilities",
