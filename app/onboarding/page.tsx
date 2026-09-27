@@ -172,7 +172,7 @@ export default function OnboardingPage() {
       </header>
 
       {/* Main Content Area */}
-      <main className="flex-1 w-full max-w-2xl mx-auto px-4 sm:px-6 py-10 sm:py-16 flex flex-col items-center justify-center">
+      <main className="flex-1 w-full max-w-2xl mx-auto px-4 sm:px-6 py-6 sm:py-8 flex flex-col items-center justify-center">
         {loading ? (
           /* Loading State */
           <div className="w-full bg-white rounded-[6px] border border-slate-200 p-12 flex flex-col items-center justify-center text-center shadow-xs">

@@ -453,7 +453,7 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
         </aside>
 
         {/* Page Content Container — Independent Scroll */}
-        <main className="flex-1 h-full overflow-y-auto bg-[#fcfcfd] p-5 sm:p-7">
+        <main className="flex-1 h-full overflow-y-auto bg-[#fcfcfd] p-3 sm:p-4">
           {children}
         </main>
       </div>
