@@ -17,19 +17,21 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
   const router = useRouter();
 
   const [activeStoreName, setActiveStoreName] = useState("Retail Next");
-  const [activeStoreId, setActiveStoreId] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
   const [userEmail, setUserEmail] = useState("");
   const [userRole, setUserRole] = useState<"Admin" | "Staff" | null>(null);
   const [staffName, setStaffName] = useState("");
   const [staffAccess, setStaffAccess] = useState<string[]>([]);
   const [isStoreDropdownOpen, setIsStoreDropdownOpen] = useState(false);
-  const [openAccordions, setOpenAccordions] = useState<Record<string, boolean>>({});
+  const [openAccordions, setOpenAccordions] = useState<Record<string, boolean>>({
+    "sales-manager": true,
+    "product-manager": true,
+  });
 
   const { isConnected: printerConnected, printerType, printerName } = usePrinter();
   const [isPrinterModalOpen, setIsPrinterModalOpen] = useState(false);
 
-  // Initialize open accordion based on current pathname
+  // Initialize roles & access on mount
   useEffect(() => {
     setMounted(true);
     if (typeof window !== "undefined") {
@@ -87,7 +89,6 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
 
             const isExpired = !expiryTime || expiryTime <= Date.now();
             if (!isPlanActive || isExpired) {
-              // Redirect to onboarding to display inactive/expired plan message
               router.push("/onboarding");
               return;
             }
@@ -106,9 +107,8 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
           }
         }
 
-        if (data.activeStore) {
+        if (data.activeStore?.name) {
           setActiveStoreName(data.activeStore.name);
-          setActiveStoreId(data.activeStore.id);
         }
       } catch {
         // ignore
@@ -118,11 +118,30 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
     loadSession();
   }, [router]);
 
+  // Toggle single accordion
   const toggleAccordion = (groupId: string) => {
     setOpenAccordions((prev) => ({
       ...prev,
       [groupId]: !prev[groupId],
     }));
+  };
+
+  // Toggle Collapse All / Expand All
+  const areAllOpen = useMemo(() => {
+    const accordionGroups = SIDEBAR_NAV.filter((g) => g.children);
+    return accordionGroups.every((g) => !!openAccordions[g.id]);
+  }, [openAccordions]);
+
+  const handleToggleAllAccordions = () => {
+    if (areAllOpen) {
+      setOpenAccordions({});
+    } else {
+      const all: Record<string, boolean> = {};
+      SIDEBAR_NAV.forEach((g) => {
+        if (g.children) all[g.id] = true;
+      });
+      setOpenAccordions(all);
+    }
   };
 
   const handleLogout = async () => {
@@ -168,9 +187,9 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
     : "AD";
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#fcfcfd] font-sans text-slate-800">
-      {/* Top Navbar */}
-      <header className="h-[57px] bg-white border-b border-slate-200/80 px-4 sm:px-6 flex items-center justify-between sticky top-0 z-40">
+    <div className="h-screen w-full overflow-hidden flex flex-col bg-[#fcfcfd] font-sans text-slate-800">
+      {/* Top Navbar — Strictly fixed height, pinned at top */}
+      <header className="h-[57px] shrink-0 bg-white border-b border-slate-200/80 px-4 sm:px-6 flex items-center justify-between z-40">
         {/* Left: Brand Logo */}
         <div className="flex items-center gap-3">
           <Link href="/dashboard" className="flex items-center" suppressHydrationWarning>
@@ -211,7 +230,7 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
                   <svg className="w-3.5 h-3.5 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
                   </svg>
-                  <span>Switch Store / Onboarding</span>
+                  <span>Onboarding & Plan</span>
                 </Link>
                 <Link
                   href="/stores"
@@ -291,14 +310,26 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
         </div>
       </header>
 
-      {/* Main Body with Accordion Sidebar + Content */}
-      <div className="flex-1 flex min-h-[calc(100vh-57px)]">
-        {/* Left Accordion Sidebar — 240px width */}
-        <aside className="w-[240px] bg-white border-r border-slate-200/80 flex flex-col justify-between py-3 flex-shrink-0 sticky top-[57px] h-[calc(100vh-57px)] overflow-x-hidden">
-          {/* Navigation Accordion List */}
-          <nav className="flex flex-col gap-0.5 px-3 overflow-y-auto flex-1 select-none text-xs">
+      {/* Main Workspace: Fills remaining viewport height */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Left Accordion Sidebar — Fixed 260px width, independent scroll */}
+        <aside className="w-[260px] h-full shrink-0 bg-white border-r border-slate-200/80 flex flex-col justify-between">
+          {/* Top Quick Actions Header inside Sidebar */}
+          <div className="px-3.5 pt-2.5 pb-1 flex items-center justify-between text-[11px] font-semibold text-slate-400 uppercase tracking-wider shrink-0">
+            <span>Menu</span>
+            <button
+              type="button"
+              onClick={handleToggleAllAccordions}
+              className="text-[10.5px] font-medium text-slate-400 hover:text-[#5e2b9d] transition-colors cursor-pointer lowercase"
+            >
+              {areAllOpen ? "collapse all" : "expand all"}
+            </button>
+          </div>
+
+          {/* Navigation Accordion List with Sleek Scrollbar */}
+          <nav className="flex-1 overflow-y-auto px-2.5 py-1.5 space-y-0.5 custom-sidebar-scroll select-none text-xs">
             {visibleNavGroups.map((group) => {
-              // Case 1: Direct Link (Dashboard, POS, Stores)
+              // Direct Link (Dashboard, POS, Stores)
               if (group.href) {
                 const isActive = pathname === group.href;
                 return (
@@ -308,7 +339,7 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
                     className={`h-[36px] px-3 rounded-[6px] flex items-center gap-2.5 font-medium transition-all duration-150 ${
                       isActive
                         ? "bg-[#5e2b9d] text-white shadow-xs"
-                        : "text-slate-600 hover:bg-purple-50/70 hover:text-[#5e2b9d]"
+                        : "text-slate-700 hover:bg-purple-50/70 hover:text-[#5e2b9d]"
                     }`}
                   >
                     <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -325,7 +356,7 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
                 );
               }
 
-              // Case 2: Accordion with Child Menus
+              // Accordion with Child Menus
               const isOpen = !!openAccordions[group.id];
               const hasActiveChild = group.children?.some(
                 (c) => pathname === c.href || pathname.startsWith(c.href + "/")
@@ -333,17 +364,17 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
 
               return (
                 <div key={group.id} className="flex flex-col">
-                  {/* Accordion Header */}
+                  {/* Accordion Header Button */}
                   <button
                     type="button"
                     onClick={() => toggleAccordion(group.id)}
                     className={`h-[36px] px-3 rounded-[6px] flex items-center justify-between font-medium transition-colors text-left cursor-pointer ${
                       hasActiveChild
-                        ? "text-[#5e2b9d] font-semibold bg-purple-50/50"
+                        ? "text-[#5e2b9d] font-semibold bg-purple-50/60"
                         : "text-slate-700 hover:bg-slate-50 hover:text-slate-900"
                     }`}
                   >
-                    <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="flex items-center gap-2.5 min-w-0 pr-1">
                       <svg
                         className={`w-4 h-4 shrink-0 ${hasActiveChild ? "text-[#5e2b9d]" : "text-slate-400"}`}
                         fill="none"
@@ -358,12 +389,13 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d={group.icon} />
                         )}
                       </svg>
-                      <span className="truncate">{group.label}</span>
+                      {/* Ensures long titles like 'Return & Exchange Manager' fit comfortably without truncation */}
+                      <span className="whitespace-nowrap leading-none tracking-tight">{group.label}</span>
                     </div>
 
-                    {/* Chevron Icon that rotates */}
+                    {/* Rotating Chevron */}
                     <svg
-                      className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 shrink-0 ml-1.5 ${
+                      className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 shrink-0 ml-1 ${
                         isOpen ? "rotate-180 text-[#5e2b9d]" : ""
                       }`}
                       fill="none"
@@ -376,19 +408,24 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
 
                   {/* Accordion Submenu Items */}
                   {isOpen && group.children && (
-                    <div className="flex flex-col ml-4 pl-3 border-l border-slate-200 py-1 space-y-0.5 animate-in fade-in slide-in-from-top-1 duration-150">
+                    <div className="flex flex-col ml-4 pl-2.5 border-l-2 border-slate-100 py-1 space-y-0.5 animate-in fade-in slide-in-from-top-1 duration-150">
                       {group.children.map((child) => {
                         const isChildActive = pathname === child.href || pathname.startsWith(child.href + "/");
                         return (
                           <Link
                             key={child.id}
                             href={child.href}
-                            className={`h-[30px] px-2.5 rounded-[4px] flex items-center text-xs transition-colors truncate ${
+                            className={`h-[30px] px-2.5 rounded-[4px] flex items-center gap-2 text-xs transition-colors truncate ${
                               isChildActive
-                                ? "bg-purple-100/70 text-[#5e2b9d] font-semibold"
-                                : "text-slate-500 hover:text-slate-900 hover:bg-slate-50"
+                                ? "bg-[#5e2b9d] text-white font-medium shadow-2xs"
+                                : "text-slate-600 hover:text-slate-900 hover:bg-slate-100/70"
                             }`}
                           >
+                            <span
+                              className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                                isChildActive ? "bg-white" : "bg-slate-300"
+                              }`}
+                            />
                             <span className="truncate">{child.label}</span>
                           </Link>
                         );
@@ -400,8 +437,8 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
             })}
           </nav>
 
-          {/* Bottom Sidebar Footer */}
-          <div className="px-3 pt-2.5 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400">
+          {/* Pinned Bottom Sidebar Footer */}
+          <div className="shrink-0 px-3.5 py-2.5 border-t border-slate-100 bg-white flex items-center justify-between text-[11px] text-slate-400">
             <Link
               href="/onboarding"
               className="flex items-center gap-1.5 hover:text-[#5e2b9d] transition-colors"
@@ -411,12 +448,12 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
               </svg>
               <span>Onboarding</span>
             </Link>
-            <span className="text-[10px] text-slate-300 font-mono">v2.4</span>
+            <span className="text-[10px] text-slate-400 font-mono">RetailNext</span>
           </div>
         </aside>
 
-        {/* Page Content Container */}
-        <main className="flex-1 bg-[#fcfcfd] p-5 sm:p-7 overflow-y-auto">
+        {/* Page Content Container — Independent Scroll */}
+        <main className="flex-1 h-full overflow-y-auto bg-[#fcfcfd] p-5 sm:p-7">
           {children}
         </main>
       </div>

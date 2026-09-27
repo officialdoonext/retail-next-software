@@ -50,6 +50,25 @@ body {
   scrollbar-color: #cbd5e1 transparent !important;
 }
 
+/* Custom sleek sidebar scrollbar */
+.custom-sidebar-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #e2e8f0 transparent;
+}
+.custom-sidebar-scroll::-webkit-scrollbar {
+  width: 4px !important;
+}
+.custom-sidebar-scroll::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+.custom-sidebar-scroll::-webkit-scrollbar-thumb {
+  background: #e2e8f0 !important;
+  border-radius: 9999px !important;
+}
+.custom-sidebar-scroll::-webkit-scrollbar-thumb:hover {
+  background: #cbd5e1 !important;
+}
+
 /* Enforce maximum font weight of 500 across the entire application */
 h1, h2, h3, h4, h5, h6, b, strong, th,
 .font-semibold, .font-bold, .font-extrabold, .font-black,
