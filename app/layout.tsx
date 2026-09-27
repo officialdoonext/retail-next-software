@@ -3,7 +3,6 @@ import { Sora } from "next/font/google";
 import "./globals.css";
 import NumberInputScrollPrevention from "@/components/NumberInputScrollPrevention";
 import { ToastProvider } from "@/components/ToastProvider";
-import WelcomeScreen from "@/components/WelcomeScreen";
 import PwaUpdater from "@/components/PwaUpdater";
 import { PrinterProvider } from "@/context/PrinterContext";
 import QueryProvider from "@/components/providers/QueryProvider";
@@ -66,7 +65,6 @@ export default function RootLayout({
             <PrinterProvider>
               <NumberInputScrollPrevention />
               <PwaUpdater />
-              <WelcomeScreen />
               {children}
             </PrinterProvider>
           </ToastProvider>

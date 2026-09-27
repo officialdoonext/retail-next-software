@@ -19,6 +19,9 @@ export interface SessionPayload {
   staffName?: string;
   storeId?: string;
   access?: string[]; // Array of permitted page hrefs (e.g. ["/pos", "/orders"])
+  status?: string; // "Active" | "Inactive"
+  expiryDate?: any; // Timestamp or date string or null
+  plan?: string | null;
 }
 
 // Generates a 6-digit secure numeric OTP

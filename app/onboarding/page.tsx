@@ -93,7 +93,27 @@ export default function OnboardingPage() {
 
   const handleRefreshStatus = async () => {
     setRefreshing(true);
-    await loadUserData();
+    try {
+      const res = await fetch("/api/auth/refresh-session", { method: "POST" });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setUserStatus(data.status || "Inactive");
+        setUserPlan(data.plan || null);
+        setUserExpiryDate(data.expiryDate ?? null);
+
+        if (data.isAllowed) {
+          router.push(data.redirect || "/dashboard");
+          router.refresh();
+          return;
+        }
+      } else {
+        await loadUserData();
+      }
+    } catch {
+      await loadUserData();
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const handleLogout = async () => {

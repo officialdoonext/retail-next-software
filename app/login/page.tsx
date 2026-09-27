@@ -87,8 +87,9 @@ export default function LoginPage() {
           localStorage.removeItem("staff_access");
           localStorage.removeItem("staff_name");
         }
-        // Successfully verified and cookie issued! Redirect to onboarding
-        router.push("/onboarding");
+        // If account is active and unexpired, enter software directly; otherwise redirect to onboarding
+        const destination = data.redirect || (data.isAllowed ? "/dashboard" : "/onboarding");
+        router.push(destination);
         router.refresh();
       }
     } catch {

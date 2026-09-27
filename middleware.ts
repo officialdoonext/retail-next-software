@@ -64,18 +64,27 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  // 3. If user visits /login while already logged in, redirect to /onboarding
+  // Compute plan validity from signed JWT token
+  const isStatusActive = sessionPayload?.status?.toLowerCase() === "active";
+  let expiryTime: number | null = null;
+  if (sessionPayload?.expiryDate) {
+    const t = new Date(sessionPayload.expiryDate).getTime();
+    if (!isNaN(t)) expiryTime = t;
+  }
+  const isPlanValid = sessionPayload?.role === "Staff" ? true : isStatusActive && expiryTime !== null && expiryTime > Date.now();
+
+  // 3. If user visits /login while already logged in, redirect based on plan validity
   if (pathname === "/login") {
     if (isAuthenticated) {
-      return NextResponse.redirect(new URL("/onboarding", request.url));
+      return NextResponse.redirect(new URL(isPlanValid ? "/dashboard" : "/onboarding", request.url));
     }
     return NextResponse.next();
   }
 
-  // 4. If root path /, redirect based on auth status
+  // 4. If root path /, redirect based on auth status & plan validity
   if (pathname === "/") {
     if (isAuthenticated) {
-      return NextResponse.redirect(new URL("/onboarding", request.url));
+      return NextResponse.redirect(new URL(isPlanValid ? "/dashboard" : "/onboarding", request.url));
     }
     return NextResponse.redirect(new URL("/login", request.url));
   }
@@ -100,23 +109,27 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  // 7. If user is accessing software pages, enforce staff permissions if applicable
+  // 7. Strict Enforcement for Software Routes:
   const isSoftwareRoute = SOFTWARE_ROUTES.some((route) => pathname.startsWith(route));
   if (isSoftwareRoute) {
+    // STRICT ZERO-FLASH BLOCK:
+    // If Admin account is inactive, has no plan, or is expired, immediately redirect to /onboarding
+    // The requested software page (e.g. /stores, /dashboard, etc.) is NEVER rendered or served!
+    if (sessionPayload?.role === "Admin" && !isPlanValid) {
+      return NextResponse.redirect(new URL("/onboarding", request.url));
+    }
+
     // STRICT PER-PAGE SECURITY FOR STAFF:
-    // If the authenticated user is a staff member, verify whether this specific page is in their assigned access array
     if (sessionPayload?.role === "Staff") {
       const allowedAccess: string[] = Array.isArray(sessionPayload.access)
         ? sessionPayload.access
         : [];
 
-      // Check if current pathname matches or is a sub-path of any permitted page
       const isAllowed = allowedAccess.some(
         (allowed) => pathname === allowed || pathname.startsWith(allowed + "/")
       );
 
       if (!isAllowed) {
-        // Block unauthorized URL attempt and redirect to unauthorized page
         return NextResponse.redirect(new URL("/unauthorized", request.url));
       }
     }

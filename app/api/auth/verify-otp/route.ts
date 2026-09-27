@@ -75,6 +75,10 @@ export async function POST(request: Request) {
     const userDocRef = doc(db, "users", email.replace(/[^a-zA-Z0-9_]/g, "_"));
     const userSnap = await getDoc(userDocRef);
 
+    let effectiveStatus = "Inactive";
+    let effectiveExpiry: any = null;
+    let effectivePlan: any = null;
+
     if (!userSnap.exists()) {
       // First-time registration: Inactive status and null expiry date by default
       await setDoc(userDocRef, {
@@ -89,24 +93,42 @@ export async function POST(request: Request) {
     } else {
       // Existing user: Preserve manually configured status, plan, and expiry date
       const existing = userSnap.data();
+      effectiveStatus = existing.status || "Inactive";
+      effectiveExpiry = existing.expiryDate ?? null;
+      effectivePlan = existing.plan ?? null;
+
       await updateDoc(userDocRef, {
         lastLoginAt: Date.now(),
-        status: existing.status || "Inactive",
-        expiryDate: existing.expiryDate ?? null,
+        status: effectiveStatus,
+        expiryDate: effectiveExpiry,
       });
     }
 
-    // Issue signed JWT token
+    // Strict validation: check active status & unexpired validity date
+    const isStatusActive = effectiveStatus?.toLowerCase() === "active";
+    let expiryTime: number | null = null;
+    if (effectiveExpiry) {
+      const t = new Date(effectiveExpiry).getTime();
+      if (!isNaN(t)) expiryTime = t;
+    }
+    const isAllowedDirectly = isStatusActive && expiryTime !== null && expiryTime > Date.now();
+
+    // Issue cryptographically signed JWT token with embedded status & expiry
     const token = await createSessionToken({
       email,
       role: "Admin",
+      status: effectiveStatus,
+      expiryDate: effectiveExpiry,
+      plan: effectivePlan,
       createdAt: Date.now(),
     });
 
     const response = NextResponse.json({
       success: true,
       message: "Authentication successful.",
-      user: { email, role: "Admin" },
+      user: { email, role: "Admin", status: effectiveStatus, plan: effectivePlan, expiryDate: effectiveExpiry },
+      redirect: isAllowedDirectly ? "/dashboard" : "/onboarding",
+      isAllowed: isAllowedDirectly,
     });
 
     // Set secure HTTP-only cookie
