@@ -312,8 +312,8 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
 
       {/* Main Workspace: Fills remaining viewport height */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left Accordion Sidebar — Fixed 260px width, independent scroll */}
-        <aside className="w-[260px] h-full shrink-0 bg-white border-r border-slate-200/80 flex flex-col justify-between">
+        {/* Left Accordion Sidebar — Fixed 268px width, independent scroll */}
+        <aside className="w-[268px] h-full shrink-0 bg-white border-r border-slate-200/80 flex flex-col justify-between">
           {/* Top Quick Actions Header inside Sidebar */}
           <div className="px-3.5 pt-2.5 pb-1 flex items-center justify-between text-[11px] font-semibold text-slate-400 uppercase tracking-wider shrink-0">
             <span>Menu</span>
@@ -327,7 +327,7 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
           </div>
 
           {/* Navigation Accordion List with Sleek Scrollbar */}
-          <nav className="flex-1 overflow-y-auto px-2.5 py-1.5 space-y-0.5 custom-sidebar-scroll select-none text-xs">
+          <nav className="flex-1 overflow-y-auto px-2.5 py-1.5 space-y-0.5 custom-sidebar-scroll select-none">
             {visibleNavGroups.map((group) => {
               // Direct Link (Dashboard, POS, Stores)
               if (group.href) {
@@ -336,7 +336,7 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
                   <Link
                     key={group.id}
                     href={group.href}
-                    className={`h-[36px] px-3 rounded-[6px] flex items-center gap-2.5 font-medium transition-all duration-150 ${
+                    className={`h-[36px] px-3 rounded-[6px] flex items-center gap-2.5 text-[13px] font-medium transition-all duration-150 ${
                       isActive
                         ? "bg-[#5e2b9d] text-white shadow-xs"
                         : "text-slate-700 hover:bg-purple-50/70 hover:text-[#5e2b9d]"
@@ -368,7 +368,7 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
                   <button
                     type="button"
                     onClick={() => toggleAccordion(group.id)}
-                    className={`h-[36px] px-3 rounded-[6px] flex items-center justify-between font-medium transition-colors text-left cursor-pointer ${
+                    className={`h-[36px] px-3 rounded-[6px] flex items-center justify-between text-[13px] font-medium transition-colors text-left cursor-pointer ${
                       hasActiveChild
                         ? "text-[#5e2b9d] font-semibold bg-purple-50/60"
                         : "text-slate-700 hover:bg-slate-50 hover:text-slate-900"
@@ -390,7 +390,7 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
                         )}
                       </svg>
                       {/* Ensures long titles like 'Return & Exchange Manager' fit comfortably without truncation */}
-                      <span className="whitespace-nowrap leading-none tracking-tight">{group.label}</span>
+                      <span className="whitespace-nowrap">{group.label}</span>
                     </div>
 
                     {/* Rotating Chevron */}
@@ -415,9 +415,9 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
                           <Link
                             key={child.id}
                             href={child.href}
-                            className={`h-[30px] px-2.5 rounded-[4px] flex items-center gap-2 text-xs transition-colors truncate ${
+                            className={`h-[32px] px-2.5 rounded-[4px] flex items-center gap-2 text-[13px] font-medium transition-colors truncate ${
                               isChildActive
-                                ? "bg-[#5e2b9d] text-white font-medium shadow-2xs"
+                                ? "bg-[#5e2b9d] text-white shadow-2xs"
                                 : "text-slate-600 hover:text-slate-900 hover:bg-slate-100/70"
                             }`}
                           >

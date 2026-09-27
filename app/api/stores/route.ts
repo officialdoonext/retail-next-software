@@ -95,9 +95,10 @@ export async function POST(request: Request) {
 
     const body = await request.json();
     const name = String(body.name || "").trim();
-    const location = String(body.location || "").trim();
-    const phone = String(body.phone || "").trim();
-    const license = String(body.license || "").trim();
+    const mobileNumber = String(body.mobileNumber || body.phone || "").trim();
+    const city = String(body.city || "").trim();
+    const fullAddress = String(body.fullAddress || body.address || body.location || "").trim();
+    const gstNumber = String(body.gstNumber || body.license || "").trim().toUpperCase();
 
     if (!name) {
       return NextResponse.json(
@@ -107,12 +108,17 @@ export async function POST(request: Request) {
     }
 
     const generatedCode = `RET ${Math.floor(1000 + Math.random() * 9000)}`;
+    const displayLocation = city ? (fullAddress ? `${city}, ${fullAddress}` : city) : fullAddress || "Main Branch";
 
     const storeData = {
       name,
-      location: location || "Main Branch",
-      phone: phone || "Not Provided",
-      license: license || `RET-TS-${Math.floor(1000 + Math.random() * 9000)}`,
+      mobileNumber: mobileNumber || "Not Provided",
+      phone: mobileNumber || "Not Provided",
+      city: city || "",
+      fullAddress: fullAddress || "",
+      location: displayLocation,
+      gstNumber: gstNumber || "",
+      license: gstNumber || `RET-TS-${Math.floor(1000 + Math.random() * 9000)}`,
       code: generatedCode,
       ownerEmail: session.email,
       // Strictly enforced: inactive with no expiry date on creation
