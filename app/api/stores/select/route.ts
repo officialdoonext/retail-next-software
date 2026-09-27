@@ -81,7 +81,42 @@ export async function POST(request: Request) {
         );
       }
     } else {
-      // Admin validation: verify store ownership
+      // Admin validation: verify account plan is Active and not expired
+      const userDocRef = doc(db, "users", session.email.toLowerCase().replace(/[^a-zA-Z0-9_]/g, "_"));
+      const userSnap = await getDoc(userDocRef);
+      if (!userSnap.exists()) {
+        return NextResponse.json(
+          { success: false, error: "Administrator account record not found." },
+          { status: 403 }
+        );
+      }
+
+      const userData = userSnap.data();
+      const isPlanActive = userData.status?.toLowerCase() === "active";
+      let userExpiry: number | null = null;
+      if (typeof userData.expiryDate === "string" || typeof userData.expiryDate === "number") {
+        const t = new Date(userData.expiryDate).getTime();
+        if (!isNaN(t)) userExpiry = t;
+      } else if (typeof userData.expiryDate === "object" && userData.expiryDate !== null) {
+        if (typeof userData.expiryDate.toDate === "function") {
+          userExpiry = userData.expiryDate.toDate().getTime();
+        } else if ("seconds" in userData.expiryDate) {
+          userExpiry = userData.expiryDate.seconds * 1000;
+        }
+      }
+
+      if (!isPlanActive || !userExpiry || userExpiry <= Date.now()) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              "Your administrator account plan is inactive or expired. Please contact the system administrator to activate your plan.",
+          },
+          { status: 403 }
+        );
+      }
+
+      // Verify store ownership
       if (store.ownerEmail !== session.email) {
         return NextResponse.json({ success: false, error: "Access denied." }, { status: 403 });
       }

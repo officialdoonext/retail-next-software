@@ -36,6 +36,20 @@ export async function GET() {
       }
     }
 
+    let userDocData: any = null;
+    if (payload.email) {
+      try {
+        const userSnap = await getDoc(
+          doc(db, "users", payload.email.toLowerCase().replace(/[^a-zA-Z0-9_]/g, "_"))
+        );
+        if (userSnap.exists()) {
+          userDocData = userSnap.data();
+        }
+      } catch (err) {
+        console.error("Error fetching user record:", err);
+      }
+    }
+
     return NextResponse.json({
       authenticated: true,
       user: {
@@ -45,6 +59,9 @@ export async function GET() {
         staffName: payload.staffName || null,
         staffId: payload.staffId || null,
         access: payload.access || [],
+        status: userDocData?.status || (payload.role === "Admin" ? "Inactive" : "Active"),
+        plan: userDocData?.plan || null,
+        expiryDate: userDocData?.expiryDate ?? null,
       },
       activeStore,
     });

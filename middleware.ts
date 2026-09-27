@@ -12,18 +12,25 @@ const ACTIVE_STORE_COOKIE = "active_store_id";
 const SOFTWARE_ROUTES = [
   "/dashboard",
   "/pos",
+  "/stores",
+  "/sales",
   "/products",
-  "/inventory",
   "/categories",
   "/variations",
-  "/orders",
+  "/returns",
+  "/stock",
   "/customers",
-  "/employees",
-  "/attendance-scan",
+  "/discounts",
+  "/vendors",
   "/staff",
+  "/employees",
+  "/settings",
+  "/orders",
+  "/inventory",
+  "/stock-analysis",
+  "/attendance-scan",
   "/analytics",
   "/utilities",
-  "/settings",
 ];
 
 export async function middleware(request: NextRequest) {
@@ -93,15 +100,9 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  // 7. If user is accessing software pages, enforce active store and permissions
+  // 7. If user is accessing software pages, enforce staff permissions if applicable
   const isSoftwareRoute = SOFTWARE_ROUTES.some((route) => pathname.startsWith(route));
   if (isSoftwareRoute) {
-    const activeStoreId = request.cookies.get(ACTIVE_STORE_COOKIE)?.value;
-    if (!activeStoreId) {
-      // Must select an active store on the onboarding page first
-      return NextResponse.redirect(new URL("/onboarding", request.url));
-    }
-
     // STRICT PER-PAGE SECURITY FOR STAFF:
     // If the authenticated user is a staff member, verify whether this specific page is in their assigned access array
     if (sessionPayload?.role === "Staff") {

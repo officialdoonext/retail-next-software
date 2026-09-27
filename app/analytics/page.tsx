@@ -1,9 +1,5 @@
-import SoftwareLayout from "@/components/SoftwareLayout";
+import { redirect } from "next/navigation";
 
-export default function AnalyticsPage() {
-  return (
-    <SoftwareLayout>
-      {/* Analytics Page UI - to be added later */}
-    </SoftwareLayout>
-  );
+export default function OldAnalyticsRedirect() {
+  redirect("/dashboard");
 }

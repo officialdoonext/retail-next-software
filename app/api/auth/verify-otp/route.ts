@@ -73,15 +73,28 @@ export async function POST(request: Request) {
 
     // Record user profile in Firestore
     const userDocRef = doc(db, "users", email.replace(/[^a-zA-Z0-9_]/g, "_"));
-    await setDoc(
-      userDocRef,
-      {
+    const userSnap = await getDoc(userDocRef);
+
+    if (!userSnap.exists()) {
+      // First-time registration: Inactive status and null expiry date by default
+      await setDoc(userDocRef, {
         email,
         role: "Admin",
+        status: "Inactive",
+        plan: null,
+        expiryDate: null,
+        createdAt: Date.now(),
         lastLoginAt: Date.now(),
-      },
-      { merge: true }
-    );
+      });
+    } else {
+      // Existing user: Preserve manually configured status, plan, and expiry date
+      const existing = userSnap.data();
+      await updateDoc(userDocRef, {
+        lastLoginAt: Date.now(),
+        status: existing.status || "Inactive",
+        expiryDate: existing.expiryDate ?? null,
+      });
+    }
 
     // Issue signed JWT token
     const token = await createSessionToken({

@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 
-export default function InventoryPage() {
-  redirect("/products");
+export default function OldInventoryRedirect() {
+  redirect("/stock");
 }
-

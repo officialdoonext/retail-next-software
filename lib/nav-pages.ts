@@ -1,133 +1,151 @@
 /**
- * NAV PAGES — single source of truth.
- *
- * Every page entry here is automatically available in:
- *  1. The SoftwareLayout sidebar navigation
- *  2. The Staff page-access permission selector
- *
- * To add a new page: just add a new object to this array.
+ * NAV PAGES & ACCORDION SIDEBAR CONFIGURATION
+ * Single source of truth for the entire software navigation.
  */
 
-export interface NavPage {
+export interface NavChildItem {
+  id: string;
   label: string;
   href: string;
-  /** Inline SVG path string (stroke, for Heroicons style) */
-  iconPath: string | string[];
+  description?: string;
 }
 
-export const NAV_PAGES: NavPage[] = [
+export interface NavGroupItem {
+  id: string;
+  label: string;
+  icon: string | string[];
+  href?: string; // If it is a direct single page (like Dashboard, POS, Stores)
+  children?: NavChildItem[]; // If it is an accordion with child pages
+}
+
+export const SIDEBAR_NAV: NavGroupItem[] = [
   {
+    id: "dashboard",
     label: "Dashboard",
     href: "/dashboard",
-    iconPath:
-      "M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zM14 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM14 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z",
+    icon: "M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zM14 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM14 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z",
   },
   {
-    label: "Billing",
+    id: "pos",
+    label: "POS",
     href: "/pos",
-    iconPath:
-      "M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z",
+    icon: "M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z",
   },
   {
-    label: "Sales",
-    href: "/orders",
-    iconPath: "M13 7h8m0 0v8m0-8l-8 8-4-4-6 6",
+    id: "stores",
+    label: "Stores",
+    href: "/stores",
+    icon: "M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6",
   },
   {
-    label: "Products",
-    href: "/products",
-    iconPath:
-      "M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4",
+    id: "sales-manager",
+    label: "Sales Manager",
+    icon: "M13 7h8m0 0v8m0-8l-8 8-4-4-6 6",
+    children: [
+      { id: "sales", label: "Sales", href: "/sales", description: "All sales transactions & orders" },
+      { id: "employee-sales", label: "Employee Sales", href: "/sales/employee-sales", description: "Sales performance by employee" },
+      { id: "counter-sales", label: "Counter Sales", href: "/sales/counter-sales", description: "Terminal & counter checkout sales" },
+    ],
   },
   {
-    label: "Categories",
-    href: "/categories",
-    iconPath: "M4 6h16M4 10h16M4 14h16M4 18h16",
+    id: "product-manager",
+    label: "Product Manager",
+    icon: "M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4",
+    children: [
+      { id: "categories", label: "Categories", href: "/categories", description: "Organize products into categories" },
+      { id: "variations", label: "Variations", href: "/variations", description: "Sizes, colors, units & options" },
+      { id: "products", label: "Products", href: "/products", description: "Catalog & item master management" },
+    ],
   },
   {
-    label: "Variations",
-    href: "/variations",
-    iconPath:
-      "M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z",
+    id: "return-exchange-manager",
+    label: "Return & Exchange Manager",
+    icon: "M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15",
+    children: [
+      { id: "returns", label: "Returns", href: "/returns", description: "Customer product returns & credit notes" },
+      { id: "exchanges", label: "Exchanges", href: "/returns/exchanges", description: "Item size, color & product exchanges" },
+    ],
   },
   {
-    label: "Stock Analysis",
-    href: "/stock-analysis",
-    iconPath:
-      "M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z",
+    id: "stock-manager",
+    label: "Stock Manager",
+    icon: "M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z",
+    children: [
+      { id: "warehouse", label: "Warehouse", href: "/stock/warehouse", description: "Central warehouse & facility stocks" },
+      { id: "stock", label: "Stock", href: "/stock", description: "Current inventory levels & stock value" },
+      { id: "stock-transfers", label: "Stock Transfers", href: "/stock/transfers", description: "Inter-store & warehouse transfers" },
+    ],
   },
   {
-    label: "Customer",
-    href: "/customers",
-    iconPath:
-      "M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z",
+    id: "customer-manager",
+    label: "Customer Manager",
+    icon: "M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z",
+    children: [
+      { id: "customer", label: "Customer", href: "/customers", description: "Customer directory & database" },
+      { id: "individual-customer", label: "Individual Customer", href: "/customers/individual", description: "Detailed customer profile & purchase history" },
+    ],
   },
   {
-    label: "Employees",
-    href: "/employees",
-    iconPath:
-      "M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2",
+    id: "discount-manager",
+    label: "Discount Manager",
+    icon: "M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z",
+    children: [
+      { id: "order-coupons", label: "Order Coupons", href: "/discounts/order-coupons", description: "Cart-wide discount coupons & codes" },
+      { id: "product-coupons", label: "Product Coupons", href: "/discounts/product-coupons", description: "Specific item & category discounts" },
+      { id: "customer-coupons", label: "Customer Coupons", href: "/discounts/customer-coupons", description: "Loyalty & personalized coupons" },
+    ],
   },
   {
-    label: "Attendance",
-    href: "/employees/attendance",
-    iconPath:
-      "M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z",
+    id: "vendors-manager",
+    label: "Vendors Manager",
+    icon: "M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4",
+    children: [
+      { id: "vendors", label: "Vendors", href: "/vendors", description: "Suppliers & vendor directory" },
+      { id: "vendors-orders", label: "Vendors Orders", href: "/vendors/orders", description: "Purchase orders & goods received" },
+      { id: "vendors-invoices", label: "Vendors Invoices", href: "/vendors/invoices", description: "Supplier bills & payment records" },
+      { id: "vendors-due", label: "Vendors Due", href: "/vendors/due", description: "Outstanding vendor payables & balances" },
+    ],
   },
   {
-    label: "Scan Attendance",
-    href: "/attendance-scan",
-    iconPath:
-      "M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z",
+    id: "staff-manager",
+    label: "Staff Manager",
+    icon: "M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z",
+    children: [
+      { id: "staff", label: "Staff", href: "/staff", description: "POS terminals, logins & staff permissions" },
+    ],
   },
   {
-    label: "Leaves",
-    href: "/employees/leaves",
-    iconPath:
-      "M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z",
-  },
-  {
-    label: "Advances",
-    href: "/employees/advances",
-    iconPath:
-      "M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z",
-  },
-  {
-    label: "Payroll",
-    href: "/employees/payroll",
-    iconPath:
-      "M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z",
-  },
-  {
-    label: "ID Cards",
-    href: "/employees/id-card",
-    iconPath:
-      "M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0",
-  },
-  {
-    label: "Staff",
-    href: "/staff",
-    iconPath:
-      "M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z",
-  },
-  {
-    label: "Analytics",
-    href: "/analytics",
-    iconPath:
-      "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z",
-  },
-  {
-    label: "Utilities",
-    href: "/utilities",
-    iconPath:
-      "M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10",
-  },
-  {
-    label: "Settings",
-    href: "/settings",
-    iconPath: [
-      "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z",
-      "M15 12a3 3 0 11-6 0 3 3 0 016 0z",
+    id: "employee-manager",
+    label: "Employee Manager",
+    icon: "M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2",
+    children: [
+      { id: "employees", label: "Employees", href: "/employees", description: "Employee profiles, designations & records" },
+      { id: "employee-attendance", label: "Employee Attendance", href: "/employees/attendance", description: "Clock-in/out, biometric & scan logs" },
+      { id: "payroll", label: "Payroll", href: "/employees/payroll", description: "Monthly salaries, payslips & calculations" },
+      { id: "id-cards", label: "Id Cards", href: "/employees/id-cards", description: "Badge & printable QR employee ID cards" },
+      { id: "employee-leaves", label: "Employee leaves", href: "/employees/leaves", description: "Leave requests, quotas & approvals" },
+      { id: "employee-advances", label: "Employee Advances", href: "/employees/advances", description: "Salary advances & deduction ledger" },
     ],
   },
 ];
+
+// Flattened list of all accessible pages for backwards-compatibility & access checking
+export interface NavPage {
+  label: string;
+  href: string;
+  iconPath: string | string[];
+}
+
+export const NAV_PAGES: NavPage[] = SIDEBAR_NAV.flatMap((group) => {
+  if (group.href) {
+    return [{ label: group.label, href: group.href, iconPath: group.icon }];
+  }
+  if (group.children) {
+    return group.children.map((child) => ({
+      label: child.label,
+      href: child.href,
+      iconPath: group.icon,
+    }));
+  }
+  return [];
+});
