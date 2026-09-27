@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { verifySessionToken, AUTH_COOKIE_NAME, ACTIVE_STORE_COOKIE } from "@/lib/auth";
 import { db } from "@/lib/firebase";
-import { collection, query, where, getDocs, addDoc, updateDoc, deleteDoc, doc, getDoc } from "firebase/firestore";
+import { collection, query, where, getDocs, addDoc, updateDoc, deleteDoc, doc, getDoc, limit as firestoreLimit } from "firebase/firestore";
+
 
 async function getStoreContext() {
   const cookieStore = await cookies();
@@ -17,8 +18,8 @@ async function getStoreContext() {
   return { session, storeId };
 }
 
-// GET: Fetch customers for the active store
-export async function GET() {
+// GET: Fetch customers for the active store with limit support (Guideline #1)
+export async function GET(request: Request) {
   try {
     const ctx = await getStoreContext();
     if (!ctx) {
@@ -28,8 +29,17 @@ export async function GET() {
       );
     }
 
+    const { searchParams } = new URL(request.url);
+    const limitParam = searchParams.get("limit");
+    const fetchAll = searchParams.get("all") === "true";
+    const maxLimit = fetchAll ? 1000 : (limitParam ? parseInt(limitParam, 10) : 100);
+
     const customersRef = collection(db, "customers");
-    const q = query(customersRef, where("storeId", "==", ctx.storeId));
+    const q = query(
+      customersRef,
+      where("storeId", "==", ctx.storeId),
+      firestoreLimit(maxLimit)
+    );
     const snap = await getDocs(q);
 
     const customers = snap.docs
@@ -40,6 +50,7 @@ export async function GET() {
       .sort((a: any, b: any) => (b.createdAt || 0) - (a.createdAt || 0));
 
     return NextResponse.json({ success: true, customers });
+
   } catch (error) {
     console.error("Error fetching customers:", error);
     return NextResponse.json(

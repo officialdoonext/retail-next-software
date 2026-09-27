@@ -10,10 +10,14 @@ import {
   addDoc,
   doc,
   getDoc,
+  setDoc,
   updateDoc,
   deleteDoc,
   increment,
+  limit as firestoreLimit,
+  orderBy,
 } from "firebase/firestore";
+
 
 async function getStoreContext() {
   const cookieStore = await cookies();
@@ -28,19 +32,25 @@ async function getStoreContext() {
   return { session, storeId };
 }
 
-// GET: Fetch all settled sales/orders for the active store
-export async function GET() {
+// GET: Fetch settled sales/orders for the active store with limit support (Guideline #1: Never load all documents at once)
+export async function GET(request: Request) {
   try {
     const ctx = await getStoreContext();
     if (!ctx) {
       return NextResponse.json({ success: false, error: "Unauthorized access blocked." }, { status: 401 });
     }
 
+    const { searchParams } = new URL(request.url);
+    const limitParam = searchParams.get("limit");
+    const fetchAll = searchParams.get("all") === "true";
+    const maxLimit = fetchAll ? 1000 : (limitParam ? parseInt(limitParam, 10) : 100);
+
     const ordersRef = collection(db, "orders");
     const q = query(
       ordersRef,
       where("storeId", "==", ctx.storeId),
-      where("status", "==", "SETTLED")
+      where("status", "==", "SETTLED"),
+      firestoreLimit(maxLimit)
     );
     const snapshot = await getDocs(q);
 
@@ -52,12 +62,13 @@ export async function GET() {
     // Sort newest first
     orders.sort((a: any, b: any) => (b.createdAt || 0) - (a.createdAt || 0));
 
-    return NextResponse.json({ success: true, orders });
+    return NextResponse.json({ success: true, orders, count: orders.length });
   } catch (error: any) {
     console.error("Error fetching settled orders:", error);
     return NextResponse.json({ success: false, error: "Failed to fetch sales records." }, { status: 500 });
   }
 }
+
 
 // POST: Settle a bill (Deduct stock, update customer stats, remove saved draft if any, record sale)
 export async function POST(request: Request) {
@@ -313,6 +324,45 @@ export async function POST(request: Request) {
 
     const docRef = await addDoc(collection(db, "orders"), orderData);
 
+    // 5. UPDATE DAILY SALES SUMMARY (Guideline #8: Separate POS data from reporting data)
+    try {
+      let cashAmt = 0;
+      let upiAmt = 0;
+      let cardAmt = 0;
+
+      if (paymentMethod === "CASH") cashAmt = grandTotal;
+      else if (paymentMethod === "UPI") upiAmt = grandTotal;
+      else if (paymentMethod === "CARD") cardAmt = grandTotal;
+      else if (paymentMethod === "SPLIT" && splitDetails) {
+        cashAmt = Number(splitDetails.cash) || 0;
+        upiAmt = Number(splitDetails.upi) || 0;
+        cardAmt = Number(splitDetails.card) || 0;
+      }
+
+      const dateKey = today.toISOString().slice(0, 10); // YYYY-MM-DD
+      const summaryDocRef = doc(db, "daily_sales", `${ctx.storeId}_${dateKey}`);
+
+      await setDoc(
+        summaryDocRef,
+        {
+          storeId: ctx.storeId,
+          date: dateKey,
+          totalSales: increment(grandTotal),
+          totalOrders: increment(1),
+          totalItems: increment(orderData.totalItemsCount),
+          totalTax: increment(cgst + sgst),
+          totalDiscount: increment(discount),
+          cashSales: increment(cashAmt),
+          upiSales: increment(upiAmt),
+          cardSales: increment(cardAmt),
+          updatedAt: Date.now(),
+        },
+        { merge: true }
+      );
+    } catch (summaryErr) {
+      console.error("Non-fatal error updating daily sales summary:", summaryErr);
+    }
+
     return NextResponse.json({
       success: true,
       message: "Bill settled successfully!",
@@ -321,6 +371,7 @@ export async function POST(request: Request) {
         ...orderData,
       },
     });
+
   } catch (error: any) {
     console.error("Error settling bill:", error);
     return NextResponse.json({ success: false, error: "Failed to settle bill." }, { status: 500 });

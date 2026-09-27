@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { verifySessionToken, AUTH_COOKIE_NAME, ACTIVE_STORE_COOKIE } from "@/lib/auth";
 import { db } from "@/lib/firebase";
-import { collection, query, where, getDocs, addDoc, updateDoc, deleteDoc, doc, getDoc } from "firebase/firestore";
+import { collection, query, where, getDocs, addDoc, updateDoc, deleteDoc, doc, getDoc, limit as firestoreLimit } from "firebase/firestore";
+
 
 async function getStoreContext() {
   const cookieStore = await cookies();
@@ -17,7 +18,48 @@ async function getStoreContext() {
   return { session, storeId };
 }
 
-// GET: Fetch products for the active store with pagination (default 24), search, and barcode lookup
+// Helper to return lightweight product document (Guideline #2: Use Firestore only for data you need)
+function toLightweightProduct(d: any) {
+  return {
+    id: d.id,
+    name: d.name || "",
+    sku: d.sku || "",
+    barcode: d.barcode || "",
+    categoryId: d.categoryId || "",
+    categoryName: d.categoryName || "Uncategorized",
+    subCategory: d.subCategory || "",
+    imageUrl: d.imageUrl || "",
+    hasVariations: Boolean(d.hasVariations),
+    price: d.price ?? d.minPrice ?? 0,
+    minPrice: d.minPrice ?? d.price ?? 0,
+    maxPrice: d.maxPrice ?? d.price ?? 0,
+    stock: d.stock ?? d.totalStock ?? 0,
+    totalStock: d.totalStock ?? d.stock ?? 0,
+    bufferStock: d.bufferStock ?? 0,
+    isDiscountAvailable: Boolean(d.isDiscountAvailable),
+    discountType: d.discountType || "PERCENTAGE",
+    discountValue: d.discountValue ?? 0,
+    createdAt: d.createdAt || 0,
+    variationTypes: d.variationTypes || [],
+    variants: Array.isArray(d.variants)
+      ? d.variants.map((v: any) => ({
+          id: v.id,
+          name: v.name,
+          attributes: v.attributes || {},
+          price: Number(v.price) || 0,
+          stock: Number(v.stock) || 0,
+          bufferStock: Number(v.bufferStock) || 0,
+          barcode: v.barcode || "",
+          sku: v.sku || "",
+          isDiscountAvailable: Boolean(v.isDiscountAvailable),
+          discountType: v.discountType || "PERCENTAGE",
+          discountValue: Number(v.discountValue) || 0,
+        }))
+      : undefined,
+  };
+}
+
+// GET: Fetch products for the active store with direct indexing, lightweight documents, and pagination
 export async function GET(request: Request) {
   try {
     const ctx = await getStoreContext();
@@ -26,49 +68,111 @@ export async function GET(request: Request) {
     }
 
     const { searchParams } = new URL(request.url);
-
     const productsRef = collection(db, "products");
-    const q = query(productsRef, where("storeId", "==", ctx.storeId));
-    const snapshot = await getDocs(q);
 
-    const allProducts: any[] = snapshot.docs.map((d) => ({
-      id: d.id,
-      ...d.data(),
-    }));
+    // 0. Single Product Direct Fetch (Lightweight vs Full detail)
+    const singleId = searchParams.get("id");
+    if (singleId) {
+      const snap = await getDoc(doc(db, "products", singleId));
+      if (!snap.exists() || snap.data().storeId !== ctx.storeId) {
+        return NextResponse.json({ success: false, error: "Product not found." }, { status: 404 });
+      }
+      return NextResponse.json({
+        success: true,
+        product: { id: snap.id, ...snap.data() },
+      });
+    }
 
-    // Sort newest first
-    allProducts.sort((a: any, b: any) => (b.createdAt || 0) - (a.createdAt || 0));
-
-    // 1. Direct Barcode Lookup (Scanner optimization for POS)
+    // 1. Direct Barcode Lookup (Scanner optimization: 1 query read instead of scanning entire collection)
     const barcodeQuery = searchParams.get("barcode")?.trim().toLowerCase();
     if (barcodeQuery) {
-      for (const p of allProducts) {
-        if (p.barcode && String(p.barcode).trim().toLowerCase() === barcodeQuery) {
-          return NextResponse.json({ success: true, product: p, variant: null });
-        }
-        if (p.hasVariations && Array.isArray(p.variants)) {
+      // Step A: Check main product barcode
+      const mainSnap = await getDocs(
+        query(
+          productsRef,
+          where("storeId", "==", ctx.storeId),
+          where("barcode", "==", barcodeQuery),
+          firestoreLimit(1)
+        )
+      );
+      if (!mainSnap.empty) {
+        const docItem = mainSnap.docs[0];
+        return NextResponse.json({
+          success: true,
+          product: { id: docItem.id, ...docItem.data() },
+          variant: null,
+        });
+      }
+
+      // Step B: Check variant barcodes array
+      const variantSnap = await getDocs(
+        query(
+          productsRef,
+          where("storeId", "==", ctx.storeId),
+          where("variantBarcodes", "array-contains", barcodeQuery),
+          firestoreLimit(1)
+        )
+      );
+      if (!variantSnap.empty) {
+        const docItem = variantSnap.docs[0];
+        const p: any = { id: docItem.id, ...docItem.data() };
+        const v = p.variants?.find(
+          (item: any) => String(item.barcode).trim().toLowerCase() === barcodeQuery
+        );
+        return NextResponse.json({ success: true, product: p, variant: v || null });
+      }
+
+      // Fallback: If legacy data didn't have variantBarcodes, do quick scan
+      const legacySnap = await getDocs(
+        query(productsRef, where("storeId", "==", ctx.storeId), where("hasVariations", "==", true), firestoreLimit(50))
+      );
+
+      for (const d of legacySnap.docs) {
+        const p: any = { id: d.id, ...d.data() };
+        if (Array.isArray(p.variants)) {
           const v = p.variants.find(
-            (item: any) => item.barcode && String(item.barcode).trim().toLowerCase() === barcodeQuery
+            (item: any) => String(item.barcode).trim().toLowerCase() === barcodeQuery
           );
           if (v) {
             return NextResponse.json({ success: true, product: p, variant: v });
           }
         }
       }
+
       return NextResponse.json({ success: false, error: "Product not found." }, { status: 404 });
     }
 
-    // 2. Filters (Search Query & Category)
-    let filtered = allProducts;
-    const search = searchParams.get("search")?.trim().toLowerCase();
+    // 2. Querying Products: Target specific category directly in Firestore query if provided
     const categoryId = searchParams.get("categoryId")?.trim();
-
+    let q;
     if (categoryId && categoryId !== "ALL") {
-      filtered = filtered.filter((p) => p.categoryId === categoryId);
+      q = query(
+        productsRef,
+        where("storeId", "==", ctx.storeId),
+        where("categoryId", "==", categoryId)
+      );
+    } else {
+      q = query(productsRef, where("storeId", "==", ctx.storeId));
     }
 
+    const snapshot = await getDocs(q);
+
+    // Project lightweight product objects (Guideline #2)
+    const isFull = searchParams.get("full") === "true";
+    const allProducts = snapshot.docs.map((d) => {
+      const data = d.data();
+      return isFull ? { id: d.id, ...data } : toLightweightProduct({ id: d.id, ...data });
+    });
+
+    // Sort newest first
+    allProducts.sort((a: any, b: any) => (b.createdAt || 0) - (a.createdAt || 0));
+
+    // 3. Search filter if query provided
+    let filtered = allProducts;
+    const search = searchParams.get("search")?.trim().toLowerCase();
+
     if (search) {
-      filtered = filtered.filter((p) => {
+      filtered = filtered.filter((p: any) => {
         const nameMatch = p.name?.toLowerCase().includes(search);
         const barcodeMatch = p.barcode?.toLowerCase().includes(search);
         const skuMatch = p.sku?.toLowerCase().includes(search);
@@ -85,7 +189,7 @@ export async function GET(request: Request) {
       });
     }
 
-    // 3. Return All (if explicitly requested)
+    // 4. Return All (if explicitly requested)
     if (searchParams.get("all") === "true") {
       return NextResponse.json({
         success: true,
@@ -100,11 +204,11 @@ export async function GET(request: Request) {
       });
     }
 
-    // 4. Default 24 Products Pagination
+    // 5. Default Pagination (default 30 products)
     const pageParam = searchParams.get("page");
     const limitParam = searchParams.get("limit");
     const page = pageParam ? Math.max(1, parseInt(pageParam, 10)) : 1;
-    const limit = limitParam ? Math.max(1, parseInt(limitParam, 10)) : 24;
+    const limit = limitParam ? Math.max(1, parseInt(limitParam, 10)) : 30;
 
     const total = filtered.length;
     const totalPages = Math.ceil(total / limit) || 1;
@@ -127,6 +231,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ success: false, error: "Failed to fetch products." }, { status: 500 });
   }
 }
+
 
 // POST: Create a new product for the active store
 export async function POST(request: Request) {
@@ -190,6 +295,9 @@ export async function POST(request: Request) {
       productData.totalStock = productData.variants.reduce((acc: number, curr: any) => acc + (curr.stock || 0), 0);
       productData.minPrice = Math.min(...productData.variants.map((v: any) => v.price));
       productData.maxPrice = Math.max(...productData.variants.map((v: any) => v.price));
+      productData.variantBarcodes = productData.variants
+        .map((v: any) => String(v.barcode || "").trim().toLowerCase())
+        .filter(Boolean);
     } else {
       // Simple product
       productData.price = Number(body.price) || 0;
@@ -200,7 +308,9 @@ export async function POST(request: Request) {
       productData.totalStock = productData.stock;
       productData.minPrice = productData.price;
       productData.maxPrice = productData.price;
+      productData.variantBarcodes = [];
     }
+
 
     const docRef = await addDoc(collection(db, "products"), productData);
 
@@ -277,6 +387,9 @@ export async function PUT(request: Request) {
       updateData.totalStock = updateData.variants.reduce((acc: number, curr: any) => acc + (curr.stock || 0), 0);
       updateData.minPrice = Math.min(...updateData.variants.map((v: any) => v.price));
       updateData.maxPrice = Math.max(...updateData.variants.map((v: any) => v.price));
+      updateData.variantBarcodes = updateData.variants
+        .map((v: any) => String(v.barcode || "").trim().toLowerCase())
+        .filter(Boolean);
     } else {
       updateData.price = Number(body.price) || 0;
       updateData.stock = body.stock !== undefined ? Number(body.stock) || 0 : (existingSnap.data().stock ?? 0);
@@ -286,7 +399,9 @@ export async function PUT(request: Request) {
       updateData.totalStock = updateData.stock;
       updateData.minPrice = updateData.price;
       updateData.maxPrice = updateData.price;
+      updateData.variantBarcodes = [];
     }
+
 
     await updateDoc(productDocRef, updateData);
 

@@ -45,14 +45,16 @@ export default function DashboardPage() {
   const loadDashboardData = useCallback(async () => {
     setLoading(true);
     try {
-      const [ordersRes, productsRes, categoriesRes, customersRes, settingsRes] =
+      const [ordersRes, productsRes, categoriesRes, customersRes, settingsRes, summaryRes] =
         await Promise.allSettled([
-          fetch("/api/orders"),
-          fetch("/api/products?all=true"),
+          fetch("/api/orders?limit=150"),
+          fetch("/api/products?limit=100"),
           fetch("/api/categories"),
           fetch("/api/customers"),
           fetch("/api/settings"),
+          fetch("/api/dashboard/summary"),
         ]);
+
 
       if (ordersRes.status === "fulfilled" && ordersRes.value.ok) {
         const data = await ordersRes.value.json();

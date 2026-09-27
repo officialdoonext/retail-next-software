@@ -1,10 +1,14 @@
 "use client";
 
 import { useState, useEffect, useRef, useMemo } from "react";
+import Image from "next/image";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import SoftwareLayout from "@/components/SoftwareLayout";
 import { useToast } from "@/components/ToastProvider";
 import { usePrinter } from "@/context/PrinterContext";
 import ConfirmModal from "@/components/ConfirmModal";
+import { getImageKitThumbnail } from "@/lib/imagekit-url";
+
 
 interface CartItem {
   cartId: string;
@@ -213,17 +217,27 @@ export default function PosPage() {
   // Filtered products for manual search
   const filteredManualProducts = useMemo(() => {
     const q = itemSearchQuery.toLowerCase().trim();
-    if (!q) return products.slice(0, 15);
+    if (!q) return products;
     return products.filter((p) => {
-      const matchName = p.name.toLowerCase().includes(q);
+      const matchName = p.name?.toLowerCase().includes(q);
       const matchCategory = p.categoryName && p.categoryName.toLowerCase().includes(q);
-      const matchBarcode = p.barcode && p.barcode.includes(q);
+      const matchBarcode = p.barcode && String(p.barcode).includes(q);
       const matchVariantBarcode =
         p.hasVariations &&
-        p.variants?.some((v: any) => v.barcode && v.barcode.includes(q));
+        p.variants?.some((v: any) => v.barcode && String(v.barcode).includes(q));
       return matchName || matchCategory || matchBarcode || matchVariantBarcode;
-    }).slice(0, 20);
+    });
   }, [products, itemSearchQuery]);
+
+  // Virtualized row list for high-performance rendering (Guideline #6)
+  const productListParentRef = useRef<HTMLDivElement>(null);
+  const rowVirtualizer = useVirtualizer({
+    count: filteredManualProducts.length,
+    getScrollElement: () => productListParentRef.current,
+    estimateSize: () => 58,
+    overscan: 6,
+  });
+
 
   // Handle Add Product to Cart
   const addProductToCart = (
@@ -1588,56 +1602,95 @@ export default function PosPage() {
                 />
               </div>
 
-              {/* Products List */}
-              <div className="p-3 overflow-y-auto max-h-[55vh] space-y-2">
+              {/* Virtualized Products List (Guideline #6) */}
+              <div ref={productListParentRef} className="p-3 overflow-y-auto max-h-[55vh] h-[400px]">
                 {filteredManualProducts.length === 0 ? (
                   <div className="p-8 text-center text-xs text-slate-500">
                     No products matched your search.
                   </div>
                 ) : (
-                  filteredManualProducts.map((p, pIdx) => (
-                    <div
-                      key={p.id || `p_${pIdx}`}
-                      className="border border-slate-200/80 rounded-[6px] p-2.5 hover:bg-slate-50 transition-colors flex items-center justify-between"
-                    >
-                      <div>
-                        <div className="text-xs font-medium text-slate-900 leading-tight">
-                          {p.name}
-                        </div>
-                        <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-2">
-                          <span>{p.categoryName || "Uncategorized"}</span>
-                          {p.barcode && <span className="font-mono text-slate-400">#{p.barcode}</span>}
-                        </div>
-                      </div>
-
-                      {p.hasVariations && Array.isArray(p.variants) && p.variants.length > 0 ? (
-                        /* Variants dropdown/options */
-                        <div className="flex items-center gap-1.5 flex-wrap justify-end">
-                          {p.variants.map((v: any, vIdx: number) => (
-                            <button
-                              key={v.id || `v_${vIdx}`}
-                              type="button"
-                              onClick={() => addProductToCart(p, v, 1)}
-                              className="h-[28px] max-h-[28px] px-2 rounded-[4px] border border-purple-200 bg-purple-50/70 hover:bg-purple-100 text-[#5e2b9d] text-[11px] font-medium transition-colors cursor-pointer"
-                            >
-                              + {v.name} (₹{v.price})
-                            </button>
-                          ))}
-                        </div>
-                      ) : (
-                        /* Simple product add button */
-                        <button
-                          type="button"
-                          onClick={() => addProductToCart(p, undefined, 1)}
-                          className="h-[28px] max-h-[28px] px-3 rounded-[4px] bg-[#5e2b9d] text-white hover:bg-[#4e2284] text-xs font-medium transition-colors cursor-pointer flex items-center gap-1"
+                  <div
+                    style={{
+                      height: `${rowVirtualizer.getTotalSize()}px`,
+                      width: "100%",
+                      position: "relative",
+                    }}
+                  >
+                    {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                      const p = filteredManualProducts[virtualRow.index];
+                      return (
+                        <div
+                          key={p.id || `p_${virtualRow.index}`}
+                          style={{
+                            position: "absolute",
+                            top: 0,
+                            left: 0,
+                            width: "100%",
+                            transform: `translateY(${virtualRow.start}px)`,
+                          }}
+                          className="pb-2"
                         >
-                          <span>+ Add (₹{p.price || 0})</span>
-                        </button>
-                      )}
-                    </div>
-                  ))
+                          <div className="border border-slate-200/80 rounded-[6px] p-2.5 hover:bg-slate-50 transition-colors flex items-center justify-between bg-white">
+                            <div className="flex items-center gap-2.5">
+                              {p.imageUrl ? (
+                                <Image
+                                  src={getImageKitThumbnail(p.imageUrl, { width: 64, height: 64, quality: 80 })}
+                                  alt={p.name}
+                                  width={32}
+                                  height={32}
+                                  unoptimized={!p.imageUrl.includes("imagekit.io")}
+                                  className="w-8 h-8 rounded-[4px] object-cover border border-slate-200 flex-shrink-0"
+                                />
+                              ) : (
+                                <div className="w-8 h-8 rounded-[4px] bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400 flex-shrink-0">
+                                  <svg className="w-4 h-4 stroke-[1.8]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                  </svg>
+                                </div>
+                              )}
+                              <div>
+                                <div className="text-xs font-medium text-slate-900 leading-tight">
+                                  {p.name}
+                                </div>
+                                <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-2">
+                                  <span>{p.categoryName || "Uncategorized"}</span>
+                                  {p.barcode && <span className="font-mono text-slate-400">#{p.barcode}</span>}
+                                </div>
+                              </div>
+                            </div>
+
+                            {p.hasVariations && Array.isArray(p.variants) && p.variants.length > 0 ? (
+                              /* Variants dropdown/options */
+                              <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                                {p.variants.map((v: any, vIdx: number) => (
+                                  <button
+                                    key={v.id || `v_${vIdx}`}
+                                    type="button"
+                                    onClick={() => addProductToCart(p, v, 1)}
+                                    className="h-[28px] max-h-[28px] px-2 rounded-[4px] border border-purple-200 bg-purple-50/70 hover:bg-purple-100 text-[#5e2b9d] text-[11px] font-medium transition-colors cursor-pointer"
+                                  >
+                                    + {v.name} (₹{v.price})
+                                  </button>
+                                ))}
+                              </div>
+                            ) : (
+                              /* Simple product add button */
+                              <button
+                                type="button"
+                                onClick={() => addProductToCart(p, undefined, 1)}
+                                className="h-[28px] max-h-[28px] px-3 rounded-[4px] bg-[#5e2b9d] text-white hover:bg-[#4e2284] text-xs font-medium transition-colors cursor-pointer flex items-center gap-1"
+                              >
+                                <span>+ Add (₹{p.price || 0})</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
+
             </div>
           </div>
         )}

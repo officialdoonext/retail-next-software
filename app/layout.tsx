@@ -6,6 +6,8 @@ import { ToastProvider } from "@/components/ToastProvider";
 import WelcomeScreen from "@/components/WelcomeScreen";
 import PwaUpdater from "@/components/PwaUpdater";
 import { PrinterProvider } from "@/context/PrinterContext";
+import QueryProvider from "@/components/providers/QueryProvider";
+
 
 const sora = Sora({
   variable: "--font-sora",
@@ -59,15 +61,18 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-title" content="RetailNext" />
       </head>
       <body className="min-h-full flex flex-col font-sans">
-        <ToastProvider>
-          <PrinterProvider>
-            <NumberInputScrollPrevention />
-            <PwaUpdater />
-            <WelcomeScreen />
-            {children}
-          </PrinterProvider>
-        </ToastProvider>
+        <QueryProvider>
+          <ToastProvider>
+            <PrinterProvider>
+              <NumberInputScrollPrevention />
+              <PwaUpdater />
+              <WelcomeScreen />
+              {children}
+            </PrinterProvider>
+          </ToastProvider>
+        </QueryProvider>
       </body>
+
     </html>
   );
 }

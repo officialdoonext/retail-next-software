@@ -2,10 +2,13 @@
 
 import { useState, useEffect, useMemo } from "react";
 import Image from "next/image";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import SoftwareLayout from "@/components/SoftwareLayout";
 import { useToast } from "@/components/ToastProvider";
 import ConfirmModal from "@/components/ConfirmModal";
 import BulkUploadModal from "@/components/BulkUploadModal";
+import { getImageKitThumbnail } from "@/lib/imagekit-url";
+
 
 interface ProductVariant {
   id: string;
@@ -61,9 +64,9 @@ export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [storeVariations, setStoreVariations] = useState<StoreVariation[]>([]);
-  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState("ALL");
+
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -143,31 +146,38 @@ export default function ProductsPage() {
     return Math.floor(100000000000 + Math.random() * 900000000000).toString();
   };
 
-  // Fetch products with pagination (24 items), search, and category filter
-  const loadProducts = async (page = currentPage, queryStr = searchQuery, catFilter = selectedCategoryFilter) => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams({
-        page: String(page),
-        limit: "24",
-      });
-      if (queryStr.trim()) params.set("search", queryStr.trim());
-      if (catFilter && catFilter !== "ALL") params.set("categoryId", catFilter);
+  const queryClient = useQueryClient();
 
-      const res = await fetch(`/api/products?${params.toString()}`);
-      const data = await res.json();
-      if (data.success && Array.isArray(data.products)) {
-        setProducts(data.products);
-        if (data.pagination) {
-          setPaginationInfo(data.pagination);
-        }
+  // Fetch products with TanStack Query caching (Guideline #3: Cache Firestore data)
+  const {
+    data: productsQueryData,
+    isLoading: loading,
+    refetch: refetchProducts,
+  } = useQuery({
+    queryKey: ["products", currentPage, searchQuery, selectedCategoryFilter],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        page: String(currentPage),
+        limit: "30",
+      });
+      if (searchQuery.trim()) params.set("search", searchQuery.trim());
+      if (selectedCategoryFilter && selectedCategoryFilter !== "ALL") {
+        params.set("categoryId", selectedCategoryFilter);
       }
-    } catch (err) {
-      console.error("Error loading products:", err);
-    } finally {
-      setLoading(false);
+      const res = await fetch(`/api/products?${params.toString()}`);
+      return res.json();
+    },
+    staleTime: 3 * 60 * 1000, // 3 minutes fresh cache
+  });
+
+  useEffect(() => {
+    if (productsQueryData?.success && Array.isArray(productsQueryData.products)) {
+      setProducts(productsQueryData.products);
+      if (productsQueryData.pagination) {
+        setPaginationInfo(productsQueryData.pagination);
+      }
     }
-  };
+  }, [productsQueryData]);
 
   // Fetch initial categories and variations
   const loadInitialMeta = async () => {
@@ -199,17 +209,11 @@ export default function ProductsPage() {
     loadInitialMeta();
   }, []);
 
-  // Fetch products whenever page, search, or category filter changes
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      loadProducts(currentPage, searchQuery, selectedCategoryFilter);
-    }, 200);
-    return () => clearTimeout(timer);
-  }, [currentPage, searchQuery, selectedCategoryFilter]);
-
   const loadData = () => {
-    loadProducts(currentPage, searchQuery, selectedCategoryFilter);
+    queryClient.invalidateQueries({ queryKey: ["products"] });
+    refetchProducts();
   };
+
 
   // Sync generated variants preserving entered price, stock, buffer stock, and barcodes
   const syncVariants = (
@@ -772,12 +776,16 @@ export default function ProductsPage() {
                       <td className="py-2.5 px-3.5">
                         <div className="flex items-center gap-2.5">
                           {p.imageUrl ? (
-                            <img
-                              src={p.imageUrl}
+                            <Image
+                              src={getImageKitThumbnail(p.imageUrl, { width: 64, height: 64, quality: 80 })}
                               alt={p.name}
+                              width={32}
+                              height={32}
+                              unoptimized={!p.imageUrl.includes("imagekit.io")}
                               className="w-8 h-8 rounded-[4px] object-cover border border-slate-200 flex-shrink-0"
                             />
                           ) : (
+
                             <div className="w-8 h-8 rounded-[4px] bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400 flex-shrink-0">
                               <svg className="w-4 h-4 stroke-[1.8]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -1127,11 +1135,15 @@ export default function ProductsPage() {
 
                       {imageUrl ? (
                         <div className="relative w-full h-32 rounded-[6px] overflow-hidden border border-slate-200 mb-2 bg-white flex items-center justify-center">
-                          <img
-                            src={imageUrl}
+                          <Image
+                            src={getImageKitThumbnail(imageUrl, { width: 300, height: 160, quality: 85 })}
                             alt="Preview"
+                            width={300}
+                            height={128}
+                            unoptimized={!imageUrl.includes("imagekit.io")}
                             className="w-full h-full object-contain"
                           />
+
                           <button
                             type="button"
                             onClick={() => setImageUrl("")}
@@ -1909,12 +1921,16 @@ export default function ProductsPage() {
                   {/* Image Column */}
                   <div className="flex flex-col items-center justify-center bg-white border border-slate-200 rounded-[6px] p-2 h-44">
                     {viewingProduct.imageUrl ? (
-                      <img
-                        src={viewingProduct.imageUrl}
+                      <Image
+                        src={getImageKitThumbnail(viewingProduct.imageUrl, { width: 450, height: 450, quality: 85 })}
                         alt={viewingProduct.name}
+                        width={300}
+                        height={176}
+                        unoptimized={!viewingProduct.imageUrl.includes("imagekit.io")}
                         className="w-full h-full object-contain"
                       />
                     ) : (
+
                       <div className="flex flex-col items-center justify-center text-slate-400">
                         <svg className="w-10 h-10 stroke-[1.2] mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
