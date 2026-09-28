@@ -25,12 +25,14 @@ export async function POST() {
     let status = "Inactive";
     let plan = null;
     let expiryDate: any = null;
+    let enabledModules: string[] | null = null;
 
     if (userSnap.exists()) {
       const data = userSnap.data();
       status = data.status || "Inactive";
       plan = data.plan ?? null;
       expiryDate = data.expiryDate ?? null;
+      enabledModules = Array.isArray(data.enabledModules) ? data.enabledModules : null;
     }
 
     // Verify if active and unexpired
@@ -42,12 +44,13 @@ export async function POST() {
     }
     const isAllowed = session.role === "Staff" ? true : isStatusActive && expiryTime !== null && expiryTime > Date.now();
 
-    // Re-issue signed JWT token with updated live status & expiry
+    // Re-issue signed JWT token with updated live status, expiry & modules
     const updatedToken = await createSessionToken({
       ...session,
       status,
       plan,
       expiryDate,
+      enabledModules: enabledModules || undefined,
       createdAt: Date.now(),
     });
 
@@ -56,6 +59,7 @@ export async function POST() {
       status,
       plan,
       expiryDate,
+      enabledModules,
       isAllowed,
       redirect: isAllowed ? "/dashboard" : "/onboarding",
     });

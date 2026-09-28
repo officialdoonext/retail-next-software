@@ -12,6 +12,7 @@ export default function UnauthorizedPage() {
   const [userRole, setUserRole] = useState("");
   const [storeName, setStoreName] = useState("");
   const [allowedAccess, setAllowedAccess] = useState<string[]>([]);
+  const [enabledModules, setEnabledModules] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -21,9 +22,10 @@ export default function UnauthorizedPage() {
         if (res.ok) {
           const data = await res.json();
           if (data.authenticated && data.user) {
-            setUserName(data.user.staffName || data.user.email || "Staff Member");
+            setUserName(data.user.staffName || data.user.email || "Account");
             setUserRole(data.user.role);
             setAllowedAccess(data.user.access || []);
+            setEnabledModules(data.user.enabledModules || []);
           }
           if (data.activeStore) {
             setStoreName(data.activeStore.name);
@@ -40,6 +42,10 @@ export default function UnauthorizedPage() {
 
   const handleLogout = async () => {
     try {
+      if (typeof window !== "undefined") {
+        document.cookie = "client_modules=; path=/; max-age=0;";
+        localStorage.removeItem("client_enabled_modules");
+      }
       await fetch("/api/auth/logout", { method: "POST" });
     } finally {
       router.push("/login");
@@ -47,8 +53,14 @@ export default function UnauthorizedPage() {
     }
   };
 
-  const defaultAllowedRoute = allowedAccess[0] || "/pos";
-  const allowedNavPages = NAV_PAGES.filter((p) => allowedAccess.includes(p.href));
+  const isAdmin = userRole === "Admin";
+  const defaultAllowedRoute = isAdmin ? "/dashboard" : allowedAccess[0] || "/pos";
+  const allowedNavPages = isAdmin
+    ? NAV_PAGES.filter((p) => {
+        if (p.href === "/dashboard") return true;
+        return true;
+      })
+    : NAV_PAGES.filter((p) => allowedAccess.includes(p.href));
 
   return (
     <div className="min-h-screen bg-[#fcfcfd] flex flex-col items-center justify-center p-4 sm:p-6 font-sans">
@@ -78,17 +90,19 @@ export default function UnauthorizedPage() {
 
         {/* Heading */}
         <h1 className="text-lg font-semibold text-slate-900 tracking-tight mb-1">
-          Access Restricted
+          {isAdmin ? "Module Disabled" : "Access Restricted"}
         </h1>
         <p className="text-xs text-slate-500 font-normal max-w-sm mb-5 leading-relaxed">
-          Your staff account does not have permission to access this module. Please contact your store manager if you require access.
+          {isAdmin
+            ? "This software module is not enabled for your organization's account. Please contact your administrator to activate this module."
+            : "Your staff account does not have permission to access this module. Please contact your store manager if you require access."}
         </p>
 
         {/* User / Store Status Pill */}
         {!loading && (
           <div className="w-full bg-[#f8fafc] border border-slate-200/80 rounded-[6px] p-3 mb-5 text-left text-xs">
             <div className="flex items-center justify-between mb-1.5">
-              <span className="text-slate-500">Staff Account:</span>
+              <span className="text-slate-500">{isAdmin ? "Client Account:" : "Staff Account:"}</span>
               <span className="font-medium text-slate-800">{userName}</span>
             </div>
             {storeName && (
@@ -102,28 +116,8 @@ export default function UnauthorizedPage() {
             <div className="flex items-center justify-between">
               <span className="text-slate-500">Account Type:</span>
               <span className="bg-purple-100 text-[#5e2b9d] text-[10px] font-semibold px-1.5 py-0.5 rounded-[4px] uppercase tracking-wider">
-                {userRole || "Staff"}
+                {userRole || (isAdmin ? "Admin" : "Staff")}
               </span>
-            </div>
-          </div>
-        )}
-
-        {/* Allowed Modules Shortcuts */}
-        {allowedNavPages.length > 0 && (
-          <div className="w-full text-left mb-5">
-            <span className="text-[11px] font-medium text-slate-400 uppercase tracking-wider block mb-2">
-              Your Accessible Modules:
-            </span>
-            <div className="flex flex-wrap gap-1.5">
-              {allowedNavPages.map((page) => (
-                <Link
-                  key={page.href}
-                  href={page.href}
-                  className="px-2.5 py-1.5 bg-purple-50 text-[#5e2b9d] border border-purple-100 rounded-[6px] text-xs font-medium hover:bg-[#5e2b9d] hover:text-white transition-colors"
-                >
-                  {page.label}
-                </Link>
-              ))}
             </div>
           </div>
         )}
@@ -137,7 +131,7 @@ export default function UnauthorizedPage() {
             <svg className="w-3.5 h-3.5 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
             </svg>
-            <span>Return to Terminal</span>
+            <span>{isAdmin ? "Return to Dashboard" : "Return to Terminal"}</span>
           </Link>
           <button
             type="button"

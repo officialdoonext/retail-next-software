@@ -65,6 +65,7 @@ function parseExpiry(expires: any): { isUnexpired: boolean; display: string } {
 
 export default function StoresPage() {
   const [stores, setStores] = useState<RetailStore[]>([]);
+  const [maxStores, setMaxStores] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -72,6 +73,9 @@ export default function StoresPage() {
   const [isOffcanvasOpen, setIsOffcanvasOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<"add" | "edit">("add");
   const [selectedStoreId, setSelectedStoreId] = useState<string | null>(null);
+
+  // Store Limit Alert Modal State
+  const [isLimitModalOpen, setIsLimitModalOpen] = useState(false);
 
   // View Modal State
   const [viewStore, setViewStore] = useState<RetailStore | null>(null);
@@ -86,14 +90,14 @@ export default function StoresPage() {
   const [successToast, setSuccessToast] = useState("");
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
-  // Form state
+  // Form state - Newly created store should be active only
   const [formData, setFormData] = useState({
     name: "",
     mobileNumber: "",
     city: "",
     fullAddress: "",
     gstNumber: "",
-    status: "Inactive" as "Active" | "Inactive",
+    status: "Active" as "Active" | "Inactive",
   });
 
   const handleCopyText = (text: string, key: string) => {
@@ -103,7 +107,7 @@ export default function StoresPage() {
     setTimeout(() => setCopiedKey(null), 2000);
   };
 
-  // Fetch stores
+  // Fetch stores and allowed limit
   const loadStores = useCallback(async () => {
     try {
       setLoading(true);
@@ -112,6 +116,9 @@ export default function StoresPage() {
         const data = await res.json();
         if (data.success && Array.isArray(data.stores)) {
           setStores(data.stores);
+        }
+        if (typeof data.maxStores === "number") {
+          setMaxStores(data.maxStores);
         }
       }
     } catch (err) {
@@ -129,6 +136,7 @@ export default function StoresPage() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
+        if (isLimitModalOpen) setIsLimitModalOpen(false);
         if (isOffcanvasOpen) setIsOffcanvasOpen(false);
         if (viewStore) setViewStore(null);
         if (storeToDelete) setStoreToDelete(null);
@@ -136,10 +144,17 @@ export default function StoresPage() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOffcanvasOpen, viewStore, storeToDelete]);
+  }, [isLimitModalOpen, isOffcanvasOpen, viewStore, storeToDelete]);
 
-  // Open drawer for adding a store
+  // Check if store limit has been reached
+  const isLimitReached = maxStores !== null && stores.length >= maxStores;
+
+  // Open drawer for adding a store (or show limit alert modal if reached)
   const handleOpenAdd = () => {
+    if (isLimitReached) {
+      setIsLimitModalOpen(true);
+      return;
+    }
     setDrawerMode("add");
     setSelectedStoreId(null);
     setFormData({
@@ -148,7 +163,7 @@ export default function StoresPage() {
       city: "",
       fullAddress: "",
       gstNumber: "",
-      status: "Inactive",
+      status: "Active", // Once created it should be active only
     });
     setFormError("");
     setIsOffcanvasOpen(true);
@@ -205,6 +220,9 @@ export default function StoresPage() {
       const data = await res.json();
 
       if (!res.ok || !data.success) {
+        if (data.limitReached || res.status === 403) {
+          setIsLimitModalOpen(true);
+        }
         setFormError(data.error || `Failed to ${isEdit ? "update" : "create"} store.`);
       } else {
         if (isEdit) {
@@ -214,7 +232,7 @@ export default function StoresPage() {
           setSuccessToast(`Store "${data.store.name}" updated successfully!`);
         } else {
           setStores((prev) => [data.store, ...prev]);
-          setSuccessToast(`Store "${data.store.name}" added successfully!`);
+          setSuccessToast(`Store "${data.store.name}" added and activated successfully!`);
         }
         setIsOffcanvasOpen(false);
         setTimeout(() => setSuccessToast(""), 4000);
@@ -336,8 +354,27 @@ export default function StoresPage() {
             />
           </div>
 
-          <div className="text-xs text-slate-500 font-medium shrink-0">
-            Total Stores: <span className="font-semibold text-slate-800">{stores.length}</span>
+          <div className="flex items-center gap-2 text-xs shrink-0">
+            <span className="text-slate-500 font-medium">Total Stores:</span>
+            <span className="font-semibold text-slate-800">{stores.length}</span>
+            {maxStores !== null && (
+              <span
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-[4px] text-[11px] font-semibold border ${
+                  isLimitReached
+                    ? "bg-amber-50 text-amber-800 border-amber-300"
+                    : "bg-purple-50 text-[#5e2b9d] border-purple-200"
+                }`}
+              >
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    isLimitReached ? "bg-amber-500" : "bg-[#5e2b9d]"
+                  }`}
+                />
+                {isLimitReached
+                  ? `Limit Reached: ${stores.length}/${maxStores}`
+                  : `Limit: ${stores.length}/${maxStores}`}
+              </span>
+            )}
           </div>
         </div>
 
@@ -722,8 +759,13 @@ export default function StoresPage() {
 
                 {/* Information Notice */}
                 {drawerMode === "add" && (
-                  <div className="p-3 rounded-[6px] bg-amber-50/80 border border-amber-200/80 text-amber-800 text-[11px] leading-relaxed">
-                    <strong>Notice:</strong> Newly added stores are registered in an <em>Inactive</em> state without an expiry date. Contact your administrator to activate terminal privileges.
+                  <div className="p-3 rounded-[6px] bg-emerald-50/90 border border-emerald-200 text-emerald-800 text-[11px] leading-relaxed flex items-start gap-2">
+                    <svg className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <div>
+                      <strong>Active on Creation:</strong> Newly added stores are immediately registered in an <em>Active</em> state with instant terminal privileges and POS access enabled.
+                    </div>
                   </div>
                 )}
               </form>
@@ -926,6 +968,75 @@ export default function StoresPage() {
                   <span>Edit Store</span>
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* STORE LIMIT REACHED MODAL */}
+      {isLimitModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-[10px] border border-amber-200 shadow-2xl max-w-md w-full p-5 text-left animate-in zoom-in-95 duration-150">
+            <div className="flex items-start gap-3.5 mb-3.5">
+              <div className="w-11 h-11 rounded-full bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600 shrink-0">
+                <svg className="w-6 h-6 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </div>
+              <div className="min-w-0">
+                <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-semibold text-amber-800 bg-amber-100 border border-amber-300 mb-1">
+                  <span>Store Limit Reached</span>
+                </div>
+                <h3 className="text-base font-bold text-slate-900 leading-tight">
+                  Maximum Store Limit Reached
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Store limit is reached. Contact your administrator to increase branch limit.
+                </p>
+              </div>
+            </div>
+
+            {/* Usage stats block */}
+            <div className="bg-slate-50 rounded-[8px] border border-slate-200/90 p-3 mb-3.5 space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-600 font-medium">Registered Stores:</span>
+                <span className="font-bold text-slate-900">{stores.length}</span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-600 font-medium">Maximum Allowed Limit:</span>
+                <span className="font-bold text-[#5e2b9d]">{maxStores ?? stores.length} stores</span>
+              </div>
+              <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                <div className="bg-amber-500 h-full w-full rounded-full" />
+              </div>
+            </div>
+
+            {/* Message alert box */}
+            <div className="p-3 rounded-[6px] bg-amber-50 border border-amber-200/80 text-amber-950 text-xs leading-relaxed mb-4">
+              <p className="font-semibold text-amber-900 mb-1">Limit is done</p>
+              <p className="text-[11.5px] text-amber-800 leading-normal">
+                You have reached your allocated limit of <strong>{maxStores} {maxStores === 1 ? "store" : "stores"}</strong>. To register additional retail branches, please contact your system administrator to increase your store limit or upgrade your subscription plan.
+              </p>
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setIsLimitModalOpen(false)}
+                className="h-[34px] px-3.5 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded-[6px] hover:bg-slate-50 cursor-pointer shadow-2xs"
+              >
+                Close
+              </button>
+              <a
+                href="mailto:support@retailnext.in?subject=Request%20to%20Increase%20Store%20Limit&body=Hello%20Administrator,%0D%0A%0D%0AWe%20have%20reached%20our%20maximum%20store%20limit%20and%20would%20like%20to%20request%20an%20increase%20in%20our%20allowed%20store%20count.%0D%0A%0D%0AThank%20you."
+                className="h-[34px] px-4 text-xs font-semibold text-white bg-[#5e2b9d] hover:bg-[#4e2284] rounded-[6px] transition-all flex items-center gap-1.5 shadow-xs cursor-pointer"
+              >
+                <svg className="w-3.5 h-3.5 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+                <span>Contact Administrator</span>
+              </a>
             </div>
           </div>
         </div>

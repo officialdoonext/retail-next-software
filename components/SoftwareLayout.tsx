@@ -22,6 +22,11 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
   const [userRole, setUserRole] = useState<"Admin" | "Staff" | null>(null);
   const [staffName, setStaffName] = useState("");
   const [staffAccess, setStaffAccess] = useState<string[]>([]);
+
+  // State initialized uniformly between SSR and client initial hydration to prevent mismatch
+  const [enabledModules, setEnabledModules] = useState<string[] | null>(null);
+  const [modulesLoaded, setModulesLoaded] = useState<boolean>(false);
+
   const [availableStores, setAvailableStores] = useState<{ id: string; name: string; isActiveSelection?: boolean }[]>([]);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [isMobileStoreMenuOpen, setIsMobileStoreMenuOpen] = useState(false);
@@ -34,7 +39,7 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
   const { isConnected: printerConnected, printerType, printerName } = usePrinter();
   const [isPrinterModalOpen, setIsPrinterModalOpen] = useState(false);
 
-  // Initialize roles & access on mount
+  // Initialize roles, access & enabled modules on mount
   useEffect(() => {
     setMounted(true);
     if (typeof window !== "undefined") {
@@ -47,6 +52,25 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
       try {
         const storedAccess = localStorage.getItem("staff_access");
         if (storedAccess) setStaffAccess(JSON.parse(storedAccess));
+      } catch {}
+      try {
+        const match = document.cookie.match(/(?:^|; )client_modules=([^;]*)/);
+        if (match && match[1]) {
+          const parsed = JSON.parse(decodeURIComponent(match[1]));
+          if (Array.isArray(parsed)) {
+            setEnabledModules(parsed);
+            setModulesLoaded(true);
+          }
+        } else {
+          const storedModules = localStorage.getItem("client_enabled_modules");
+          if (storedModules) {
+            const parsed = JSON.parse(storedModules);
+            if (Array.isArray(parsed)) {
+              setEnabledModules(parsed);
+              setModulesLoaded(true);
+            }
+          }
+        }
       } catch {}
     }
   }, []);
@@ -126,6 +150,17 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
             } else {
               localStorage.removeItem("staff_access");
             }
+            if (Array.isArray(data.user.enabledModules)) {
+              setEnabledModules(data.user.enabledModules);
+              setModulesLoaded(true);
+              document.cookie = `client_modules=${encodeURIComponent(JSON.stringify(data.user.enabledModules))}; path=/; max-age=604800; SameSite=Lax`;
+              localStorage.setItem("client_enabled_modules", JSON.stringify(data.user.enabledModules));
+            } else {
+              setEnabledModules(null);
+              setModulesLoaded(true);
+              document.cookie = "client_modules=; path=/; max-age=0;";
+              localStorage.removeItem("client_enabled_modules");
+            }
           }
         }
 
@@ -184,30 +219,13 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
     }));
   };
 
-  // Toggle Collapse All / Expand All
-  const areAllOpen = useMemo(() => {
-    const accordionGroups = SIDEBAR_NAV.filter((g) => g.children);
-    return accordionGroups.every((g) => !!openAccordions[g.id]);
-  }, [openAccordions]);
-
-  const handleToggleAllAccordions = () => {
-    if (areAllOpen) {
-      setOpenAccordions({});
-    } else {
-      const all: Record<string, boolean> = {};
-      SIDEBAR_NAV.forEach((g) => {
-        if (g.children) all[g.id] = true;
-      });
-      setOpenAccordions(all);
-    }
-  };
-
   const handleLogout = async () => {
     try {
       if (typeof window !== "undefined") {
         localStorage.removeItem("staff_role");
         localStorage.removeItem("staff_access");
         localStorage.removeItem("staff_name");
+        localStorage.removeItem("client_enabled_modules");
       }
       await fetch("/api/auth/logout", { method: "POST" });
     } finally {
@@ -216,9 +234,17 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
     }
   };
 
-  // Filter sidebar items for Staff accounts
+  // Filter sidebar items:
+  // - SSR and initial client hydration: strictly render core "dashboard" item only to prevent hydration mismatch and avoid module flashing!
+  // - Staff accounts: filter by granular staff page permissions
+  // - Admin accounts: strictly display ONLY enabled modules configured for this client in Admin
   const visibleNavGroups = useMemo(() => {
-    if (userRole === "Admin") return SIDEBAR_NAV;
+    // While client modules are not yet loaded/confirmed, DO NOT render all 11 managers!
+    // Show only the core "dashboard" item so disabled managers NEVER flash on screen!
+    if (!mounted || !modulesLoaded) {
+      return SIDEBAR_NAV.filter((group) => group.id === "dashboard");
+    }
+
     if (userRole === "Staff") {
       return SIDEBAR_NAV.map((group) => {
         if (group.href) {
@@ -235,8 +261,76 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
         return null;
       }).filter(Boolean) as NavGroupItem[];
     }
-    return SIDEBAR_NAV;
-  }, [userRole, staffAccess]);
+
+    // Client (Admin): Display only modules permitted for this client
+    if (Array.isArray(enabledModules)) {
+      return SIDEBAR_NAV.filter((group) => {
+        // Dashboard is core and always enabled
+        if (group.id === "dashboard") return true;
+        return enabledModules.includes(group.id);
+      });
+    }
+
+    return SIDEBAR_NAV.filter((group) => group.id === "dashboard");
+  }, [mounted, modulesLoaded, userRole, staffAccess, enabledModules]);
+
+  // Toggle Collapse All / Expand All for currently visible groups
+  const areAllOpen = useMemo(() => {
+    const accordionGroups = visibleNavGroups.filter((g) => g.children);
+    return accordionGroups.length > 0 && accordionGroups.every((g) => !!openAccordions[g.id]);
+  }, [openAccordions, visibleNavGroups]);
+
+  const handleToggleAllAccordions = () => {
+    if (areAllOpen) {
+      setOpenAccordions({});
+    } else {
+      const all: Record<string, boolean> = {};
+      visibleNavGroups.forEach((g) => {
+        if (g.children) all[g.id] = true;
+      });
+      setOpenAccordions(all);
+    }
+  };
+
+  // Check if current route belongs to a disabled module
+  const isCurrentRouteDisabled = useMemo(() => {
+    if (!mounted || !modulesLoaded) return false;
+    if (userRole === "Staff") return false;
+    if (!Array.isArray(enabledModules)) return false;
+    if (
+      pathname === "/dashboard" ||
+      pathname === "/login" ||
+      pathname === "/onboarding" ||
+      pathname === "/unauthorized"
+    ) {
+      return false;
+    }
+
+    // Match route against SIDEBAR_NAV
+    const matchedGroup = SIDEBAR_NAV.find((group) => {
+      if (group.href && (pathname === group.href || pathname.startsWith(group.href + "/"))) {
+        return true;
+      }
+      if (group.children) {
+        return group.children.some(
+          (c) => pathname === c.href || pathname.startsWith(c.href + "/")
+        );
+      }
+      return false;
+    });
+
+    if (matchedGroup && matchedGroup.id !== "dashboard") {
+      return !enabledModules.includes(matchedGroup.id);
+    }
+    return false;
+  }, [userRole, enabledModules, pathname]);
+
+  // Client Route Protection: Redirect immediately if accessing a URL belonging to a disabled module
+  useEffect(() => {
+    if (isCurrentRouteDisabled) {
+      router.replace("/unauthorized");
+    }
+  }, [isCurrentRouteDisabled, router]);
 
   const userInitials = mounted
     ? userRole === "Staff"
@@ -427,7 +521,10 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
           </div>
 
           {/* Navigation Accordion List with Sleek Scrollbar */}
-          <nav className="flex-1 overflow-y-auto px-2.5 py-1.5 space-y-0.5 custom-sidebar-scroll select-none">
+          <nav
+            suppressHydrationWarning
+            className="flex-1 overflow-y-auto px-2.5 py-1.5 space-y-0.5 custom-sidebar-scroll select-none"
+          >
             {visibleNavGroups.map((group) => {
               // Direct Link (Dashboard, POS Billing, Stores)
               if (group.href) {
@@ -554,7 +651,33 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
 
         {/* Page Content Container — Independent Scroll */}
         <main className="flex-1 h-full overflow-y-auto bg-[#fcfcfd] p-2.5 sm:p-4">
-          {children}
+          {isCurrentRouteDisabled ? (
+            <div className="w-full h-full min-h-[400px] flex flex-col items-center justify-center p-6 text-center animate-in fade-in duration-150">
+              <div className="w-14 h-14 rounded-full bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-600 mb-4 shadow-xs">
+                <svg className="w-7 h-7 stroke-[1.8]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M12 9v3.75m0-10.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.75c0 5.592 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.57-.598-3.75h-.002A11.959 11.959 0 0112 3.464zM12 15.75h.007v.008H12v-.008z"
+                  />
+                </svg>
+              </div>
+              <h2 className="text-base font-bold text-slate-900 mb-1">
+                Module Access Restricted
+              </h2>
+              <p className="text-xs text-slate-500 max-w-sm mb-4 leading-relaxed font-normal">
+                This module is not enabled for your organization subscription plan. Please contact your system administrator.
+              </p>
+              <Link
+                href="/dashboard"
+                className="h-[34px] px-4 rounded-[6px] bg-[#5e2b9d] hover:bg-[#4e2284] text-white text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs"
+              >
+                <span>Return to Dashboard</span>
+              </Link>
+            </div>
+          ) : (
+            children
+          )}
         </main>
       </div>
 
@@ -609,7 +732,10 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
             </div>
 
             {/* Scrollable Navigation List */}
-            <nav className="flex-1 overflow-y-auto px-2.5 py-2 space-y-0.5 custom-sidebar-scroll select-none">
+            <nav
+              suppressHydrationWarning
+              className="flex-1 overflow-y-auto px-2.5 py-2 space-y-0.5 custom-sidebar-scroll select-none"
+            >
               {visibleNavGroups.map((group) => {
                 if (group.href) {
                   const isActive = pathname === group.href;

@@ -12,6 +12,20 @@ async function getSession() {
   return verifySessionToken(token);
 }
 
+// Helper to determine maxStores limit for a user
+function resolveMaxStores(userData: any, currentCount = 0): number {
+  if (userData?.maxStores && !isNaN(Number(userData.maxStores)) && Number(userData.maxStores) > 0) {
+    return Number(userData.maxStores);
+  }
+  const plan = String(userData?.plan || "").toLowerCase();
+  if (plan.includes("unlimited")) return 999;
+  if (plan.includes("enterprise")) return 20;
+  if (plan.includes("business")) return 6;
+  if (plan.includes("growth")) return 3;
+  if (plan.includes("starter")) return 1;
+  return Math.max(currentCount, 2);
+}
+
 // GET: Fetch all stores belonging to the authenticated user (or assigned to staff)
 export async function GET() {
   try {
@@ -24,6 +38,7 @@ export async function GET() {
     const activeStoreId = cookieStore.get(ACTIVE_STORE_COOKIE)?.value || null;
 
     let stores: any[] = [];
+    let maxStores = 2;
 
     if (session.role === "Staff") {
       // Staff user: only return stores where this staff member is actively enrolled
@@ -54,6 +69,7 @@ export async function GET() {
             isActiveSelection: docSnap.id === activeStoreId,
           }));
       }
+      maxStores = Math.max(stores.length, 2);
     } else {
       // Admin user: return all stores owned by the admin email
       const storesRef = collection(db, "stores");
@@ -65,9 +81,34 @@ export async function GET() {
         ...docSnap.data(),
         isActiveSelection: docSnap.id === activeStoreId,
       }));
+
+      // Fetch user profile to read subscription maxStores limit
+      try {
+        const userDocRef = doc(
+          db,
+          "users",
+          session.email.toLowerCase().replace(/[^a-zA-Z0-9_]/g, "_")
+        );
+        const userSnap = await getDoc(userDocRef);
+        if (userSnap.exists()) {
+          maxStores = resolveMaxStores(userSnap.data(), stores.length);
+        } else {
+          maxStores = Math.max(stores.length, 2);
+        }
+      } catch (userErr) {
+        console.error("Error reading user maxStores:", userErr);
+        maxStores = Math.max(stores.length, 2);
+      }
     }
 
-    return NextResponse.json({ success: true, stores, activeStoreId });
+    return NextResponse.json({
+      success: true,
+      stores,
+      activeStoreId,
+      maxStores,
+      storesCount: stores.length,
+      isLimitReached: stores.length >= maxStores,
+    });
   } catch (error) {
     console.error("Error fetching stores:", error);
     return NextResponse.json(
@@ -78,7 +119,8 @@ export async function GET() {
 }
 
 // POST: Register a new store for the user (Admin only)
-// Strictly enforces status="Inactive" and expires=null
+// Strictly enforces store limit validation.
+// Once created, store is set to Active status with unexpired validity.
 export async function POST(request: Request) {
   try {
     const session = await getSession();
@@ -89,6 +131,36 @@ export async function POST(request: Request) {
     if (session.role === "Staff") {
       return NextResponse.json(
         { success: false, error: "Access denied. Only administrators can register stores." },
+        { status: 403 }
+      );
+    }
+
+    // 1. Check existing stores count for this admin
+    const storesRef = collection(db, "stores");
+    const countQuery = query(storesRef, where("ownerEmail", "==", session.email));
+    const currentStoresSnap = await getDocs(countQuery);
+    const currentStoresCount = currentStoresSnap.docs.length;
+
+    // 2. Fetch user profile to check maxStores limit & subscription expiry
+    const userDocRef = doc(
+      db,
+      "users",
+      session.email.toLowerCase().replace(/[^a-zA-Z0-9_]/g, "_")
+    );
+    const userSnap = await getDoc(userDocRef);
+    const userData = userSnap.exists() ? userSnap.data() : null;
+    const maxStores = resolveMaxStores(userData, currentStoresCount);
+
+    // 3. Strict Store Limit Enforcement: block if store limit is reached
+    if (currentStoresCount >= maxStores) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Store limit reached (${currentStoresCount} of ${maxStores} allowed). Please contact your administrator to increase your store limit.`,
+          limitReached: true,
+          maxStores,
+          currentStoresCount,
+        },
         { status: 403 }
       );
     }
@@ -110,6 +182,12 @@ export async function POST(request: Request) {
     const generatedCode = `RET ${Math.floor(1000 + Math.random() * 9000)}`;
     const displayLocation = city ? (fullAddress ? `${city}, ${fullAddress}` : city) : fullAddress || "Main Branch";
 
+    // Set expiry: use user's account expiry if valid, or default to 1 year ahead
+    let effectiveStoreExpiry: any = userData?.expiryDate || null;
+    if (!effectiveStoreExpiry) {
+      effectiveStoreExpiry = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+    }
+
     const storeData = {
       name,
       mobileNumber: mobileNumber || "Not Provided",
@@ -121,9 +199,9 @@ export async function POST(request: Request) {
       license: gstNumber || `RET-TS-${Math.floor(1000 + Math.random() * 9000)}`,
       code: generatedCode,
       ownerEmail: session.email,
-      // Strictly enforced: inactive with no expiry date on creation
-      status: "Inactive" as const,
-      expires: null,
+      // Strictly enforced: newly created stores are immediately Active
+      status: "Active" as const,
+      expires: effectiveStoreExpiry,
       createdAt: Date.now(),
     };
 

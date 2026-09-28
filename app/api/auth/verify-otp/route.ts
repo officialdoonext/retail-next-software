@@ -78,6 +78,7 @@ export async function POST(request: Request) {
     let effectiveStatus = "Inactive";
     let effectiveExpiry: any = null;
     let effectivePlan: any = null;
+    let effectiveModules: string[] | null = null;
 
     if (!userSnap.exists()) {
       // First-time registration: Inactive status and null expiry date by default
@@ -91,11 +92,12 @@ export async function POST(request: Request) {
         lastLoginAt: Date.now(),
       });
     } else {
-      // Existing user: Preserve manually configured status, plan, and expiry date
+      // Existing user: Preserve manually configured status, plan, expiry date & modules
       const existing = userSnap.data();
       effectiveStatus = existing.status || "Inactive";
       effectiveExpiry = existing.expiryDate ?? null;
       effectivePlan = existing.plan ?? null;
+      effectiveModules = Array.isArray(existing.enabledModules) ? existing.enabledModules : null;
 
       await updateDoc(userDocRef, {
         lastLoginAt: Date.now(),
@@ -113,20 +115,28 @@ export async function POST(request: Request) {
     }
     const isAllowedDirectly = isStatusActive && expiryTime !== null && expiryTime > Date.now();
 
-    // Issue cryptographically signed JWT token with embedded status & expiry
+    // Issue cryptographically signed JWT token with embedded status, expiry & modules
     const token = await createSessionToken({
       email,
       role: "Admin",
       status: effectiveStatus,
       expiryDate: effectiveExpiry,
       plan: effectivePlan,
+      enabledModules: effectiveModules || undefined,
       createdAt: Date.now(),
     });
 
     const response = NextResponse.json({
       success: true,
       message: "Authentication successful.",
-      user: { email, role: "Admin", status: effectiveStatus, plan: effectivePlan, expiryDate: effectiveExpiry },
+      user: {
+        email,
+        role: "Admin",
+        status: effectiveStatus,
+        plan: effectivePlan,
+        expiryDate: effectiveExpiry,
+        enabledModules: effectiveModules,
+      },
       redirect: isAllowedDirectly ? "/dashboard" : "/onboarding",
       isAllowed: isAllowedDirectly,
     });

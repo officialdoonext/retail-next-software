@@ -22,6 +22,7 @@ export interface SessionPayload {
   status?: string; // "Active" | "Inactive"
   expiryDate?: any; // Timestamp or date string or null
   plan?: string | null;
+  enabledModules?: string[]; // Module IDs enabled for this client (e.g. ["sales-manager", "product-manager"])
 }
 
 // Generates a 6-digit secure numeric OTP

@@ -119,6 +119,55 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(new URL("/onboarding", request.url));
     }
 
+    // STRICT MODULE ACCESS FOR ADMIN/CLIENT:
+    // If client has custom enabledModules configured by administrator, block disabled modules
+    if (sessionPayload?.role === "Admin") {
+      let activeModules: string[] | null = null;
+      if (Array.isArray(sessionPayload.enabledModules)) {
+        activeModules = sessionPayload.enabledModules;
+      } else {
+        const rawCookie = request.cookies.get("client_modules")?.value;
+        if (rawCookie) {
+          try {
+            activeModules = JSON.parse(decodeURIComponent(rawCookie));
+          } catch {}
+        }
+      }
+
+      if (Array.isArray(activeModules)) {
+        const ROUTE_MODULE_MAP: Record<string, string> = {
+          "/pos": "pos",
+          "/stores": "stores",
+          "/sales": "sales-manager",
+          "/categories": "product-manager",
+          "/variations": "product-manager",
+          "/products": "product-manager",
+          "/returns": "return-exchange-manager",
+          "/stock": "stock-manager",
+          "/customers": "customer-manager",
+          "/discounts": "discount-manager",
+          "/vendors": "vendors-manager",
+          "/staff": "staff-manager",
+          "/employees": "employee-manager",
+          "/attendance-scan": "employee-manager",
+          "/orders": "sales-manager",
+          "/inventory": "stock-manager",
+          "/stock-analysis": "stock-manager",
+        };
+
+        const matchedModule = Object.entries(ROUTE_MODULE_MAP).find(
+          ([prefix]) => pathname === prefix || pathname.startsWith(prefix + "/")
+        );
+
+        if (matchedModule) {
+          const [, requiredModuleId] = matchedModule;
+          if (!activeModules.includes(requiredModuleId)) {
+            return NextResponse.redirect(new URL(`/unauthorized?module=${requiredModuleId}`, request.url));
+          }
+        }
+      }
+    }
+
     // STRICT PER-PAGE SECURITY FOR STAFF:
     if (sessionPayload?.role === "Staff") {
       const allowedAccess: string[] = Array.isArray(sessionPayload.access)

@@ -2,17 +2,29 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { verifySessionToken, AUTH_COOKIE_NAME, ACTIVE_STORE_COOKIE } from "@/lib/auth";
 import { db } from "@/lib/firebase";
-import { collection, query, where, getDocs, addDoc, deleteDoc, doc, getDoc } from "firebase/firestore";
+import { collection, query, where, getDocs, addDoc, deleteDoc, doc, getDoc, updateDoc } from "firebase/firestore";
 
 async function getStoreContext() {
   const cookieStore = await cookies();
   const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
-  const storeId = cookieStore.get(ACTIVE_STORE_COOKIE)?.value;
+  let storeId = cookieStore.get(ACTIVE_STORE_COOKIE)?.value;
 
-  if (!token || !storeId) return null;
+  if (!token) return null;
 
   const session = await verifySessionToken(token);
   if (!session) return null;
+
+  // Fallback to user's first store if cookie is not set
+  if (!storeId && session.email) {
+    const storesRef = collection(db, "stores");
+    const q = query(storesRef, where("ownerEmail", "==", session.email));
+    const snap = await getDocs(q);
+    if (!snap.empty) {
+      storeId = snap.docs[0].id;
+    }
+  }
+
+  if (!storeId) return null;
 
   return { session, storeId };
 }
@@ -38,6 +50,42 @@ export async function GET() {
   } catch (error) {
     console.error("Error fetching categories:", error);
     return NextResponse.json({ success: false, error: "Failed to fetch categories." }, { status: 500 });
+  }
+}
+
+// PUT: Update category name
+export async function PUT(request: Request) {
+  try {
+    const ctx = await getStoreContext();
+    if (!ctx) {
+      return NextResponse.json({ success: false, error: "Unauthorized." }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const id = String(body.id || "").trim();
+    const name = String(body.name || "").trim();
+
+    if (!id || !name) {
+      return NextResponse.json({ success: false, error: "Category ID and name are required." }, { status: 400 });
+    }
+
+    const catDocRef = doc(db, "categories", id);
+    const snap = await getDoc(catDocRef);
+
+    if (!snap.exists()) {
+      return NextResponse.json({ success: false, error: "Category not found." }, { status: 404 });
+    }
+
+    if (snap.data().storeId !== ctx.storeId) {
+      return NextResponse.json({ success: false, error: "Access denied." }, { status: 403 });
+    }
+
+    await updateDoc(catDocRef, { name, updatedAt: Date.now() });
+
+    return NextResponse.json({ success: true, category: { id, ...snap.data(), name } });
+  } catch (error) {
+    console.error("Error updating category:", error);
+    return NextResponse.json({ success: false, error: "Failed to update category." }, { status: 500 });
   }
 }
 

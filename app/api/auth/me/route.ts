@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { verifySessionToken, AUTH_COOKIE_NAME, ACTIVE_STORE_COOKIE } from "@/lib/auth";
+import { verifySessionToken, createSessionToken, AUTH_COOKIE_NAME, ACTIVE_STORE_COOKIE } from "@/lib/auth";
 import { db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
 
@@ -50,7 +50,18 @@ export async function GET() {
       }
     }
 
-    return NextResponse.json({
+    const liveModules = Array.isArray(userDocData?.enabledModules) ? userDocData.enabledModules : null;
+
+    // Refresh JWT session token with live status, expiry and enabled modules
+    const updatedToken = await createSessionToken({
+      ...payload,
+      status: userDocData?.status || payload.status,
+      plan: userDocData?.plan ?? payload.plan,
+      expiryDate: userDocData?.expiryDate ?? payload.expiryDate,
+      enabledModules: liveModules || undefined,
+    });
+
+    const response = NextResponse.json({
       authenticated: true,
       user: {
         email: payload.email,
@@ -62,9 +73,38 @@ export async function GET() {
         status: userDocData?.status || (payload.role === "Admin" ? "Inactive" : "Active"),
         plan: userDocData?.plan || null,
         expiryDate: userDocData?.expiryDate ?? null,
+        enabledModules: liveModules,
       },
       activeStore,
     });
+
+    // Keep auth_session JWT synchronized
+    response.cookies.set({
+      name: AUTH_COOKIE_NAME,
+      value: updatedToken,
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 7 * 24 * 60 * 60,
+    });
+
+    // Set client_modules cookie for instantaneous zero-flash client & middleware access
+    if (liveModules) {
+      response.cookies.set({
+        name: "client_modules",
+        value: encodeURIComponent(JSON.stringify(liveModules)),
+        httpOnly: false,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/",
+        maxAge: 7 * 24 * 60 * 60,
+      });
+    } else {
+      response.cookies.delete("client_modules");
+    }
+
+    return response;
   } catch (error) {
     console.error("Error in auth/me route:", error);
     return NextResponse.json({ authenticated: false }, { status: 500 });

@@ -2,17 +2,29 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { verifySessionToken, AUTH_COOKIE_NAME, ACTIVE_STORE_COOKIE } from "@/lib/auth";
 import { db } from "@/lib/firebase";
-import { collection, query, where, getDocs, addDoc, deleteDoc, doc, getDoc } from "firebase/firestore";
+import { collection, query, where, getDocs, addDoc, deleteDoc, doc, getDoc, updateDoc } from "firebase/firestore";
 
 async function getStoreContext() {
   const cookieStore = await cookies();
   const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
-  const storeId = cookieStore.get(ACTIVE_STORE_COOKIE)?.value;
+  let storeId = cookieStore.get(ACTIVE_STORE_COOKIE)?.value;
 
-  if (!token || !storeId) return null;
+  if (!token) return null;
 
   const session = await verifySessionToken(token);
   if (!session) return null;
+
+  // Fallback to user's first store if cookie is not set
+  if (!storeId && session.email) {
+    const storesRef = collection(db, "stores");
+    const q = query(storesRef, where("ownerEmail", "==", session.email));
+    const snap = await getDocs(q);
+    if (!snap.empty) {
+      storeId = snap.docs[0].id;
+    }
+  }
+
+  if (!storeId) return null;
 
   return { session, storeId };
 }
@@ -38,6 +50,42 @@ export async function GET() {
   } catch (error) {
     console.error("Error fetching variations:", error);
     return NextResponse.json({ success: false, error: "Failed to fetch variations." }, { status: 500 });
+  }
+}
+
+// PUT: Update variation name
+export async function PUT(request: Request) {
+  try {
+    const ctx = await getStoreContext();
+    if (!ctx) {
+      return NextResponse.json({ success: false, error: "Unauthorized." }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const id = String(body.id || "").trim();
+    const name = String(body.name || "").trim();
+
+    if (!id || !name) {
+      return NextResponse.json({ success: false, error: "Variation ID and name are required." }, { status: 400 });
+    }
+
+    const varDocRef = doc(db, "variations", id);
+    const snap = await getDoc(varDocRef);
+
+    if (!snap.exists()) {
+      return NextResponse.json({ success: false, error: "Variation not found." }, { status: 404 });
+    }
+
+    if (snap.data().storeId !== ctx.storeId) {
+      return NextResponse.json({ success: false, error: "Access denied." }, { status: 403 });
+    }
+
+    await updateDoc(varDocRef, { name, updatedAt: Date.now() });
+
+    return NextResponse.json({ success: true, variation: { id, ...snap.data(), name } });
+  } catch (error) {
+    console.error("Error updating variation:", error);
+    return NextResponse.json({ success: false, error: "Failed to update variation." }, { status: 500 });
   }
 }
 
