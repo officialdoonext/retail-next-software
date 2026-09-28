@@ -17,6 +17,13 @@
   --font-weight-bold: 500;
   --font-weight-extrabold: 500;
   --font-weight-black: 500;
+  --radius-xs: 6px;
+  --radius-sm: 6px;
+  --radius-md: 6px;
+  --radius-lg: 6px;
+  --radius-xl: 6px;
+  --radius-2xl: 6px;
+  --radius-3xl: 6px;
 }
 
 body {

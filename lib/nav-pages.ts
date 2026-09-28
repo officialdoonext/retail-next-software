@@ -55,6 +55,7 @@ export const SIDEBAR_NAV: NavGroupItem[] = [
       { id: "categories", label: "Categories", href: "/categories", description: "Organize products into categories" },
       { id: "variations", label: "Variations", href: "/variations", description: "Sizes, colors, units & options" },
       { id: "products", label: "Products", href: "/products", description: "Catalog & item master management" },
+      { id: "barcode", label: "Barcode Generator", href: "/barcode", description: "Design, generate & print barcode labels" },
     ],
   },
   {

@@ -533,7 +533,7 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
                   <Link
                     key={group.id}
                     href={group.href}
-                    className={`h-[36px] px-3 rounded-[6px] flex items-center gap-2.5 text-[13px] font-medium transition-all duration-150 ${
+                    className={`h-[34px] max-h-[34px] px-3 rounded-[6px] flex items-center gap-2.5 text-[13px] font-medium transition-all duration-150 ${
                       isActive
                         ? "bg-[#5e2b9d] text-white shadow-xs"
                         : "text-slate-700 hover:bg-purple-50/70 hover:text-[#5e2b9d]"
@@ -565,7 +565,7 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
                   <button
                     type="button"
                     onClick={() => toggleAccordion(group.id)}
-                    className={`h-[36px] px-3 rounded-[6px] flex items-center justify-between text-[13px] font-medium transition-colors text-left cursor-pointer ${
+                    className={`h-[34px] max-h-[34px] px-3 rounded-[6px] flex items-center justify-between text-[13px] font-medium transition-colors text-left cursor-pointer ${
                       hasActiveChild
                         ? "text-[#5e2b9d] font-semibold bg-purple-50/60"
                         : "text-slate-700 hover:bg-slate-50 hover:text-slate-900"
@@ -612,7 +612,7 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
                           <Link
                             key={child.id}
                             href={child.href}
-                            className={`h-[32px] px-2.5 rounded-[4px] flex items-center gap-2 text-[13px] font-medium transition-colors truncate ${
+                            className={`h-[32px] max-h-[34px] px-2.5 rounded-[6px] flex items-center gap-2 text-[13px] font-medium transition-colors truncate ${
                               isChildActive
                                 ? "bg-[#5e2b9d] text-white shadow-2xs"
                                 : "text-slate-600 hover:text-slate-900 hover:bg-slate-100/70"
@@ -744,7 +744,7 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
                       key={group.id}
                       href={group.href}
                       onClick={() => setIsMobileNavOpen(false)}
-                      className={`h-[36px] px-3 rounded-[6px] flex items-center gap-2.5 text-[13px] font-medium transition-all duration-150 ${
+                      className={`h-[34px] max-h-[34px] px-3 rounded-[6px] flex items-center gap-2.5 text-[13px] font-medium transition-all duration-150 ${
                         isActive
                           ? "bg-[#5e2b9d] text-white shadow-xs"
                           : "text-slate-700 hover:bg-purple-50/70 hover:text-[#5e2b9d]"
@@ -774,7 +774,7 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
                     <button
                       type="button"
                       onClick={() => toggleAccordion(group.id)}
-                      className={`h-[36px] px-3 rounded-[6px] flex items-center justify-between text-[13px] font-medium transition-colors text-left cursor-pointer ${
+                      className={`h-[34px] max-h-[34px] px-3 rounded-[6px] flex items-center justify-between text-[13px] font-medium transition-colors text-left cursor-pointer ${
                         hasActiveChild
                           ? "text-[#5e2b9d] font-semibold bg-purple-50/60"
                           : "text-slate-700 hover:bg-slate-50 hover:text-slate-900"
@@ -819,7 +819,7 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
                               key={child.id}
                               href={child.href}
                               onClick={() => setIsMobileNavOpen(false)}
-                              className={`h-[32px] px-2.5 rounded-[4px] flex items-center gap-2 text-[13px] font-medium transition-colors truncate ${
+                              className={`h-[32px] max-h-[34px] px-2.5 rounded-[6px] flex items-center gap-2 text-[13px] font-medium transition-colors truncate ${
                                 isChildActive
                                   ? "bg-[#5e2b9d] text-white shadow-2xs"
                                   : "text-slate-600 hover:text-slate-900 hover:bg-slate-100/70"
