@@ -51,7 +51,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${sora.variable} h-full antialiased`}>
+    <html lang="en" className={`${sora.variable} h-full antialiased`} suppressHydrationWarning>
       <head>
         <link rel="icon" href="/fav.jpeg" />
         <link rel="apple-touch-icon" href="/fav.jpeg" />
@@ -59,7 +59,7 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <meta name="apple-mobile-web-app-title" content="RetailNext" />
       </head>
-      <body className="min-h-full flex flex-col font-sans">
+      <body className="min-h-full flex flex-col font-sans" suppressHydrationWarning>
         <QueryProvider>
           <ToastProvider>
             <PrinterProvider>

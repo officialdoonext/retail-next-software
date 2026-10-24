@@ -1,28 +1,45 @@
 import { NextResponse } from "next/server";
 import { getBusinessContext } from "@/lib/supabaseDb";
 
-// GET: Fetch categories strictly for the active business & store
-export async function GET() {
+// GET: Fetch categories strictly for the active business & store with pagination (24 per page)
+export async function GET(request: Request) {
   try {
     const ctx = await getBusinessContext();
     if (!ctx) {
       return NextResponse.json({ success: false, error: "Unauthorized or no active business." }, { status: 401 });
     }
 
+    const { searchParams } = new URL(request.url);
+    const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
+    const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") || "24", 10)));
+    const search = searchParams.get("search")?.trim() || "";
+
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+
     let query = ctx.supabase
       .from("categories")
-      .select("*")
+      .select("*", { count: "exact" })
       .eq("business_id", ctx.businessId);
 
     if (ctx.storeId) {
       query = query.or(`store_id.eq.${ctx.storeId},store_id.is.null`);
     }
 
-    const { data: categories, error } = await query.order("name", { ascending: true });
+    if (search) {
+      query = query.ilike("name", `%${search}%`);
+    }
+
+    const { data: categories, count, error } = await query
+      .order("created_at", { ascending: false })
+      .range(from, to);
 
     if (error) {
       return NextResponse.json({ success: false, error: error.message }, { status: 500 });
     }
+
+    const totalCount = count || 0;
+    const totalPages = Math.ceil(totalCount / limit) || 1;
 
     return NextResponse.json({
       success: true,
@@ -35,6 +52,12 @@ export async function GET() {
         businessId: c.business_id,
         createdAt: c.created_at,
       })),
+      pagination: {
+        page,
+        limit,
+        totalCount,
+        totalPages,
+      },
     });
   } catch (error: any) {
     console.error("Error fetching categories:", error);
