@@ -132,6 +132,18 @@ export async function POST(request: Request) {
       });
     }
 
+    // Keep client_modules cookie synchronized for zero-flash middleware enforcement
+    const modulesArr = Array.isArray(business.enabled_modules) ? business.enabled_modules : [];
+    response.cookies.set({
+      name: "client_modules",
+      value: encodeURIComponent(JSON.stringify(modulesArr)),
+      httpOnly: false,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 7 * 24 * 60 * 60,
+    });
+
     return response;
   } catch (error: any) {
     console.error("Error selecting business:", error);

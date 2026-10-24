@@ -57,13 +57,13 @@ export async function GET() {
       }
     }
 
-    // Determine live status and expiry date
+    // Determine live status, expiry date & enabled modules strictly from Supabase
     const liveStatus = currentBusiness?.status || payload.status || "Inactive";
     const liveExpiry = currentBusiness ? currentBusiness.expiry_date : payload.expiryDate ?? null;
     const livePlan = currentBusiness?.plan ?? payload.plan ?? null;
-    const liveModules = Array.isArray(currentBusiness?.enabled_modules)
-      ? currentBusiness.enabled_modules
-      : payload.enabledModules || null;
+    const liveModules = currentBusiness
+      ? (Array.isArray(currentBusiness.enabled_modules) ? currentBusiness.enabled_modules : null)
+      : (Array.isArray(payload.enabledModules) ? payload.enabledModules : null);
 
     const isAllowed =
       payload.role === "Staff" ? true : isBusinessAllowed(liveStatus, liveExpiry);
@@ -76,7 +76,7 @@ export async function GET() {
       status: liveStatus,
       plan: livePlan,
       expiryDate: liveExpiry,
-      enabledModules: liveModules || undefined,
+      enabledModules: Array.isArray(liveModules) ? liveModules : undefined,
     });
 
     const response = NextResponse.json({
@@ -123,6 +123,17 @@ export async function GET() {
         maxAge: 7 * 24 * 60 * 60,
       });
     }
+
+    // Keep client_modules cookie synchronized for zero-flash middleware enforcement
+    response.cookies.set({
+      name: "client_modules",
+      value: encodeURIComponent(JSON.stringify(liveModules || [])),
+      httpOnly: false,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 7 * 24 * 60 * 60,
+    });
 
     return response;
   } catch (error) {

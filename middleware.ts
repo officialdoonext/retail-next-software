@@ -121,51 +121,51 @@ export async function middleware(request: NextRequest) {
     }
 
     // STRICT MODULE ACCESS FOR ADMIN/CLIENT:
-    // If client has custom enabledModules configured by administrator, block disabled modules
+    // If a module is not in enabledModules, strictly block the URL and redirect to /unauthorized
     if (sessionPayload?.role === "Admin") {
-      let activeModules: string[] | null = null;
-      if (Array.isArray(sessionPayload.enabledModules)) {
+      let activeModules: string[] = [];
+      const rawCookie = request.cookies.get("client_modules")?.value;
+      if (rawCookie !== undefined && rawCookie !== "") {
+        try {
+          const parsed = JSON.parse(decodeURIComponent(rawCookie));
+          if (Array.isArray(parsed)) activeModules = parsed;
+        } catch {}
+      } else if (Array.isArray(sessionPayload.enabledModules)) {
         activeModules = sessionPayload.enabledModules;
-      } else {
-        const rawCookie = request.cookies.get("client_modules")?.value;
-        if (rawCookie) {
-          try {
-            activeModules = JSON.parse(decodeURIComponent(rawCookie));
-          } catch {}
-        }
       }
 
-      if (Array.isArray(activeModules)) {
-        const ROUTE_MODULE_MAP: Record<string, string> = {
-          "/pos": "pos",
-          "/stores": "stores",
-          "/sales": "sales-manager",
-          "/categories": "product-manager",
-          "/variations": "product-manager",
-          "/products": "product-manager",
-          "/barcode": "product-manager",
-          "/returns": "return-exchange-manager",
-          "/stock": "stock-manager",
-          "/customers": "customer-manager",
-          "/discounts": "discount-manager",
-          "/vendors": "vendors-manager",
-          "/staff": "staff-manager",
-          "/employees": "employee-manager",
-          "/attendance-scan": "employee-manager",
-          "/orders": "sales-manager",
-          "/inventory": "stock-manager",
-          "/stock-analysis": "stock-manager",
-        };
+      const ROUTE_MODULE_MAP: Record<string, string> = {
+        "/pos": "pos",
+        "/stores": "stores",
+        "/sales": "sales-manager",
+        "/orders": "sales-manager",
+        "/categories": "product-manager",
+        "/variations": "product-manager",
+        "/products": "product-manager",
+        "/barcode": "product-manager",
+        "/returns": "return-exchange-manager",
+        "/stock": "stock-manager",
+        "/inventory": "stock-manager",
+        "/stock-analysis": "stock-manager",
+        "/utilities": "stock-manager",
+        "/customers": "customer-manager",
+        "/discounts": "discount-manager",
+        "/vendors": "vendors-manager",
+        "/staff": "staff-manager",
+        "/employees": "employee-manager",
+        "/attendance-scan": "employee-manager",
+        "/settings": "settings-manager",
+        "/analytics": "analytics-manager",
+      };
 
-        const matchedModule = Object.entries(ROUTE_MODULE_MAP).find(
-          ([prefix]) => pathname === prefix || pathname.startsWith(prefix + "/")
-        );
+      const matchedModule = Object.entries(ROUTE_MODULE_MAP).find(
+        ([prefix]) => pathname === prefix || pathname.startsWith(prefix + "/")
+      );
 
-        if (matchedModule) {
-          const [, requiredModuleId] = matchedModule;
-          if (!activeModules.includes(requiredModuleId)) {
-            return NextResponse.redirect(new URL(`/unauthorized?module=${requiredModuleId}`, request.url));
-          }
+      if (matchedModule) {
+        const [, requiredModuleId] = matchedModule;
+        if (!activeModules.includes(requiredModuleId)) {
+          return NextResponse.redirect(new URL(`/unauthorized?module=${requiredModuleId}`, request.url));
         }
       }
     }

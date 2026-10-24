@@ -156,6 +156,18 @@ export async function POST(request: Request) {
       });
     }
 
+    // Set client modules cookie for instant zero-flash middleware enforcement
+    const modulesArr = Array.isArray(activeBusiness.enabled_modules) ? activeBusiness.enabled_modules : [];
+    response.cookies.set({
+      name: "client_modules",
+      value: encodeURIComponent(JSON.stringify(modulesArr)),
+      httpOnly: false,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 7 * 24 * 60 * 60,
+    });
+
     return response;
   } catch (error: any) {
     console.error("Error in login endpoint:", error);

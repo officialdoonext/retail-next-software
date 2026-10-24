@@ -61,15 +61,6 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
             setEnabledModules(parsed);
             setModulesLoaded(true);
           }
-        } else {
-          const storedModules = localStorage.getItem("client_enabled_modules");
-          if (storedModules) {
-            const parsed = JSON.parse(storedModules);
-            if (Array.isArray(parsed)) {
-              setEnabledModules(parsed);
-              setModulesLoaded(true);
-            }
-          }
         }
       } catch {}
     }
@@ -154,11 +145,10 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
               setEnabledModules(data.user.enabledModules);
               setModulesLoaded(true);
               document.cookie = `client_modules=${encodeURIComponent(JSON.stringify(data.user.enabledModules))}; path=/; max-age=604800; SameSite=Lax`;
-              localStorage.setItem("client_enabled_modules", JSON.stringify(data.user.enabledModules));
             } else {
-              setEnabledModules(null);
+              setEnabledModules([]);
               setModulesLoaded(true);
-              document.cookie = "client_modules=; path=/; max-age=0;";
+              document.cookie = `client_modules=${encodeURIComponent(JSON.stringify([]))}; path=/; max-age=604800; SameSite=Lax`;
               localStorage.removeItem("client_enabled_modules");
             }
           }
@@ -296,7 +286,6 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
   const isCurrentRouteDisabled = useMemo(() => {
     if (!mounted || !modulesLoaded) return false;
     if (userRole === "Staff") return false;
-    if (!Array.isArray(enabledModules)) return false;
     if (
       pathname === "/dashboard" ||
       pathname === "/login" ||
@@ -305,6 +294,8 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
     ) {
       return false;
     }
+
+    const modules = Array.isArray(enabledModules) ? enabledModules : [];
 
     // Match route against SIDEBAR_NAV
     const matchedGroup = SIDEBAR_NAV.find((group) => {
@@ -320,10 +311,10 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
     });
 
     if (matchedGroup && matchedGroup.id !== "dashboard") {
-      return !enabledModules.includes(matchedGroup.id);
+      return !modules.includes(matchedGroup.id);
     }
     return false;
-  }, [userRole, enabledModules, pathname]);
+  }, [mounted, modulesLoaded, userRole, enabledModules, pathname]);
 
   // Client Route Protection: Redirect immediately if accessing a URL belonging to a disabled module
   useEffect(() => {
