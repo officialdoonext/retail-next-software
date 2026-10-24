@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import SoftwareLayout from "@/components/SoftwareLayout";
+import { download80MasterProductsSampleExcel } from "@/lib/dummyProducts80";
+import * as XLSX from "xlsx";
 
 interface StoreItem {
   id: string;
@@ -94,7 +96,7 @@ export default function ProductsPage() {
   const [totalCount, setTotalCount] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
 
-  // Modal State
+  // Modal State (Full Screen Modal)
   const [isFormModalOpen, setIsFormModalOpen] = useState(false);
   const [formMode, setFormMode] = useState<"add" | "edit">("add");
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
@@ -123,7 +125,6 @@ export default function ProductsPage() {
 
   // Variation Product State
   const [selectedVariationNames, setSelectedVariationNames] = useState<string[]>([]);
-  const [variationCustomOptions, setVariationCustomOptions] = useState<Record<string, string[]>>({});
   const [variants, setVariants] = useState<VariantItem[]>([]);
 
   // Sub-modal for configuring stock per variant
@@ -137,6 +138,14 @@ export default function ProductsPage() {
   // Delete Modal
   const [deletingProduct, setDeletingProduct] = useState<ProductItem | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Bulk Upload State
+  const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
+  const [bulkFile, setBulkFile] = useState<File | null>(null);
+  const [bulkParsedRows, setBulkParsedRows] = useState<any[]>([]);
+  const [bulkUploading, setBulkUploading] = useState(false);
+  const [bulkError, setBulkError] = useState("");
+  const [bulkProgress, setBulkProgress] = useState("");
 
   // Debounce search
   useEffect(() => {
@@ -211,6 +220,8 @@ export default function ProductsPage() {
       if (e.key === "Escape") {
         if (activeVariantForStock) {
           setActiveVariantForStock(null);
+        } else if (isBulkModalOpen) {
+          setIsBulkModalOpen(false);
         } else {
           setIsFormModalOpen(false);
           setDeletingProduct(null);
@@ -219,7 +230,7 @@ export default function ProductsPage() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activeVariantForStock]);
+  }, [activeVariantForStock, isBulkModalOpen]);
 
   // Calculate Simple Product Total Stock
   const simpleTotalStock = useMemo(() => {
@@ -252,7 +263,6 @@ export default function ProductsPage() {
 
     // Variation fields
     setSelectedVariationNames([]);
-    setVariationCustomOptions({});
     setVariants([]);
 
     setFormError("");
@@ -275,7 +285,6 @@ export default function ProductsPage() {
 
     if (p.hasVariations) {
       setVariants(p.variants || []);
-      // Extract variation names from variants if available
       const varNames = new Set<string>();
       (p.variants || []).forEach((v) => {
         Object.keys(v.attributes || {}).forEach((k) => varNames.add(k));
@@ -286,7 +295,6 @@ export default function ProductsPage() {
       setSimpleSalesPrice(p.salesPrice || p.price || "");
       setSimpleBarcode(p.barcode || generateNumericBarcode());
 
-      // Parse store/warehouse stocks
       const stMap: Record<string, number> = {};
       const whMap: Record<string, number> = {};
       (p.locationStocks?.stores || []).forEach((s) => {
@@ -356,7 +364,6 @@ export default function ProductsPage() {
       prev.map((v, i) => {
         if (i !== index) return v;
         if (field === "barcode") {
-          // Strictly numeric only
           const numericOnly = String(value).replace(/\D/g, "");
           return { ...v, barcode: numericOnly };
         }
@@ -365,7 +372,7 @@ export default function ProductsPage() {
     );
   };
 
-  // Update specific variant attribute value (e.g. Color = Green, Size = XL)
+  // Update specific variant attribute value
   const handleUpdateVariantAttribute = (
     index: number,
     attrName: string,
@@ -385,7 +392,7 @@ export default function ProductsPage() {
     );
   };
 
-  // Save stocks for the active variant in the sub-modal
+  // Save stocks for active variant in sub-modal
   const handleSaveVariantStock = (updatedStocks: LocationStock) => {
     if (!activeVariantForStock) return;
     const storeTotal = updatedStocks.stores.reduce((a, b) => a + (Number(b.stock) || 0), 0);
@@ -412,7 +419,6 @@ export default function ProductsPage() {
     }
 
     if (!hasVariations) {
-      // Validate Simple Product
       const numericBarcode = simpleBarcode.replace(/\D/g, "");
       if (!numericBarcode) {
         setFormError("A numeric barcode is required.");
@@ -423,13 +429,11 @@ export default function ProductsPage() {
         return;
       }
     } else {
-      // Validate Variation Product
       if (variants.length === 0) {
         setFormError("Please add at least one variant combination.");
         return;
       }
 
-      // Check barcodes for duplicates or empty
       const barcodeSet = new Set<string>();
       for (let i = 0; i < variants.length; i++) {
         const v = variants[i];
@@ -474,7 +478,6 @@ export default function ProductsPage() {
 
       const selectedCat = categories.find((c) => c.id === categoryId);
 
-      // Build locationStocks for Simple Product
       const simpleLocationStocks: LocationStock = {
         stores: stores.map((s) => ({
           storeId: s.id,
@@ -589,6 +592,70 @@ export default function ProductsPage() {
     }
   };
 
+  // Handle Bulk Excel File Choice
+  const handleBulkFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setBulkFile(file);
+    setBulkError("");
+
+    try {
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data, { type: "array" });
+      const firstSheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[firstSheetName];
+      const jsonRows: any[] = XLSX.utils.sheet_to_json(worksheet);
+
+      if (jsonRows.length === 0) {
+        setBulkError("The selected Excel file contains no data rows.");
+        setBulkParsedRows([]);
+        return;
+      }
+
+      setBulkParsedRows(jsonRows);
+    } catch (err: any) {
+      setBulkError("Failed to parse Excel file. Please ensure it is a valid .xlsx or .xls file.");
+    }
+  };
+
+  // Execute Bulk Upload to API
+  const handleExecuteBulkUpload = async () => {
+    if (bulkParsedRows.length === 0) {
+      setBulkError("Please choose an Excel file with valid product rows.");
+      return;
+    }
+
+    setBulkUploading(true);
+    setBulkError("");
+    setBulkProgress(`Uploading ${bulkParsedRows.length} rows to catalog...`);
+
+    try {
+      const res = await fetch("/api/products/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ products: bulkParsedRows }),
+      });
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        setBulkError(data.error || "Bulk upload failed.");
+      } else {
+        setIsBulkModalOpen(false);
+        setBulkFile(null);
+        setBulkParsedRows([]);
+        setToastMsg(data.message || `Successfully imported products!`);
+        setTimeout(() => setToastMsg(""), 4500);
+        setCurrentPage(1);
+        loadProducts(1, debouncedSearch, selectedCategoryFilter);
+      }
+    } catch {
+      setBulkError("Network error during bulk upload.");
+    } finally {
+      setBulkUploading(false);
+      setBulkProgress("");
+    }
+  };
+
   const fromRecord = totalCount === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1;
   const toRecord = Math.min(currentPage * PAGE_SIZE, totalCount);
 
@@ -632,17 +699,35 @@ export default function ProductsPage() {
             </p>
           </div>
 
-          {/* Add Product Button */}
-          <button
-            type="button"
-            onClick={handleOpenAddProduct}
-            className="h-[36px] px-4 rounded-[6px] bg-[#5e2b9d] hover:bg-[#4e2284] text-white text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-xs cursor-pointer shrink-0"
-          >
-            <svg className="w-4 h-4 stroke-[2.5]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-            </svg>
-            <span>Add Product</span>
-          </button>
+          {/* Action Buttons: Bulk Upload & Add Product */}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setBulkFile(null);
+                setBulkParsedRows([]);
+                setBulkError("");
+                setIsBulkModalOpen(true);
+              }}
+              className="h-[36px] px-3.5 rounded-[6px] border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-xs cursor-pointer shrink-0"
+            >
+              <svg className="w-4 h-4 text-emerald-600 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" />
+              </svg>
+              <span>Bulk Upload</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleOpenAddProduct}
+              className="h-[36px] px-4 rounded-[6px] bg-[#5e2b9d] hover:bg-[#4e2284] text-white text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-xs cursor-pointer shrink-0"
+            >
+              <svg className="w-4 h-4 stroke-[2.5]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+              <span>Add Product</span>
+            </button>
+          </div>
         </div>
 
         {/* Filter & Search Bar */}
@@ -726,19 +811,33 @@ export default function ProductsPage() {
               <p className="text-xs text-slate-400 max-w-sm mx-auto mb-4 font-normal">
                 {debouncedSearch
                   ? `No products match the search query "${debouncedSearch}".`
-                  : "Click '+ Add Product' to create your first simple or variation product."}
+                  : "Click '+ Add Product' to create your first item or use 'Bulk Upload' to import 80 master products."}
               </p>
               {!debouncedSearch && (
-                <button
-                  type="button"
-                  onClick={handleOpenAddProduct}
-                  className="h-[32px] px-3.5 rounded-[6px] bg-[#5e2b9d] hover:bg-[#4e2284] text-white text-xs font-semibold inline-flex items-center gap-1.5 shadow-xs cursor-pointer"
-                >
-                  <svg className="w-3.5 h-3.5 stroke-[2.5]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                  </svg>
-                  <span>Add First Product</span>
-                </button>
+                <div className="flex items-center justify-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBulkFile(null);
+                      setBulkParsedRows([]);
+                      setBulkError("");
+                      setIsBulkModalOpen(true);
+                    }}
+                    className="h-[32px] px-3.5 rounded-[6px] border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold inline-flex items-center gap-1.5 shadow-xs cursor-pointer"
+                  >
+                    <span>Bulk Upload 80 Products</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleOpenAddProduct}
+                    className="h-[32px] px-3.5 rounded-[6px] bg-[#5e2b9d] hover:bg-[#4e2284] text-white text-xs font-semibold inline-flex items-center gap-1.5 shadow-xs cursor-pointer"
+                  >
+                    <svg className="w-3.5 h-3.5 stroke-[2.5]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                    </svg>
+                    <span>Add First Product</span>
+                  </button>
+                </div>
               )}
             </div>
           ) : (
@@ -960,171 +1059,362 @@ export default function ProductsPage() {
         </div>
       </div>
 
-      {/* ── MODAL: ADD / EDIT PRODUCT ── */}
+      {/* ── FULL SCREEN MODAL: ADD / EDIT PRODUCT ── */}
       {isFormModalOpen && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 animate-in fade-in duration-150">
-          <div className="w-full max-w-4xl bg-white rounded-[10px] border border-slate-200 shadow-2xl overflow-hidden flex flex-col max-h-[92vh] animate-in zoom-in-95 duration-150">
-            {/* Modal Header */}
-            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50/70 shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-[6px] bg-purple-50 text-[#5e2b9d] flex items-center justify-center shrink-0">
-                  <svg className="w-5 h-5 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                  </svg>
-                </div>
-                <div>
-                  <h2 className="text-base font-bold text-slate-900">
-                    {formMode === "edit" ? "Edit Product" : "Add New Product"}
-                  </h2>
-                  <p className="text-xs text-slate-400">
-                    Enter product information, pricing, numeric barcodes, and store/warehouse stock
-                  </p>
-                </div>
-              </div>
-
+        <div className="fixed inset-0 z-50 bg-white flex flex-col w-screen h-screen overflow-hidden animate-in fade-in duration-150">
+          {/* Top Sticky Header */}
+          <div className="px-6 py-3.5 border-b border-slate-200 flex items-center justify-between bg-white shrink-0 shadow-2xs">
+            <div className="flex items-center gap-3">
               <button
                 type="button"
                 onClick={() => setIsFormModalOpen(false)}
-                className="w-8 h-8 rounded-[6px] text-slate-400 hover:text-slate-700 hover:bg-slate-100 flex items-center justify-center cursor-pointer transition-colors"
+                className="w-8 h-8 rounded-[6px] border border-slate-200 hover:bg-slate-100 text-slate-600 flex items-center justify-center cursor-pointer transition-colors"
+                title="Back to Catalog"
+              >
+                <svg className="w-4 h-4 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                </svg>
+              </button>
+              <div>
+                <h2 className="text-base font-bold text-slate-900 leading-tight">
+                  {formMode === "edit" ? "Edit Product" : "Add New Product"}
+                </h2>
+                <p className="text-[11px] text-slate-400">
+                  Full product master configuration with multi-location inventory & numeric barcodes
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={() => setIsFormModalOpen(false)}
+                className="h-[34px] px-3.5 rounded-[6px] border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 text-xs font-medium cursor-pointer transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                form="product-form"
+                disabled={submitting}
+                className="h-[34px] px-4.5 rounded-[6px] bg-[#5e2b9d] hover:bg-[#4e2284] text-white text-xs font-semibold shadow-xs cursor-pointer transition-colors disabled:opacity-50 inline-flex items-center gap-1.5"
+              >
+                {submitting && (
+                  <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                )}
+                <span>
+                  {submitting
+                    ? "Saving..."
+                    : formMode === "edit"
+                    ? "Update Product"
+                    : "Save Product"}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsFormModalOpen(false)}
+                className="w-8 h-8 rounded-[6px] text-slate-400 hover:text-slate-700 hover:bg-slate-100 flex items-center justify-center cursor-pointer transition-colors ml-1"
+                title="Close"
               >
                 ✕
               </button>
             </div>
+          </div>
 
-            {/* Modal Scrollable Body */}
-            <form
-              id="product-form"
-              onSubmit={handleSubmitProduct}
-              className="flex-1 overflow-y-auto p-6 space-y-6"
-            >
-              {formError && (
-                <div className="p-3 rounded-[6px] bg-rose-50 border border-rose-200 text-rose-800 text-xs font-medium flex items-center gap-2">
-                  <svg className="w-4 h-4 text-rose-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                  </svg>
-                  <span>{formError}</span>
-                </div>
-              )}
-
-              {/* SECTION 1: Product Basics */}
-              <div className="space-y-4">
-                <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider pb-1.5 border-b border-slate-100 flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-[#5e2b9d]" />
-                  <span>1. General Details</span>
-                </h3>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {/* Image Picker */}
-                  <div className="md:col-span-1">
-                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                      Product Image
-                    </label>
-                    <div className="border-2 border-dashed border-slate-200 hover:border-[#5e2b9d] rounded-[8px] p-3 text-center transition-colors bg-slate-50/50 flex flex-col items-center justify-center min-h-[140px] relative">
-                      {imagePreviewUrl || imageUrl ? (
-                        <div className="relative group w-full flex flex-col items-center">
-                          <img
-                            src={imagePreviewUrl || imageUrl}
-                            alt="Product preview"
-                            className="w-24 h-24 object-cover rounded-[6px] border border-slate-200 shadow-xs mb-1.5 bg-white"
-                          />
-                          <button
-                            type="button"
-                            onClick={handleRemoveImage}
-                            className="text-[11px] text-rose-600 hover:text-rose-800 font-medium cursor-pointer"
-                          >
-                            Remove Image
-                          </button>
-                          {selectedImageFile && (
-                            <span className="text-[10px] text-emerald-600 font-medium mt-0.5">
-                              Ready to upload on save
-                            </span>
-                          )}
-                        </div>
-                      ) : (
-                        <div>
-                          <svg className="w-8 h-8 text-slate-400 mx-auto mb-1 stroke-[1.5]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                          </svg>
-                          <label className="cursor-pointer text-xs font-semibold text-[#5e2b9d] hover:underline block">
-                            Choose Image
-                            <input
-                              type="file"
-                              accept="image/*"
-                              onChange={handleImageFileChange}
-                              className="hidden"
-                            />
-                          </label>
-                          <span className="text-[10px] text-slate-400 block mt-0.5">PNG, JPG, WebP</span>
-                        </div>
-                      )}
-                    </div>
+          {/* Full Screen Scrollable Body with centered max-w-7xl container */}
+          <div className="flex-1 overflow-y-auto bg-slate-50/50">
+            <div className="max-w-7xl mx-auto p-6 lg:p-8">
+              <form
+                id="product-form"
+                onSubmit={handleSubmitProduct}
+                className="space-y-6 bg-white rounded-[10px] border border-slate-200/90 shadow-sm p-6 lg:p-8"
+              >
+                {formError && (
+                  <div className="p-3 rounded-[6px] bg-rose-50 border border-rose-200 text-rose-800 text-xs font-medium flex items-center gap-2">
+                    <svg className="w-4 h-4 text-rose-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <span>{formError}</span>
                   </div>
+                )}
 
-                  {/* Name, Category, SKU, Shortcode */}
-                  <div className="md:col-span-2 space-y-3">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1">
-                        Product Name <span className="text-rose-500">*</span>
+                {/* SECTION 1: Product Basics */}
+                <div className="space-y-4">
+                  <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider pb-1.5 border-b border-slate-100 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-[#5e2b9d]" />
+                    <span>1. General Details</span>
+                  </h3>
+
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                    {/* Image Picker */}
+                    <div className="md:col-span-1">
+                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                        Product Image
                       </label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="e.g. Cotton Crew Neck T-Shirt"
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
-                        className="w-full h-[36px] px-3 rounded-[6px] border border-slate-200 bg-white text-xs text-slate-800 focus:outline-none focus:border-[#5e2b9d] focus:ring-1 focus:ring-[#5e2b9d]"
-                      />
+                      <div className="border-2 border-dashed border-slate-200 hover:border-[#5e2b9d] rounded-[8px] p-3 text-center transition-colors bg-slate-50/50 flex flex-col items-center justify-center min-h-[160px] relative">
+                        {imagePreviewUrl || imageUrl ? (
+                          <div className="relative group w-full flex flex-col items-center">
+                            <img
+                              src={imagePreviewUrl || imageUrl}
+                              alt="Product preview"
+                              className="w-28 h-28 object-cover rounded-[6px] border border-slate-200 shadow-xs mb-1.5 bg-white"
+                            />
+                            <button
+                              type="button"
+                              onClick={handleRemoveImage}
+                              className="text-[11px] text-rose-600 hover:text-rose-800 font-medium cursor-pointer"
+                            >
+                              Remove Image
+                            </button>
+                            {selectedImageFile && (
+                              <span className="text-[10px] text-emerald-600 font-medium mt-0.5">
+                                Ready to upload on save
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <div>
+                            <svg className="w-8 h-8 text-slate-400 mx-auto mb-1 stroke-[1.5]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                            </svg>
+                            <label className="cursor-pointer text-xs font-semibold text-[#5e2b9d] hover:underline block">
+                              Choose Image
+                              <input
+                                type="file"
+                                accept="image/*"
+                                onChange={handleImageFileChange}
+                                className="hidden"
+                              />
+                            </label>
+                            <span className="text-[10px] text-slate-400 block mt-0.5">PNG, JPG, WebP</span>
+                          </div>
+                        )}
+                      </div>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {/* Name, Category, SKU, Shortcode */}
+                    <div className="md:col-span-3 space-y-3.5">
                       <div>
                         <label className="block text-xs font-semibold text-slate-700 mb-1">
-                          Category
+                          Product Name <span className="text-rose-500">*</span>
                         </label>
-                        <select
-                          value={categoryId}
-                          onChange={(e) => setCategoryId(e.target.value)}
-                          className="w-full h-[36px] px-3 rounded-[6px] border border-slate-200 bg-white text-xs text-slate-800 focus:outline-none focus:border-[#5e2b9d]"
-                        >
-                          <option value="">Select Category</option>
-                          {categories.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.name}
-                            </option>
-                          ))}
-                        </select>
+                        <input
+                          type="text"
+                          required
+                          placeholder="e.g. Classic Cotton Crew Neck T-Shirt"
+                          value={name}
+                          onChange={(e) => setName(e.target.value)}
+                          className="w-full h-[38px] px-3.5 rounded-[6px] border border-slate-200 bg-white text-xs text-slate-800 focus:outline-none focus:border-[#5e2b9d] focus:ring-1 focus:ring-[#5e2b9d]"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            Category
+                          </label>
+                          <select
+                            value={categoryId}
+                            onChange={(e) => setCategoryId(e.target.value)}
+                            className="w-full h-[36px] px-3 rounded-[6px] border border-slate-200 bg-white text-xs text-slate-800 focus:outline-none focus:border-[#5e2b9d]"
+                          >
+                            <option value="">Select Category</option>
+                            {categories.map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            Shortcode
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="e.g. TSH-01"
+                            value={shortCode}
+                            onChange={(e) => setShortCode(e.target.value)}
+                            className="w-full h-[36px] px-3 rounded-[6px] border border-slate-200 bg-white text-xs text-slate-800 font-mono focus:outline-none focus:border-[#5e2b9d]"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            SKU <span className="text-rose-500">*</span>
+                          </label>
+                          <div className="relative">
+                            <input
+                              type="text"
+                              required
+                              placeholder="e.g. SKU-10492"
+                              value={sku}
+                              onChange={(e) => setSku(e.target.value)}
+                              className="w-full h-[36px] pl-3 pr-8 rounded-[6px] border border-slate-200 bg-white text-xs text-slate-800 font-mono focus:outline-none focus:border-[#5e2b9d]"
+                            />
+                            <button
+                              type="button"
+                              title="Generate new SKU"
+                              onClick={() => setSku(`SKU-${Math.floor(100000 + Math.random() * 900000)}`)}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-[#5e2b9d] text-xs cursor-pointer"
+                            >
+                              ↻
+                            </button>
+                          </div>
+                        </div>
                       </div>
 
                       <div>
                         <label className="block text-xs font-semibold text-slate-700 mb-1">
-                          Shortcode
+                          Description
+                        </label>
+                        <textarea
+                          rows={2}
+                          placeholder="Enter item description, specifications, fabric, materials..."
+                          value={description}
+                          onChange={(e) => setDescription(e.target.value)}
+                          className="w-full p-2.5 rounded-[6px] border border-slate-200 bg-white text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-[#5e2b9d] resize-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* SECTION 2: Product Type Toggle */}
+                <div className="space-y-3 pt-2">
+                  <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider pb-1.5 border-b border-slate-100 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-[#5e2b9d]" />
+                    <span>2. Product Type</span>
+                  </h3>
+
+                  <div className="grid grid-cols-2 gap-4 max-w-lg">
+                    <button
+                      type="button"
+                      onClick={() => setHasVariations(false)}
+                      className={`p-3.5 rounded-[8px] border text-left transition-all cursor-pointer ${
+                        !hasVariations
+                          ? "border-[#5e2b9d] bg-purple-50/70 shadow-xs ring-1 ring-[#5e2b9d]"
+                          : "border-slate-200 bg-slate-50/50 hover:bg-slate-100"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${
+                          !hasVariations ? "border-[#5e2b9d]" : "border-slate-400"
+                        }`}>
+                          {!hasVariations && <span className="w-1.5 h-1.5 rounded-full bg-[#5e2b9d]" />}
+                        </span>
+                        <span className="text-xs font-bold text-slate-900">Simple Product</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-1 pl-5.5">
+                        Single item with uniform price, numeric barcode & stock
+                      </p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setHasVariations(true);
+                        if (variants.length === 0) {
+                          handleAddCustomVariant();
+                        }
+                      }}
+                      className={`p-3.5 rounded-[8px] border text-left transition-all cursor-pointer ${
+                        hasVariations
+                          ? "border-[#5e2b9d] bg-purple-50/70 shadow-xs ring-1 ring-[#5e2b9d]"
+                          : "border-slate-200 bg-slate-50/50 hover:bg-slate-100"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${
+                          hasVariations ? "border-[#5e2b9d]" : "border-slate-400"
+                        }`}>
+                          {hasVariations && <span className="w-1.5 h-1.5 rounded-full bg-[#5e2b9d]" />}
+                        </span>
+                        <span className="text-xs font-bold text-slate-900">Variation Product</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-1 pl-5.5">
+                        Multiple variants (Colors, Sizes) with individual pricing & barcodes
+                      </p>
+                    </button>
+                  </div>
+                </div>
+
+                {/* SECTION 3A: Simple Product Pricing, Numeric Barcode & Stocks */}
+                {!hasVariations && (
+                  <div className="space-y-4 pt-2">
+                    <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider pb-1.5 border-b border-slate-100 flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-[#5e2b9d]" />
+                      <span>3. Pricing, Numeric Barcode & Stock Availability</span>
+                    </h3>
+
+                    {/* Pricing & Numeric Barcode */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-4 bg-slate-50/80 rounded-[8px] border border-slate-200">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          List Price (MRP) ₹
                         </label>
                         <input
-                          type="text"
-                          placeholder="e.g. TSH-01"
-                          value={shortCode}
-                          onChange={(e) => setShortCode(e.target.value)}
-                          className="w-full h-[36px] px-3 rounded-[6px] border border-slate-200 bg-white text-xs text-slate-800 font-mono focus:outline-none focus:border-[#5e2b9d]"
+                          type="number"
+                          min="0"
+                          step="any"
+                          placeholder="e.g. 999"
+                          value={simpleListPrice}
+                          onChange={(e) =>
+                            setSimpleListPrice(e.target.value === "" ? "" : Number(e.target.value))
+                          }
+                          className="w-full h-[36px] px-3 rounded-[6px] border border-slate-200 bg-white text-xs font-mono font-bold text-slate-800 focus:outline-none focus:border-[#5e2b9d]"
                         />
                       </div>
 
                       <div>
                         <label className="block text-xs font-semibold text-slate-700 mb-1">
-                          SKU <span className="text-rose-500">*</span>
+                          Sales Price ₹ <span className="text-rose-500">*</span>
                         </label>
+                        <input
+                          type="number"
+                          required
+                          min="0"
+                          step="any"
+                          placeholder="e.g. 799"
+                          value={simpleSalesPrice}
+                          onChange={(e) =>
+                            setSimpleSalesPrice(e.target.value === "" ? "" : Number(e.target.value))
+                          }
+                          className="w-full h-[36px] px-3 rounded-[6px] border border-slate-200 bg-white text-xs font-mono font-bold text-emerald-700 focus:outline-none focus:border-[#5e2b9d]"
+                        />
+                      </div>
+
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-xs font-semibold text-slate-700">
+                            Barcode <span className="text-slate-400 font-normal">(Numeric only)</span> <span className="text-rose-500">*</span>
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setSimpleBarcode(generateNumericBarcode())}
+                            className="text-[10px] text-[#5e2b9d] hover:underline font-semibold cursor-pointer"
+                          >
+                            Auto Generate
+                          </button>
+                        </div>
                         <div className="relative">
                           <input
                             type="text"
                             required
-                            placeholder="e.g. SKU-10492"
-                            value={sku}
-                            onChange={(e) => setSku(e.target.value)}
-                            className="w-full h-[36px] pl-3 pr-8 rounded-[6px] border border-slate-200 bg-white text-xs text-slate-800 font-mono focus:outline-none focus:border-[#5e2b9d]"
+                            placeholder="e.g. 8901234567890"
+                            value={simpleBarcode}
+                            onChange={(e) => {
+                              const numeric = e.target.value.replace(/\D/g, "");
+                              setSimpleBarcode(numeric);
+                            }}
+                            className="w-full h-[36px] pl-3 pr-8 rounded-[6px] border border-slate-200 bg-white text-xs font-mono font-bold text-slate-800 tracking-wider focus:outline-none focus:border-[#5e2b9d]"
                           />
                           <button
                             type="button"
-                            title="Generate new SKU"
-                            onClick={() => setSku(`SKU-${Math.floor(100000 + Math.random() * 900000)}`)}
+                            title="Generate numeric barcode"
+                            onClick={() => setSimpleBarcode(generateNumericBarcode())}
                             className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-[#5e2b9d] text-xs cursor-pointer"
                           >
                             ↻
@@ -1133,564 +1423,560 @@ export default function ProductsPage() {
                       </div>
                     </div>
 
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1">
-                        Description
-                      </label>
-                      <textarea
-                        rows={2}
-                        placeholder="Enter item description, fabric material, specifications..."
-                        value={description}
-                        onChange={(e) => setDescription(e.target.value)}
-                        className="w-full p-2.5 rounded-[6px] border border-slate-200 bg-white text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-[#5e2b9d] resize-none"
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* SECTION 2: Product Type Toggle */}
-              <div className="space-y-3 pt-2">
-                <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider pb-1.5 border-b border-slate-100 flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-[#5e2b9d]" />
-                  <span>2. Product Type</span>
-                </h3>
-
-                <div className="grid grid-cols-2 gap-3 max-w-md">
-                  <button
-                    type="button"
-                    onClick={() => setHasVariations(false)}
-                    className={`p-3 rounded-[8px] border text-left transition-all cursor-pointer ${
-                      !hasVariations
-                        ? "border-[#5e2b9d] bg-purple-50/70 shadow-xs"
-                        : "border-slate-200 bg-slate-50/50 hover:bg-slate-100"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${
-                        !hasVariations ? "border-[#5e2b9d]" : "border-slate-400"
-                      }`}>
-                        {!hasVariations && <span className="w-1.5 h-1.5 rounded-full bg-[#5e2b9d]" />}
-                      </span>
-                      <span className="text-xs font-bold text-slate-900">Simple Product</span>
-                    </div>
-                    <p className="text-[11px] text-slate-500 mt-1 pl-5.5">
-                      Single item with uniform price, numeric barcode & stock
-                    </p>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setHasVariations(true);
-                      if (variants.length === 0) {
-                        handleAddCustomVariant();
-                      }
-                    }}
-                    className={`p-3 rounded-[8px] border text-left transition-all cursor-pointer ${
-                      hasVariations
-                        ? "border-[#5e2b9d] bg-purple-50/70 shadow-xs"
-                        : "border-slate-200 bg-slate-50/50 hover:bg-slate-100"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${
-                        hasVariations ? "border-[#5e2b9d]" : "border-slate-400"
-                      }`}>
-                        {hasVariations && <span className="w-1.5 h-1.5 rounded-full bg-[#5e2b9d]" />}
-                      </span>
-                      <span className="text-xs font-bold text-slate-900">Variation Product</span>
-                    </div>
-                    <p className="text-[11px] text-slate-500 mt-1 pl-5.5">
-                      Multiple variants (Colors, Sizes) with individual pricing & barcodes
-                    </p>
-                  </button>
-                </div>
-              </div>
-
-              {/* SECTION 3A: Simple Product Pricing, Numeric Barcode & Stocks */}
-              {!hasVariations && (
-                <div className="space-y-4 pt-2">
-                  <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider pb-1.5 border-b border-slate-100 flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-[#5e2b9d]" />
-                    <span>3. Pricing, Numeric Barcode & Stock Availability</span>
-                  </h3>
-
-                  {/* Pricing & Numeric Barcode */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 bg-slate-50/80 rounded-[8px] border border-slate-200">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1">
-                        List Price (MRP) ₹
-                      </label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="any"
-                        placeholder="e.g. 999"
-                        value={simpleListPrice}
-                        onChange={(e) =>
-                          setSimpleListPrice(e.target.value === "" ? "" : Number(e.target.value))
-                        }
-                        className="w-full h-[36px] px-3 rounded-[6px] border border-slate-200 bg-white text-xs font-mono font-bold text-slate-800 focus:outline-none focus:border-[#5e2b9d]"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1">
-                        Sales Price ₹ <span className="text-rose-500">*</span>
-                      </label>
-                      <input
-                        type="number"
-                        required
-                        min="0"
-                        step="any"
-                        placeholder="e.g. 799"
-                        value={simpleSalesPrice}
-                        onChange={(e) =>
-                          setSimpleSalesPrice(e.target.value === "" ? "" : Number(e.target.value))
-                        }
-                        className="w-full h-[36px] px-3 rounded-[6px] border border-slate-200 bg-white text-xs font-mono font-bold text-emerald-700 focus:outline-none focus:border-[#5e2b9d]"
-                      />
-                    </div>
-
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <label className="text-xs font-semibold text-slate-700">
-                          Barcode <span className="text-slate-400 font-normal">(Numeric only)</span> <span className="text-rose-500">*</span>
-                        </label>
-                        <button
-                          type="button"
-                          onClick={() => setSimpleBarcode(generateNumericBarcode())}
-                          className="text-[10px] text-[#5e2b9d] hover:underline font-semibold cursor-pointer"
-                        >
-                          Auto Generate
-                        </button>
+                    {/* Stock Availability: Stores & Warehouses */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-800">
+                          Stock Availability by Location
+                        </span>
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-[4px] bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-bold">
+                          Total Stock: {simpleTotalStock} units
+                        </span>
                       </div>
-                      <div className="relative">
-                        <input
-                          type="text"
-                          required
-                          placeholder="e.g. 8901234567890"
-                          value={simpleBarcode}
-                          onChange={(e) => {
-                            // Enforce numeric only!
-                            const numeric = e.target.value.replace(/\D/g, "");
-                            setSimpleBarcode(numeric);
-                          }}
-                          className="w-full h-[36px] pl-3 pr-8 rounded-[6px] border border-slate-200 bg-white text-xs font-mono font-bold text-slate-800 tracking-wider focus:outline-none focus:border-[#5e2b9d]"
-                        />
-                        <button
-                          type="button"
-                          title="Generate numeric barcode"
-                          onClick={() => setSimpleBarcode(generateNumericBarcode())}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-[#5e2b9d] text-xs cursor-pointer"
-                        >
-                          ↻
-                        </button>
-                      </div>
-                    </div>
-                  </div>
 
-                  {/* Stock Availability: Stores & Warehouses */}
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-800">
-                        Stock Availability by Location
-                      </span>
-                      <span className="inline-flex items-center px-2.5 py-1 rounded-[4px] bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-bold">
-                        Total Stock: {simpleTotalStock} units
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* Stores Stock Card */}
-                      <div className="border border-slate-200 rounded-[8px] p-3.5 bg-white">
-                        <div className="flex items-center gap-2 mb-2.5 text-xs font-bold text-slate-800">
-                          <span className="w-6 h-6 rounded-[4px] bg-blue-50 text-blue-600 flex items-center justify-center">
-                            🏬
-                          </span>
-                          <span>Retail Stores ({stores.length})</span>
-                        </div>
-
-                        {stores.length === 0 ? (
-                          <p className="text-xs text-slate-400 italic py-2">
-                            No retail stores found. Stores can be added manually in Stores Manager.
-                          </p>
-                        ) : (
-                          <div className="space-y-2">
-                            {stores.map((s) => (
-                              <div
-                                key={s.id}
-                                className="flex items-center justify-between gap-3 p-2 rounded-[5px] bg-slate-50 border border-slate-100"
-                              >
-                                <div className="min-w-0">
-                                  <span className="text-xs font-semibold text-slate-800 block truncate">
-                                    {s.name}
-                                  </span>
-                                  <span className="text-[10px] text-slate-400">
-                                    {s.city || s.location || "Store"}
-                                  </span>
-                                </div>
-                                <div className="flex items-center gap-1.5 shrink-0">
-                                  <span className="text-[11px] text-slate-500 font-medium">Qty:</span>
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    value={simpleStoreStocks[s.id] ?? 0}
-                                    onChange={(e) =>
-                                      setSimpleStoreStocks({
-                                        ...simpleStoreStocks,
-                                        [s.id]: Math.max(0, parseInt(e.target.value, 10) || 0),
-                                      })
-                                    }
-                                    className="w-20 h-[30px] px-2 text-right rounded-[4px] border border-slate-200 bg-white text-xs font-mono font-bold text-slate-800 focus:outline-none focus:border-[#5e2b9d]"
-                                  />
-                                </div>
-                              </div>
-                            ))}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* Stores Stock Card */}
+                        <div className="border border-slate-200 rounded-[8px] p-4 bg-white shadow-2xs">
+                          <div className="flex items-center gap-2 mb-3 text-xs font-bold text-slate-800">
+                            <span className="w-6 h-6 rounded-[4px] bg-blue-50 text-blue-600 flex items-center justify-center">
+                              🏬
+                            </span>
+                            <span>Retail Stores ({stores.length})</span>
                           </div>
-                        )}
-                      </div>
 
-                      {/* Warehouses Stock Card */}
-                      <div className="border border-slate-200 rounded-[8px] p-3.5 bg-white">
-                        <div className="flex items-center gap-2 mb-2.5 text-xs font-bold text-slate-800">
-                          <span className="w-6 h-6 rounded-[4px] bg-purple-50 text-[#5e2b9d] flex items-center justify-center">
-                            🏭
-                          </span>
-                          <span>Central Warehouses ({warehouses.length})</span>
-                        </div>
-
-                        {warehouses.length === 0 ? (
-                          <p className="text-xs text-slate-400 italic py-2">
-                            No warehouses created yet. You can create warehouses in Stock ➔ Warehouse.
-                          </p>
-                        ) : (
-                          <div className="space-y-2">
-                            {warehouses.map((w) => (
-                              <div
-                                key={w.id}
-                                className="flex items-center justify-between gap-3 p-2 rounded-[5px] bg-slate-50 border border-slate-100"
-                              >
-                                <div className="min-w-0">
-                                  <span className="text-xs font-semibold text-slate-800 block truncate">
-                                    {w.name}
-                                  </span>
-                                  <span className="text-[10px] text-slate-400">
-                                    {w.city || "Storage Hub"}
-                                  </span>
-                                </div>
-                                <div className="flex items-center gap-1.5 shrink-0">
-                                  <span className="text-[11px] text-slate-500 font-medium">Qty:</span>
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    value={simpleWarehouseStocks[w.id] ?? 0}
-                                    onChange={(e) =>
-                                      setSimpleWarehouseStocks({
-                                        ...simpleWarehouseStocks,
-                                        [w.id]: Math.max(0, parseInt(e.target.value, 10) || 0),
-                                      })
-                                    }
-                                    className="w-20 h-[30px] px-2 text-right rounded-[4px] border border-slate-200 bg-white text-xs font-mono font-bold text-slate-800 focus:outline-none focus:border-[#5e2b9d]"
-                                  />
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* SECTION 3B: Variation Product Configuration */}
-              {hasVariations && (
-                <div className="space-y-4 pt-2">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-1.5 border-b border-slate-100">
-                    <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-[#5e2b9d]" />
-                      <span>3. Variations Matrix & Pricing</span>
-                    </h3>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={handleAddCustomVariant}
-                        className="h-7 px-3 rounded-[4px] bg-[#5e2b9d] text-white hover:bg-[#4e2284] text-xs font-semibold inline-flex items-center gap-1 cursor-pointer shadow-xs"
-                      >
-                        <svg className="w-3.5 h-3.5 stroke-[2.5]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                        </svg>
-                        <span>Add Variant Combination</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Select Variations / Attributes to use */}
-                  <div className="p-3 bg-slate-50 rounded-[8px] border border-slate-200 space-y-2">
-                    <div className="text-xs font-semibold text-slate-700">
-                      Select Variation Types (e.g. Color, Size):
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      {availableVariations.map((v) => {
-                        const isSelected = selectedVariationNames.includes(v.name);
-                        return (
-                          <button
-                            key={v.id}
-                            type="button"
-                            onClick={() => {
-                              if (isSelected) {
-                                setSelectedVariationNames(selectedVariationNames.filter((n) => n !== v.name));
-                              } else {
-                                setSelectedVariationNames([...selectedVariationNames, v.name]);
-                              }
-                            }}
-                            className={`h-7 px-3 rounded-[4px] text-xs font-medium border transition-colors cursor-pointer flex items-center gap-1.5 ${
-                              isSelected
-                                ? "bg-purple-100 border-[#5e2b9d] text-[#5e2b9d] font-bold"
-                                : "bg-white border-slate-200 text-slate-600 hover:bg-slate-100"
-                            }`}
-                          >
-                            <span>{isSelected ? "✓" : "+"}</span>
-                            <span>{v.name}</span>
-                            {v.values?.length > 0 && (
-                              <span className="text-[10px] text-slate-400">({v.values.length})</span>
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Variants List Table */}
-                  <div className="border border-slate-200 rounded-[8px] overflow-hidden bg-white">
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-xs">
-                        <thead>
-                          <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-600 font-semibold select-none">
-                            <th className="py-2.5 px-3 w-8 text-center text-slate-400">#</th>
-                            <th className="py-2.5 px-3 min-w-[140px]">Variant / Attributes</th>
-                            <th className="py-2.5 px-3 min-w-[100px]">Shortcode</th>
-                            <th className="py-2.5 px-3 min-w-[110px]">SKU</th>
-                            <th className="py-2.5 px-3 min-w-[150px]">Barcode (Numeric)</th>
-                            <th className="py-2.5 px-3 min-w-[90px]">List (₹)</th>
-                            <th className="py-2.5 px-3 min-w-[90px]">Sale (₹)*</th>
-                            <th className="py-2.5 px-3 min-w-[110px]">Stock Distribution</th>
-                            <th className="py-2.5 px-2 w-8 text-center"></th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {variants.map((v, idx) => (
-                            <tr key={v.id || idx} className="hover:bg-slate-50/60">
-                              <td className="py-2 px-3 text-center text-slate-400 font-mono text-[11px]">
-                                {idx + 1}
-                              </td>
-
-                              {/* Attributes Inputs or Label */}
-                              <td className="py-2 px-3">
-                                {selectedVariationNames.length > 0 ? (
-                                  <div className="flex flex-col gap-1">
-                                    {selectedVariationNames.map((attrName) => {
-                                      const matchingVarDef = availableVariations.find((av) => av.name === attrName);
-                                      const options = matchingVarDef?.values || [];
-
-                                      return (
-                                        <div key={attrName} className="flex items-center gap-1">
-                                          <span className="text-[10px] font-bold text-slate-400 w-12 truncate" title={attrName}>
-                                            {attrName}:
-                                          </span>
-                                          {options.length > 0 ? (
-                                            <input
-                                              list={`options-${attrName}`}
-                                              placeholder={attrName}
-                                              value={v.attributes[attrName] || ""}
-                                              onChange={(e) =>
-                                                handleUpdateVariantAttribute(idx, attrName, e.target.value)
-                                              }
-                                              className="h-6 px-1.5 rounded-[4px] border border-slate-200 bg-white text-xs text-slate-800 w-28 focus:outline-none focus:border-[#5e2b9d]"
-                                            />
-                                          ) : (
-                                            <input
-                                              type="text"
-                                              placeholder={attrName}
-                                              value={v.attributes[attrName] || ""}
-                                              onChange={(e) =>
-                                                handleUpdateVariantAttribute(idx, attrName, e.target.value)
-                                              }
-                                              className="h-6 px-1.5 rounded-[4px] border border-slate-200 bg-white text-xs text-slate-800 w-28 focus:outline-none focus:border-[#5e2b9d]"
-                                            />
-                                          )}
-                                          {options.length > 0 && (
-                                            <datalist id={`options-${attrName}`}>
-                                              {options.map((opt) => (
-                                                <option key={opt} value={opt} />
-                                              ))}
-                                            </datalist>
-                                          )}
-                                        </div>
-                                      );
-                                    })}
+                          {stores.length === 0 ? (
+                            <p className="text-xs text-slate-400 italic py-2">
+                              No retail stores found. Stores can be added manually in Stores Manager.
+                            </p>
+                          ) : (
+                            <div className="space-y-2">
+                              {stores.map((s) => (
+                                <div
+                                  key={s.id}
+                                  className="flex items-center justify-between gap-3 p-2.5 rounded-[5px] bg-slate-50 border border-slate-100"
+                                >
+                                  <div className="min-w-0">
+                                    <span className="text-xs font-semibold text-slate-800 block truncate">
+                                      {s.name}
+                                    </span>
+                                    <span className="text-[10px] text-slate-400">
+                                      {s.city || s.location || "Store"}
+                                    </span>
                                   </div>
-                                ) : (
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    <span className="text-[11px] text-slate-500 font-medium">Qty:</span>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      value={simpleStoreStocks[s.id] ?? 0}
+                                      onChange={(e) =>
+                                        setSimpleStoreStocks({
+                                          ...simpleStoreStocks,
+                                          [s.id]: Math.max(0, parseInt(e.target.value, 10) || 0),
+                                        })
+                                      }
+                                      className="w-24 h-[32px] px-2 text-right rounded-[4px] border border-slate-200 bg-white text-xs font-mono font-bold text-slate-800 focus:outline-none focus:border-[#5e2b9d]"
+                                    />
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Warehouses Stock Card */}
+                        <div className="border border-slate-200 rounded-[8px] p-4 bg-white shadow-2xs">
+                          <div className="flex items-center gap-2 mb-3 text-xs font-bold text-slate-800">
+                            <span className="w-6 h-6 rounded-[4px] bg-purple-50 text-[#5e2b9d] flex items-center justify-center">
+                              🏭
+                            </span>
+                            <span>Central Warehouses ({warehouses.length})</span>
+                          </div>
+
+                          {warehouses.length === 0 ? (
+                            <p className="text-xs text-slate-400 italic py-2">
+                              No warehouses created yet. You can create warehouses in Stock ➔ Warehouse.
+                            </p>
+                          ) : (
+                            <div className="space-y-2">
+                              {warehouses.map((w) => (
+                                <div
+                                  key={w.id}
+                                  className="flex items-center justify-between gap-3 p-2.5 rounded-[5px] bg-slate-50 border border-slate-100"
+                                >
+                                  <div className="min-w-0">
+                                    <span className="text-xs font-semibold text-slate-800 block truncate">
+                                      {w.name}
+                                    </span>
+                                    <span className="text-[10px] text-slate-400">
+                                      {w.city || "Storage Hub"}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    <span className="text-[11px] text-slate-500 font-medium">Qty:</span>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      value={simpleWarehouseStocks[w.id] ?? 0}
+                                      onChange={(e) =>
+                                        setSimpleWarehouseStocks({
+                                          ...simpleWarehouseStocks,
+                                          [w.id]: Math.max(0, parseInt(e.target.value, 10) || 0),
+                                        })
+                                      }
+                                      className="w-24 h-[32px] px-2 text-right rounded-[4px] border border-slate-200 bg-white text-xs font-mono font-bold text-slate-800 focus:outline-none focus:border-[#5e2b9d]"
+                                    />
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* SECTION 3B: Variation Product Configuration */}
+                {hasVariations && (
+                  <div className="space-y-4 pt-2">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-1.5 border-b border-slate-100">
+                      <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-[#5e2b9d]" />
+                        <span>3. Variations Matrix & Pricing</span>
+                      </h3>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={handleAddCustomVariant}
+                          className="h-8 px-3.5 rounded-[5px] bg-[#5e2b9d] text-white hover:bg-[#4e2284] text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
+                        >
+                          <svg className="w-3.5 h-3.5 stroke-[2.5]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                          </svg>
+                          <span>Add Variant Combination</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Select Variations / Attributes to use */}
+                    <div className="p-3.5 bg-slate-50 rounded-[8px] border border-slate-200 space-y-2">
+                      <div className="text-xs font-semibold text-slate-700">
+                        Select Variation Types (e.g. Color, Size):
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {availableVariations.map((v) => {
+                          const isSelected = selectedVariationNames.includes(v.name);
+                          return (
+                            <button
+                              key={v.id}
+                              type="button"
+                              onClick={() => {
+                                if (isSelected) {
+                                  setSelectedVariationNames(selectedVariationNames.filter((n) => n !== v.name));
+                                } else {
+                                  setSelectedVariationNames([...selectedVariationNames, v.name]);
+                                }
+                              }}
+                              className={`h-7 px-3 rounded-[4px] text-xs font-medium border transition-colors cursor-pointer flex items-center gap-1.5 ${
+                                isSelected
+                                  ? "bg-purple-100 border-[#5e2b9d] text-[#5e2b9d] font-bold"
+                                  : "bg-white border-slate-200 text-slate-600 hover:bg-slate-100"
+                              }`}
+                            >
+                              <span>{isSelected ? "✓" : "+"}</span>
+                              <span>{v.name}</span>
+                              {v.values?.length > 0 && (
+                                <span className="text-[10px] text-slate-400">({v.values.length})</span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Variants List Table */}
+                    <div className="border border-slate-200 rounded-[8px] overflow-hidden bg-white shadow-2xs">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs">
+                          <thead>
+                            <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-600 font-semibold select-none">
+                              <th className="py-2.5 px-3 w-8 text-center text-slate-400">#</th>
+                              <th className="py-2.5 px-3 min-w-[160px]">Variant / Attributes</th>
+                              <th className="py-2.5 px-3 min-w-[110px]">Shortcode</th>
+                              <th className="py-2.5 px-3 min-w-[120px]">SKU</th>
+                              <th className="py-2.5 px-3 min-w-[170px]">Barcode (Numeric)</th>
+                              <th className="py-2.5 px-3 min-w-[100px]">List (₹)</th>
+                              <th className="py-2.5 px-3 min-w-[100px]">Sale (₹)*</th>
+                              <th className="py-2.5 px-3 min-w-[130px]">Stock Distribution</th>
+                              <th className="py-2.5 px-2 w-8 text-center"></th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {variants.map((v, idx) => (
+                              <tr key={v.id || idx} className="hover:bg-slate-50/60">
+                                <td className="py-2 px-3 text-center text-slate-400 font-mono text-[11px]">
+                                  {idx + 1}
+                                </td>
+
+                                {/* Attributes Inputs or Label */}
+                                <td className="py-2 px-3">
+                                  {selectedVariationNames.length > 0 ? (
+                                    <div className="flex flex-col gap-1">
+                                      {selectedVariationNames.map((attrName) => {
+                                        const matchingVarDef = availableVariations.find((av) => av.name === attrName);
+                                        const options = matchingVarDef?.values || [];
+
+                                        return (
+                                          <div key={attrName} className="flex items-center gap-1">
+                                            <span className="text-[10px] font-bold text-slate-400 w-12 truncate" title={attrName}>
+                                              {attrName}:
+                                            </span>
+                                            {options.length > 0 ? (
+                                              <input
+                                                list={`options-${attrName}`}
+                                                placeholder={attrName}
+                                                value={v.attributes[attrName] || ""}
+                                                onChange={(e) =>
+                                                  handleUpdateVariantAttribute(idx, attrName, e.target.value)
+                                                }
+                                                className="h-6 px-1.5 rounded-[4px] border border-slate-200 bg-white text-xs text-slate-800 w-32 focus:outline-none focus:border-[#5e2b9d]"
+                                              />
+                                            ) : (
+                                              <input
+                                                type="text"
+                                                placeholder={attrName}
+                                                value={v.attributes[attrName] || ""}
+                                                onChange={(e) =>
+                                                  handleUpdateVariantAttribute(idx, attrName, e.target.value)
+                                                }
+                                                className="h-6 px-1.5 rounded-[4px] border border-slate-200 bg-white text-xs text-slate-800 w-32 focus:outline-none focus:border-[#5e2b9d]"
+                                              />
+                                            )}
+                                            {options.length > 0 && (
+                                              <datalist id={`options-${attrName}`}>
+                                                {options.map((opt) => (
+                                                  <option key={opt} value={opt} />
+                                                ))}
+                                              </datalist>
+                                            )}
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  ) : (
+                                    <input
+                                      type="text"
+                                      placeholder="e.g. Green - XL"
+                                      value={v.name}
+                                      onChange={(e) => handleUpdateVariantField(idx, "name", e.target.value)}
+                                      className="h-7 px-2 rounded-[4px] border border-slate-200 bg-white text-xs font-semibold text-slate-800 w-full focus:outline-none focus:border-[#5e2b9d]"
+                                    />
+                                  )}
+                                </td>
+
+                                {/* Shortcode */}
+                                <td className="py-2 px-3">
                                   <input
                                     type="text"
-                                    placeholder="e.g. Green - XL"
-                                    value={v.name}
-                                    onChange={(e) => handleUpdateVariantField(idx, "name", e.target.value)}
-                                    className="h-7 px-2 rounded-[4px] border border-slate-200 bg-white text-xs font-semibold text-slate-800 w-full focus:outline-none focus:border-[#5e2b9d]"
+                                    placeholder="Code"
+                                    value={v.shortCode}
+                                    onChange={(e) => handleUpdateVariantField(idx, "shortCode", e.target.value)}
+                                    className="h-7 px-2 rounded-[4px] border border-slate-200 bg-white text-xs font-mono text-slate-800 w-full focus:outline-none focus:border-[#5e2b9d]"
                                   />
-                                )}
-                              </td>
+                                </td>
 
-                              {/* Shortcode */}
-                              <td className="py-2 px-3">
-                                <input
-                                  type="text"
-                                  placeholder="Code"
-                                  value={v.shortCode}
-                                  onChange={(e) => handleUpdateVariantField(idx, "shortCode", e.target.value)}
-                                  className="h-7 px-2 rounded-[4px] border border-slate-200 bg-white text-xs font-mono text-slate-800 w-full focus:outline-none focus:border-[#5e2b9d]"
-                                />
-                              </td>
-
-                              {/* SKU */}
-                              <td className="py-2 px-3">
-                                <input
-                                  type="text"
-                                  placeholder="SKU"
-                                  value={v.sku}
-                                  onChange={(e) => handleUpdateVariantField(idx, "sku", e.target.value)}
-                                  className="h-7 px-2 rounded-[4px] border border-slate-200 bg-white text-xs font-mono text-slate-800 w-full focus:outline-none focus:border-[#5e2b9d]"
-                                />
-                              </td>
-
-                              {/* Barcode (Strictly Numeric Only) */}
-                              <td className="py-2 px-3">
-                                <div className="relative">
+                                {/* SKU */}
+                                <td className="py-2 px-3">
                                   <input
                                     type="text"
-                                    placeholder="Numeric barcode"
-                                    value={v.barcode}
-                                    onChange={(e) => handleUpdateVariantField(idx, "barcode", e.target.value)}
-                                    className="h-7 pl-2 pr-6 rounded-[4px] border border-slate-200 bg-white text-xs font-mono font-bold text-slate-800 w-full focus:outline-none focus:border-[#5e2b9d]"
+                                    placeholder="SKU"
+                                    value={v.sku}
+                                    onChange={(e) => handleUpdateVariantField(idx, "sku", e.target.value)}
+                                    className="h-7 px-2 rounded-[4px] border border-slate-200 bg-white text-xs font-mono text-slate-800 w-full focus:outline-none focus:border-[#5e2b9d]"
                                   />
+                                </td>
+
+                                {/* Barcode (Strictly Numeric Only) */}
+                                <td className="py-2 px-3">
+                                  <div className="relative">
+                                    <input
+                                      type="text"
+                                      placeholder="Numeric barcode"
+                                      value={v.barcode}
+                                      onChange={(e) => handleUpdateVariantField(idx, "barcode", e.target.value)}
+                                      className="h-7 pl-2 pr-6 rounded-[4px] border border-slate-200 bg-white text-xs font-mono font-bold text-slate-800 w-full focus:outline-none focus:border-[#5e2b9d]"
+                                    />
+                                    <button
+                                      type="button"
+                                      title="Auto-generate numeric barcode"
+                                      onClick={() => handleUpdateVariantField(idx, "barcode", generateNumericBarcode())}
+                                      className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-[#5e2b9d] text-xs cursor-pointer"
+                                    >
+                                      ↻
+                                    </button>
+                                  </div>
+                                </td>
+
+                                {/* List Price */}
+                                <td className="py-2 px-3">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    placeholder="MRP"
+                                    value={v.listPrice || ""}
+                                    onChange={(e) =>
+                                      handleUpdateVariantField(
+                                        idx,
+                                        "listPrice",
+                                        e.target.value === "" ? 0 : Number(e.target.value)
+                                      )
+                                    }
+                                    className="h-7 px-2 rounded-[4px] border border-slate-200 bg-white text-xs font-mono text-slate-800 w-full focus:outline-none focus:border-[#5e2b9d]"
+                                  />
+                                </td>
+
+                                {/* Sales Price */}
+                                <td className="py-2 px-3">
+                                  <input
+                                    type="number"
+                                    required
+                                    min="0"
+                                    placeholder="Price"
+                                    value={v.salesPrice || ""}
+                                    onChange={(e) =>
+                                      handleUpdateVariantField(
+                                        idx,
+                                        "salesPrice",
+                                        e.target.value === "" ? 0 : Number(e.target.value)
+                                      )
+                                    }
+                                    className="h-7 px-2 rounded-[4px] border border-slate-200 bg-white text-xs font-mono font-bold text-emerald-700 w-full focus:outline-none focus:border-[#5e2b9d]"
+                                  />
+                                </td>
+
+                                {/* Stock Distribution Button */}
+                                <td className="py-2 px-3">
                                   <button
                                     type="button"
-                                    title="Auto-generate numeric barcode"
-                                    onClick={() => handleUpdateVariantField(idx, "barcode", generateNumericBarcode())}
-                                    className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-[#5e2b9d] text-xs cursor-pointer"
+                                    onClick={() => setActiveVariantForStock(v)}
+                                    className={`h-7 px-2.5 rounded-[4px] text-xs font-semibold border flex items-center justify-between gap-1.5 w-full cursor-pointer transition-colors ${
+                                      v.stock > 0
+                                        ? "bg-emerald-50 border-emerald-300 text-emerald-800"
+                                        : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
+                                    }`}
                                   >
-                                    ↻
+                                    <span>{v.stock} units</span>
+                                    <span className="text-[10px] text-slate-400 font-normal">Edit ⚙</span>
                                   </button>
-                                </div>
-                              </td>
+                                </td>
 
-                              {/* List Price */}
-                              <td className="py-2 px-3">
-                                <input
-                                  type="number"
-                                  min="0"
-                                  placeholder="MRP"
-                                  value={v.listPrice || ""}
-                                  onChange={(e) =>
-                                    handleUpdateVariantField(
-                                      idx,
-                                      "listPrice",
-                                      e.target.value === "" ? 0 : Number(e.target.value)
-                                    )
-                                  }
-                                  className="h-7 px-2 rounded-[4px] border border-slate-200 bg-white text-xs font-mono text-slate-800 w-full focus:outline-none focus:border-[#5e2b9d]"
-                                />
-                              </td>
-
-                              {/* Sales Price */}
-                              <td className="py-2 px-3">
-                                <input
-                                  type="number"
-                                  required
-                                  min="0"
-                                  placeholder="Price"
-                                  value={v.salesPrice || ""}
-                                  onChange={(e) =>
-                                    handleUpdateVariantField(
-                                      idx,
-                                      "salesPrice",
-                                      e.target.value === "" ? 0 : Number(e.target.value)
-                                    )
-                                  }
-                                  className="h-7 px-2 rounded-[4px] border border-slate-200 bg-white text-xs font-mono font-bold text-emerald-700 w-full focus:outline-none focus:border-[#5e2b9d]"
-                                />
-                              </td>
-
-                              {/* Stock Distribution Button */}
-                              <td className="py-2 px-3">
-                                <button
-                                  type="button"
-                                  onClick={() => setActiveVariantForStock(v)}
-                                  className={`h-7 px-2.5 rounded-[4px] text-xs font-semibold border flex items-center justify-between gap-1.5 w-full cursor-pointer transition-colors ${
-                                    v.stock > 0
-                                      ? "bg-emerald-50 border-emerald-300 text-emerald-800"
-                                      : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
-                                  }`}
-                                >
-                                  <span>{v.stock} units</span>
-                                  <span className="text-[10px] text-slate-400 font-normal">Edit ⚙</span>
-                                </button>
-                              </td>
-
-                              {/* Delete Variant */}
-                              <td className="py-2 px-2 text-center">
-                                <button
-                                  type="button"
-                                  onClick={() => handleRemoveVariant(idx)}
-                                  className="w-6 h-6 rounded-[4px] text-slate-400 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center cursor-pointer transition-colors"
-                                  title="Remove variant"
-                                >
-                                  ✕
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                                {/* Delete Variant */}
+                                <td className="py-2 px-2 text-center">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveVariant(idx)}
+                                    className="w-6 h-6 rounded-[4px] text-slate-400 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center cursor-pointer transition-colors"
+                                    title="Remove variant"
+                                  >
+                                    ✕
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
                   </div>
+                )}
+              </form>
+            </div>
+          </div>
+
+          {/* Sticky Bottom Action Bar */}
+          <div className="px-8 py-3.5 border-t border-slate-200 bg-white flex items-center justify-between shrink-0 shadow-xs">
+            <div className="text-xs text-slate-500 font-medium">
+              {hasVariations
+                ? `${variants.length} variant combinations defined`
+                : `Total available stock: ${simpleTotalStock} units across all stores & warehouses`}
+            </div>
+
+            <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={() => setIsFormModalOpen(false)}
+                className="h-[36px] px-4 rounded-[6px] border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 text-xs font-medium cursor-pointer transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                form="product-form"
+                disabled={submitting}
+                className="h-[36px] px-5 rounded-[6px] bg-[#5e2b9d] hover:bg-[#4e2284] text-white text-xs font-semibold shadow-xs cursor-pointer transition-colors disabled:opacity-50 inline-flex items-center gap-2"
+              >
+                {submitting && (
+                  <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                )}
+                <span>
+                  {submitting
+                    ? "Saving Product..."
+                    : formMode === "edit"
+                    ? "Update Product"
+                    : "Save Product"}
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── BULK UPLOAD MODAL ── */}
+      {isBulkModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="w-full max-w-xl bg-white rounded-[10px] border border-slate-200 shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50/70">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-[6px] bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+                  <svg className="w-5 h-5 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Bulk Upload Products</h3>
+                  <p className="text-xs text-slate-400">
+                    Import multiple master products & variations at once via Excel (.xlsx)
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsBulkModalOpen(false)}
+                className="w-8 h-8 rounded-[6px] text-slate-400 hover:text-slate-700 hover:bg-slate-100 flex items-center justify-center cursor-pointer transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-5">
+              {bulkError && (
+                <div className="p-3 rounded-[6px] bg-rose-50 border border-rose-200 text-rose-800 text-xs font-medium flex items-center gap-2">
+                  <svg className="w-4 h-4 text-rose-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                  <span>{bulkError}</span>
                 </div>
               )}
-            </form>
 
-            {/* Modal Footer Actions */}
-            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between shrink-0">
-              <div className="text-xs text-slate-400">
-                {hasVariations ? `${variants.length} variant combinations defined` : `Total stock: ${simpleTotalStock} units`}
+              {/* Step 1: Download Sample Excel Template */}
+              <div className="p-4 rounded-[8px] bg-purple-50/60 border border-purple-200/80 flex items-center justify-between gap-3">
+                <div>
+                  <h4 className="text-xs font-bold text-[#5e2b9d] mb-0.5">
+                    Download Master Products Sample Template
+                  </h4>
+                  <p className="text-[11px] text-slate-600">
+                    Includes 80 complete dummy master products (Simple & Variations) with default image testing.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={download80MasterProductsSampleExcel}
+                  className="h-[32px] px-3.5 rounded-[5px] bg-[#5e2b9d] hover:bg-[#4e2284] text-white text-xs font-semibold shrink-0 cursor-pointer shadow-xs inline-flex items-center gap-1.5"
+                >
+                  <svg className="w-3.5 h-3.5 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  <span>Download Template</span>
+                </button>
               </div>
+
+              {/* Step 2: Choose Excel File */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Choose Excel File (.xlsx, .xls, .csv)
+                </label>
+                <div className="border-2 border-dashed border-slate-200 hover:border-[#5e2b9d] rounded-[8px] p-6 text-center transition-colors bg-slate-50/50 flex flex-col items-center justify-center">
+                  <svg className="w-10 h-10 text-emerald-600 mx-auto mb-2 stroke-[1.5]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+
+                  {bulkFile ? (
+                    <div>
+                      <div className="text-xs font-bold text-slate-800 mb-1">
+                        {bulkFile.name}
+                      </div>
+                      <div className="text-[11px] text-emerald-700 font-semibold mb-2">
+                        ✓ {bulkParsedRows.length} rows loaded and ready to import!
+                      </div>
+                      <label className="text-[11px] text-[#5e2b9d] hover:underline cursor-pointer font-medium">
+                        Change File
+                        <input
+                          type="file"
+                          accept=".xlsx, .xls, .csv"
+                          onChange={handleBulkFileChange}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="cursor-pointer text-xs font-semibold text-[#5e2b9d] hover:underline block mb-1">
+                        Click to select an Excel spreadsheet
+                        <input
+                          type="file"
+                          accept=".xlsx, .xls, .csv"
+                          onChange={handleBulkFileChange}
+                          className="hidden"
+                        />
+                      </label>
+                      <span className="text-[11px] text-slate-400">
+                        Drop file here or browse from computer
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Default Image Rule Notice */}
+              <div className="p-3 rounded-[6px] bg-slate-50 border border-slate-200 text-slate-600 text-xs flex items-start gap-2">
+                <svg className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span>
+                  <strong>Default Image Notice:</strong> Any product row without an Image URL will automatically receive a high-resolution default product image placeholder in your catalog.
+                </span>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
+              <span className="text-xs text-slate-500 font-medium">
+                {bulkParsedRows.length > 0 && `${bulkParsedRows.length} rows selected`}
+              </span>
 
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  disabled={submitting}
-                  onClick={() => setIsFormModalOpen(false)}
-                  className="h-[34px] px-4 rounded-[6px] border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 text-xs font-medium cursor-pointer transition-colors disabled:opacity-50"
+                  disabled={bulkUploading}
+                  onClick={() => setIsBulkModalOpen(false)}
+                  className="h-[34px] px-3.5 rounded-[6px] border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 text-xs font-medium cursor-pointer transition-colors disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
-                  type="submit"
-                  form="product-form"
-                  disabled={submitting}
-                  className="h-[34px] px-5 rounded-[6px] bg-[#5e2b9d] hover:bg-[#4e2284] text-white text-xs font-semibold shadow-xs cursor-pointer transition-colors disabled:opacity-50 inline-flex items-center gap-2"
+                  type="button"
+                  disabled={bulkUploading || bulkParsedRows.length === 0}
+                  onClick={handleExecuteBulkUpload}
+                  className="h-[34px] px-4.5 rounded-[6px] bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs cursor-pointer transition-colors disabled:opacity-50 inline-flex items-center gap-1.5"
                 >
-                  {submitting && (
+                  {bulkUploading && (
                     <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                   )}
-                  <span>
-                    {submitting
-                      ? "Saving Product..."
-                      : formMode === "edit"
-                      ? "Update Product"
-                      : "Save Product"}
-                  </span>
+                  <span>{bulkUploading ? bulkProgress || "Importing..." : "Upload Products"}</span>
                 </button>
               </div>
             </div>

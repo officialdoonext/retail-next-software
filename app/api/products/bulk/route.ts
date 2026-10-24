@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
 import { getBusinessContext } from "@/lib/supabaseDb";
 
-const DEFAULT_PRODUCT_IMAGE = "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=300&q=80";
+// Default product image when no image is provided in the Excel sheet
+const DEFAULT_PRODUCT_IMAGE = "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&auto=format&fit=crop&q=80";
 
-function generate12DigitBarcode(): string {
-  return Math.floor(100000000000 + Math.random() * 900000000000).toString();
+function generate13DigitNumericBarcode(): string {
+  const prefix = "890";
+  const middle = Math.floor(100000000 + Math.random() * 900000000).toString();
+  const suffix = Math.floor(10 + Math.random() * 90).toString();
+  return `${prefix}${middle}${suffix}`;
 }
 
 export async function POST(request: Request) {
@@ -46,7 +50,6 @@ export async function POST(request: Request) {
       }
     });
 
-    let createdCategoriesCount = 0;
     for (const catName of newCategoriesToCreate) {
       const { data: newCat } = await ctx.supabase
         .from("categories")
@@ -63,7 +66,6 @@ export async function POST(request: Request) {
 
       if (newCat) {
         categoryMap.set(catName.toLowerCase(), newCat.id);
-        createdCategoriesCount++;
       }
     }
 
@@ -80,28 +82,16 @@ export async function POST(request: Request) {
 
     const newVariationsToCreate = new Set<string>();
     rawProducts.forEach((p) => {
-      const candidates = [
-        p.variationType,
-        p["Variation Type"],
-        p.variation,
-        p["Variation"],
-        p.variationName,
-        p["Variation Name"],
-        p["Variation 1 (Color)"] ? "Color" : null,
-        p["Variation 1"] ? "Color" : null,
-        p["Variation 2 (Size)"] ? "Size" : null,
-        p["Variation 2"] ? "Size" : null,
-      ];
-      candidates.forEach((c) => {
-        if (!c) return;
-        const vType = String(c).trim();
-        if (vType && !variationSet.has(vType.toLowerCase())) {
-          newVariationsToCreate.add(vType);
-        }
-      });
+      const v1 = p["Variation 1 Name"] || p.variation1Name || p.variationType || p["Variation Type"];
+      const v2 = p["Variation 2 Name"] || p.variation2Name;
+      if (v1 && !variationSet.has(String(v1).trim().toLowerCase())) {
+        newVariationsToCreate.add(String(v1).trim());
+      }
+      if (v2 && !variationSet.has(String(v2).trim().toLowerCase())) {
+        newVariationsToCreate.add(String(v2).trim());
+      }
     });
 
-    let createdVariationsCount = 0;
     for (const varName of newVariationsToCreate) {
       const { data: newV } = await ctx.supabase
         .from("variations")
@@ -119,7 +109,6 @@ export async function POST(request: Request) {
 
       if (newV) {
         variationSet.add(varName.toLowerCase());
-        createdVariationsCount++;
       }
     }
 
@@ -127,74 +116,63 @@ export async function POST(request: Request) {
     interface NormalizedItem {
       name: string;
       catName: string;
-      subCategory: string;
-      price: number;
+      productType: "Simple" | "Variation";
+      listPrice: number;
+      salesPrice: number;
       stock: number;
-      bufferStock: number;
+      shortCode: string;
+      sku: string;
       description: string;
       barcode: string;
       imageUrl: string;
-      variationType: string;
-      variationValue: string;
       attributes: Record<string, string>;
-      isDiscountAvailable?: boolean;
-      discountType?: "PERCENTAGE" | "RUPEES";
-      discountValue?: number;
     }
 
     const groupedProducts = new Map<string, NormalizedItem[]>();
 
-    rawProducts.forEach((p) => {
+    rawProducts.forEach((p, idx) => {
       const name = String(p.name || p["Product Name"] || "").trim();
       if (!name) return;
 
       const catName = String(p.category || p.Category || "Uncategorized").trim();
-      const subCategory = String(
-        p.subCategory ||
-        p["Sub Category"] ||
-        p["Subcategory"] ||
-        p["Sub-Category"] ||
-        ""
-      ).trim();
+      const rawProductType = String(p.productType || p["Product Type"] || "").trim().toLowerCase();
 
-      const price = Math.max(0, Number(p.price || p.Price) || 0);
+      const listPrice = Math.max(
+        0,
+        Number(p["List Price"] || p.listPrice || p["MRP"] || p.mrp || p["Sales Price"] || p.salesPrice || p.price || p.Price) || 0
+      );
+      const salesPrice = Math.max(
+        0,
+        Number(p["Sales Price"] || p.salesPrice || p.price || p.Price || p["List Price"] || p.listPrice) || 0
+      );
       const stock = Math.max(0, Number(p.stock || p.Stock) || 0);
-      const bufferStock = Math.max(0, Number(p.bufferStock || p["Buffer Stock"]) || 0);
+      const shortCode = String(p.shortCode || p.Shortcode || p["Short Code"] || "").trim();
+      const sku = String(p.sku || p.SKU || `SKU-${Date.now().toString().slice(-6)}-${idx + 1}`).trim();
       const description = String(p.description || p.Description || "").trim();
-      const barcode = String(p.barcode || p.Barcode || "").trim();
-      const imageUrl = String(p.imageUrl || p["Image URL"] || "").trim();
 
-      const var1Color = String(p["Variation 1 (Color)"] || p["Variation 1"] || p["Color"] || "").trim();
-      const var2Size = String(p["Variation 2 (Size)"] || p["Variation 2"] || p["Size"] || "").trim();
-
-      let variationType = String(p.variationType || p["Variation Type"] || p.variation || p["Variation"] || "").trim();
-      let variationValue = String(p.variationValue || p["Variation Value"] || p.value || p["Value"] || "").trim();
-
-      const attributes: Record<string, string> = {};
-
-      if (var1Color || var2Size) {
-        if (var1Color) attributes["Color"] = var1Color;
-        if (var2Size) attributes["Size"] = var2Size;
-
-        if (var1Color && var2Size) {
-          variationType = "Color / Size";
-          variationValue = `${var1Color} / ${var2Size}`;
-        } else if (var1Color) {
-          variationType = "Color";
-          variationValue = var1Color;
-        } else if (var2Size) {
-          variationType = "Size";
-          variationValue = var2Size;
-        }
-      } else if (variationType && variationValue) {
-        attributes[variationType] = variationValue;
+      // Clean numeric only barcode
+      let barcode = String(p.barcode || p.Barcode || "").replace(/\D/g, "");
+      if (!barcode) {
+        barcode = generate13DigitNumericBarcode();
       }
 
-      const rawDiscAvail = String(p.isDiscountAvailable ?? p["Discount Available"] ?? p.discountAvailable ?? "").trim().toLowerCase();
-      const isDiscountAvailable = rawDiscAvail === "yes" || rawDiscAvail === "true" || rawDiscAvail === "1";
-      const rawDiscType = String(p.discountType ?? p["Discount Type"] ?? "").trim().toLowerCase();
-      const discountType = rawDiscType.includes("rupee") || rawDiscType.includes("₹") ? "RUPEES" : "PERCENTAGE";
-      const discountValue = Math.max(0, Number(p.discountValue ?? p["Discount Value"]) || 0);
+      // Default Image fallback rule: if no image provided, assign DEFAULT_PRODUCT_IMAGE
+      const rawImage = String(p.imageUrl || p["Image URL"] || "").trim();
+      const imageUrl = rawImage || DEFAULT_PRODUCT_IMAGE;
+
+      // Extract variation attributes
+      const attributes: Record<string, string> = {};
+      const v1Name = String(p["Variation 1 Name"] || p.variation1Name || p["Variation 1 (Color)"] || p["Variation Type"] || "").trim();
+      const v1Val = String(p["Variation 1 Value"] || p.variation1Value || p["Color"] || p["Variation Value"] || "").trim();
+      const v2Name = String(p["Variation 2 Name"] || p.variation2Name || p["Variation 2 (Size)"] || "").trim();
+      const v2Val = String(p["Variation 2 Value"] || p.variation2Value || p["Size"] || "").trim();
+
+      if (v1Name && v1Val) attributes[v1Name] = v1Val;
+      if (v2Name && v2Val) attributes[v2Name] = v2Val;
+
+      const hasVarAttrs = Object.keys(attributes).length > 0;
+      const isVariation = rawProductType === "variation" || hasVarAttrs;
+      const productType: "Simple" | "Variation" = isVariation ? "Variation" : "Simple";
 
       const key = `${name.toLowerCase()}:::${catName.toLowerCase()}`;
       if (!groupedProducts.has(key)) {
@@ -203,19 +181,16 @@ export async function POST(request: Request) {
       groupedProducts.get(key)!.push({
         name,
         catName,
-        subCategory,
-        price,
+        productType,
+        listPrice,
+        salesPrice,
         stock,
-        bufferStock,
+        shortCode,
+        sku,
         description,
         barcode,
         imageUrl,
-        variationType,
-        variationValue,
         attributes,
-        isDiscountAvailable,
-        discountType,
-        discountValue,
       });
     });
 
@@ -227,25 +202,23 @@ export async function POST(request: Request) {
       productIndex++;
       const first = items[0];
       const categoryId = categoryMap.get(first.catName.toLowerCase()) || null;
-      const baseSku = `SKU-${Date.now().toString().slice(-5)}-${productIndex}`;
+      const baseSku = first.sku || `SKU-${Date.now().toString().slice(-5)}-${productIndex}`;
       const imageUrl = first.imageUrl || DEFAULT_PRODUCT_IMAGE;
 
-      const hasVariations = items.length > 1 || items.some((it) => it.variationValue !== "");
+      const hasVariations = items.length > 1 || first.productType === "Variation";
 
       if (hasVariations) {
+        // Collect variation attribute names
         const attrKeys = new Set<string>();
         items.forEach((it) => {
           Object.keys(it.attributes).forEach((k) => attrKeys.add(k));
-          if (it.variationType && !it.variationType.includes("/")) {
-            attrKeys.add(it.variationType);
-          }
         });
         const variationTypes = attrKeys.size > 0 ? Array.from(attrKeys) : ["Option"];
 
         const variants = items.map((it, vIdx) => {
-          const vBarcode = it.barcode || generate12DigitBarcode();
+          const vBarcode = it.barcode || generate13DigitNumericBarcode();
           const vSku = `${baseSku}-${vIdx + 1}`;
-          const variantName = it.variationValue || `Option ${vIdx + 1}`;
+          const variantName = Object.values(it.attributes).join(" / ") || `Variant ${vIdx + 1}`;
 
           return {
             id: `var-${Date.now()}-${productIndex}-${vIdx + 1}`,
@@ -254,20 +227,23 @@ export async function POST(request: Request) {
               Object.keys(it.attributes).length > 0
                 ? it.attributes
                 : { [variationTypes[0]]: variantName },
-            price: it.price,
-            stock: it.stock,
-            bufferStock: it.bufferStock,
-            barcode: vBarcode,
+            shortCode: it.shortCode,
             sku: vSku,
-            isDiscountAvailable: it.isDiscountAvailable,
-            discountType: it.discountType,
-            discountValue: it.discountValue,
+            barcode: vBarcode,
+            listPrice: it.listPrice,
+            salesPrice: it.salesPrice,
+            price: it.salesPrice,
+            mrp: it.listPrice,
+            stock: it.stock,
+            locationStocks: { stores: [], warehouses: [] },
           };
         });
 
         const totalStock = variants.reduce((sum, v) => sum + v.stock, 0);
-        const prices = variants.map((v) => v.price);
-        const minPrice = Math.min(...prices);
+        const salesPrices = variants.map((v) => v.salesPrice);
+        const listPrices = variants.map((v) => v.listPrice);
+        const minSalesPrice = Math.min(...salesPrices);
+        const minListPrice = Math.min(...listPrices);
 
         productRows.push({
           business_id: ctx.businessId,
@@ -275,54 +251,53 @@ export async function POST(request: Request) {
           name: first.name,
           category_id: categoryId,
           category_name: first.catName,
-          price: minPrice,
+          price: minSalesPrice,
+          mrp: minListPrice,
           stock: totalStock,
-          min_stock: variants[0]?.bufferStock || 0,
-          barcode: variants[0]?.barcode || generate12DigitBarcode(),
+          barcode: variants[0]?.barcode || generate13DigitNumericBarcode(),
           sku: baseSku,
           images: [imageUrl],
           has_variations: true,
           variation_options: {
-            subCategory: first.subCategory || "",
             description: first.description,
+            shortCode: first.shortCode,
             imageUrl,
             hasVariations: true,
             variationTypes,
             variants,
             totalStock,
-            minPrice,
-            isDiscountAvailable: first.isDiscountAvailable,
-            discountType: first.discountType,
-            discountValue: first.discountValue,
+            minPrice: minSalesPrice,
+            listPrice: minListPrice,
+            salesPrice: minSalesPrice,
           },
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         });
       } else {
-        const barcode = first.barcode || generate12DigitBarcode();
+        const barcode = first.barcode || generate13DigitNumericBarcode();
         productRows.push({
           business_id: ctx.businessId,
           store_id: ctx.storeId || null,
           name: first.name,
           category_id: categoryId,
           category_name: first.catName,
-          price: first.price,
+          price: first.salesPrice,
+          mrp: first.listPrice,
           stock: first.stock,
-          min_stock: first.bufferStock,
           barcode,
           sku: baseSku,
           images: [imageUrl],
           has_variations: false,
           variation_options: {
-            subCategory: first.subCategory || "",
             description: first.description,
+            shortCode: first.shortCode,
             imageUrl,
             hasVariations: false,
             totalStock: first.stock,
-            minPrice: first.price,
-            isDiscountAvailable: first.isDiscountAvailable,
-            discountType: first.discountType,
-            discountValue: first.discountValue,
+            minPrice: first.salesPrice,
+            listPrice: first.listPrice,
+            salesPrice: first.salesPrice,
+            locationStocks: { stores: [], warehouses: [] },
           },
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
@@ -330,8 +305,8 @@ export async function POST(request: Request) {
       }
     }
 
-    // 5. Insert rows in Supabase in chunks of 100
-    const chunkSize = 100;
+    // 5. Insert rows in Supabase in chunks of 50
+    const chunkSize = 50;
     let savedCount = 0;
 
     for (let i = 0; i < productRows.length; i += chunkSize) {
@@ -347,26 +322,16 @@ export async function POST(request: Request) {
       }
     }
 
-    let message = `Successfully uploaded ${savedCount} products.`;
-    if (createdCategoriesCount > 0 && createdVariationsCount > 0) {
-      message = `Successfully uploaded ${savedCount} products. Created ${createdCategoriesCount} new categories and ${createdVariationsCount} new variations.`;
-    } else if (createdCategoriesCount > 0) {
-      message = `Successfully uploaded ${savedCount} products and created ${createdCategoriesCount} new categories.`;
-    } else if (createdVariationsCount > 0) {
-      message = `Successfully uploaded ${savedCount} products and created ${createdVariationsCount} new variations.`;
-    }
-
     return NextResponse.json({
       success: true,
-      count: savedCount,
-      createdCategories: createdCategoriesCount,
-      createdVariations: createdVariationsCount,
-      message,
+      message: `Successfully imported ${savedCount} master products into your catalog!`,
+      importedCount: savedCount,
+      totalRows: rawProducts.length,
     });
-  } catch (error) {
-    console.error("Bulk product upload error:", error);
+  } catch (error: any) {
+    console.error("Bulk upload error:", error);
     return NextResponse.json(
-      { success: false, error: "Failed to perform bulk products upload." },
+      { success: false, error: error?.message || "Failed to process bulk upload." },
       { status: 500 }
     );
   }
