@@ -103,26 +103,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: insertErr.message }, { status: 500 });
     }
 
-    // Automatically create a default store for this new business with status Inactive & expires null
-    try {
-      await supabaseAdmin.from("stores").insert([
-        {
-          business_id: createdBus.id,
-          name: `${name} Main Branch`,
-          code: `RET-${Math.floor(1000 + Math.random() * 9000)}`,
-          phone: mobileNumber || "Not Provided",
-          mobile_number: mobileNumber || "Not Provided",
-          city: city || "",
-          full_address: fullAddress || "",
-          status: "Inactive",
-          expires: null,
-          created_at: new Date().toISOString(),
-        },
-      ]);
-    } catch (storeErr) {
-      console.warn("Could not create initial store for new business:", storeErr);
-    }
-
     return NextResponse.json({
       success: true,
       message: "Business created with Inactive status and pending expiry approval.",

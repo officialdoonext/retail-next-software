@@ -79,6 +79,24 @@ CREATE TABLE IF NOT EXISTS public.variations (
 
 CREATE INDEX IF NOT EXISTS idx_variations_business ON public.variations(business_id);
 
+-- 4b. WAREHOUSES TABLE (Central storage facilities & distribution depots)
+CREATE TABLE IF NOT EXISTS public.warehouses (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  business_id UUID NOT NULL REFERENCES public.businesses(id) ON DELETE CASCADE,
+  store_id UUID REFERENCES public.stores(id) ON DELETE SET NULL,
+  name TEXT NOT NULL,
+  mobile_number TEXT,
+  phone TEXT,
+  city TEXT,
+  address TEXT,
+  full_address TEXT,
+  status TEXT NOT NULL DEFAULT 'Active' CHECK (status IN ('Active', 'Inactive')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_warehouses_business ON public.warehouses(business_id);
+
 -- 5. PRODUCTS TABLE
 CREATE TABLE IF NOT EXISTS public.products (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -391,6 +409,7 @@ ALTER TABLE public.employee_repayments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.employee_payroll ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.store_holidays ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.godowns ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.warehouses ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.racks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.serial_numbers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.saved_bills ENABLE ROW LEVEL SECURITY;

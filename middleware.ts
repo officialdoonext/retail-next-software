@@ -145,6 +145,7 @@ export async function middleware(request: NextRequest) {
         "/barcode": "product-manager",
         "/returns": "return-exchange-manager",
         "/stock": "stock-manager",
+        "/warehouse": "stock-manager",
         "/inventory": "stock-manager",
         "/stock-analysis": "stock-manager",
         "/utilities": "stock-manager",

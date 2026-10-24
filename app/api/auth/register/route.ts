@@ -107,25 +107,7 @@ export async function POST(request: Request) {
 
     const businessId = insertedBusiness.id;
 
-    // 4. Create initial default primary store for this business with status Inactive & expiry null
-    try {
-      await supabaseAdmin.from("stores").insert([
-        {
-          business_id: businessId,
-          name: `${businessName} Main Branch`,
-          code: `RET-${Math.floor(1000 + Math.random() * 9000)}`,
-          phone: mobileNumber,
-          mobile_number: mobileNumber,
-          status: "Inactive",
-          expires: null,
-          created_at: new Date().toISOString(),
-        },
-      ]);
-    } catch (storeErr) {
-      console.warn("Could not insert initial store:", storeErr);
-    }
-
-    // 5. Issue signed session token for the user
+    // 4. Issue signed session token for the user
     // Since status is "Inactive" and expiryDate is null, isAllowed is strictly FALSE!
     const token = await createSessionToken({
       userId: authUserId || undefined,
