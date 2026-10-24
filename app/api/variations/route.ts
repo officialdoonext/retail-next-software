@@ -1,104 +1,57 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { verifySessionToken, AUTH_COOKIE_NAME, ACTIVE_STORE_COOKIE } from "@/lib/auth";
-import { db } from "@/lib/firebase";
-import { collection, query, where, getDocs, addDoc, deleteDoc, doc, getDoc, updateDoc } from "firebase/firestore";
+import { getBusinessContext } from "@/lib/supabaseDb";
 
-async function getStoreContext() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
-  let storeId = cookieStore.get(ACTIVE_STORE_COOKIE)?.value;
-
-  if (!token) return null;
-
-  const session = await verifySessionToken(token);
-  if (!session) return null;
-
-  // Fallback to user's first store if cookie is not set
-  if (!storeId && session.email) {
-    const storesRef = collection(db, "stores");
-    const q = query(storesRef, where("ownerEmail", "==", session.email));
-    const snap = await getDocs(q);
-    if (!snap.empty) {
-      storeId = snap.docs[0].id;
-    }
-  }
-
-  if (!storeId) return null;
-
-  return { session, storeId };
-}
-
-// GET: Fetch variations strictly for the active store
+// GET: Fetch variations strictly for the active business & store
 export async function GET() {
   try {
-    const ctx = await getStoreContext();
+    const ctx = await getBusinessContext();
     if (!ctx) {
-      return NextResponse.json({ success: false, error: "Unauthorized or no active store selected." }, { status: 401 });
+      return NextResponse.json({ success: false, error: "Unauthorized or no active business." }, { status: 401 });
     }
 
-    const variationsRef = collection(db, "variations");
-    const q = query(variationsRef, where("storeId", "==", ctx.storeId));
-    const snap = await getDocs(q);
+    let query = ctx.supabase
+      .from("variations")
+      .select("*")
+      .eq("business_id", ctx.businessId);
 
-    const variations = snap.docs.map((docSnap) => ({
-      id: docSnap.id,
-      ...docSnap.data(),
-    }));
+    if (ctx.storeId) {
+      query = query.or(`store_id.eq.${ctx.storeId},store_id.is.null`);
+    }
 
-    return NextResponse.json({ success: true, variations });
-  } catch (error) {
+    const { data: variations, error } = await query.order("name", { ascending: true });
+
+    if (error) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({
+      success: true,
+      variations: (variations || []).map((v: any) => ({
+        id: v.id,
+        name: v.name,
+        values: v.values || [],
+        storeId: v.store_id,
+        businessId: v.business_id,
+        createdAt: v.created_at,
+      })),
+    });
+  } catch (error: any) {
     console.error("Error fetching variations:", error);
     return NextResponse.json({ success: false, error: "Failed to fetch variations." }, { status: 500 });
   }
 }
 
-// PUT: Update variation name
-export async function PUT(request: Request) {
-  try {
-    const ctx = await getStoreContext();
-    if (!ctx) {
-      return NextResponse.json({ success: false, error: "Unauthorized." }, { status: 401 });
-    }
-
-    const body = await request.json();
-    const id = String(body.id || "").trim();
-    const name = String(body.name || "").trim();
-
-    if (!id || !name) {
-      return NextResponse.json({ success: false, error: "Variation ID and name are required." }, { status: 400 });
-    }
-
-    const varDocRef = doc(db, "variations", id);
-    const snap = await getDoc(varDocRef);
-
-    if (!snap.exists()) {
-      return NextResponse.json({ success: false, error: "Variation not found." }, { status: 404 });
-    }
-
-    if (snap.data().storeId !== ctx.storeId) {
-      return NextResponse.json({ success: false, error: "Access denied." }, { status: 403 });
-    }
-
-    await updateDoc(varDocRef, { name, updatedAt: Date.now() });
-
-    return NextResponse.json({ success: true, variation: { id, ...snap.data(), name } });
-  } catch (error) {
-    console.error("Error updating variation:", error);
-    return NextResponse.json({ success: false, error: "Failed to update variation." }, { status: 500 });
-  }
-}
-
-// POST: Add new variation for the active store
+// POST: Add new variation for the active business & store
 export async function POST(request: Request) {
   try {
-    const ctx = await getStoreContext();
+    const ctx = await getBusinessContext();
     if (!ctx) {
-      return NextResponse.json({ success: false, error: "Unauthorized or no active store selected." }, { status: 401 });
+      return NextResponse.json({ success: false, error: "Unauthorized or no active business." }, { status: 401 });
     }
 
     const body = await request.json();
     const name = String(body.name || "").trim();
+    const values = Array.isArray(body.values) ? body.values : [];
 
     if (!name) {
       return NextResponse.json({ success: false, error: "Variation name is required." }, { status: 400 });
@@ -106,30 +59,81 @@ export async function POST(request: Request) {
 
     const variationData = {
       name,
-      storeId: ctx.storeId,
-      createdBy: ctx.session.email,
-      createdAt: Date.now(),
+      values,
+      business_id: ctx.businessId,
+      store_id: ctx.storeId || null,
+      created_at: new Date().toISOString(),
     };
 
-    const docRef = await addDoc(collection(db, "variations"), variationData);
+    const { data: newVar, error } = await ctx.supabase
+      .from("variations")
+      .insert([variationData])
+      .select()
+      .single();
+
+    if (error) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    }
 
     return NextResponse.json({
       success: true,
       variation: {
-        id: docRef.id,
-        ...variationData,
+        id: newVar.id,
+        name: newVar.name,
+        values: newVar.values,
+        storeId: newVar.store_id,
+        businessId: newVar.business_id,
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error creating variation:", error);
     return NextResponse.json({ success: false, error: "Failed to create variation." }, { status: 500 });
   }
 }
 
-// DELETE: Delete a variation belonging to active store
+// PUT: Update variation name & values
+export async function PUT(request: Request) {
+  try {
+    const ctx = await getBusinessContext();
+    if (!ctx) {
+      return NextResponse.json({ success: false, error: "Unauthorized." }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const id = String(body.id || "").trim();
+    const name = String(body.name || "").trim();
+    const values = Array.isArray(body.values) ? body.values : undefined;
+
+    if (!id || !name) {
+      return NextResponse.json({ success: false, error: "Variation ID and name are required." }, { status: 400 });
+    }
+
+    const updatePayload: any = { name };
+    if (values !== undefined) updatePayload.values = values;
+
+    const { data: updatedVar, error } = await ctx.supabase
+      .from("variations")
+      .update(updatePayload)
+      .eq("id", id)
+      .eq("business_id", ctx.businessId)
+      .select()
+      .single();
+
+    if (error || !updatedVar) {
+      return NextResponse.json({ success: false, error: "Failed to update variation or access denied." }, { status: 403 });
+    }
+
+    return NextResponse.json({ success: true, variation: updatedVar });
+  } catch (error: any) {
+    console.error("Error updating variation:", error);
+    return NextResponse.json({ success: false, error: "Failed to update variation." }, { status: 500 });
+  }
+}
+
+// DELETE: Delete a variation belonging to active business
 export async function DELETE(request: Request) {
   try {
-    const ctx = await getStoreContext();
+    const ctx = await getBusinessContext();
     if (!ctx) {
       return NextResponse.json({ success: false, error: "Unauthorized." }, { status: 401 });
     }
@@ -141,21 +145,18 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ success: false, error: "Variation ID is required." }, { status: 400 });
     }
 
-    const varDocRef = doc(db, "variations", variationId);
-    const snap = await getDoc(varDocRef);
+    const { error } = await ctx.supabase
+      .from("variations")
+      .delete()
+      .eq("id", variationId)
+      .eq("business_id", ctx.businessId);
 
-    if (!snap.exists()) {
-      return NextResponse.json({ success: false, error: "Variation not found." }, { status: 404 });
+    if (error) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
     }
-
-    if (snap.data().storeId !== ctx.storeId) {
-      return NextResponse.json({ success: false, error: "Access denied to variation." }, { status: 403 });
-    }
-
-    await deleteDoc(varDocRef);
 
     return NextResponse.json({ success: true, message: "Variation deleted." });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error deleting variation:", error);
     return NextResponse.json({ success: false, error: "Failed to delete variation." }, { status: 500 });
   }

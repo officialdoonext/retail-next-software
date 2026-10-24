@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/firebase";
-import { collection, query, where, getDocs } from "firebase/firestore";
-import { createSessionToken, AUTH_COOKIE_NAME, ACTIVE_STORE_COOKIE } from "@/lib/auth";
+import { getSupabaseAdmin } from "@/lib/supabase";
+import { createSessionToken, AUTH_COOKIE_NAME, ACTIVE_STORE_COOKIE, ACTIVE_BUSINESS_COOKIE } from "@/lib/auth";
 
 export async function POST(request: Request) {
   try {
@@ -17,44 +16,32 @@ export async function POST(request: Request) {
       );
     }
 
-    const staffRef = collection(db, "staff");
-    const staffQuery = query(staffRef, where("mobile", "==", cleanMobile));
-    const snapshot = await getDocs(staffQuery);
+    const supabase = getSupabaseAdmin();
 
-    if (snapshot.empty) {
+    const { data: staffRecords, error } = await supabase
+      .from("staff")
+      .select("*")
+      .eq("mobile", cleanMobile)
+      .eq("status", "Active");
+
+    if (error || !staffRecords || staffRecords.length === 0) {
       return NextResponse.json(
         {
           success: false,
-          error: "No staff member found registered with this mobile number across any store.",
+          error: "No active staff member found registered with this mobile number.",
         },
         { status: 404 }
       );
     }
 
-    // Filter active staff records
-    const activeStaffDocs = snapshot.docs.filter((d) => {
-      const data = d.data();
-      return !data.status || data.status === "Active";
-    });
-
-    if (activeStaffDocs.length === 0) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Your staff account is currently inactive. Please contact your store administrator.",
-        },
-        { status: 403 }
-      );
-    }
-
-    // ACTION 1: Check if mobile number exists
+    // ACTION 1: Check mobile
     if (action === "check-mobile") {
-      const firstActive = activeStaffDocs[0].data();
+      const firstActive = staffRecords[0];
       return NextResponse.json({
         success: true,
         exists: true,
         staffName: firstActive.name || "Staff Member",
-        storeCount: activeStaffDocs.length,
+        storeCount: staffRecords.length,
       });
     }
 
@@ -62,27 +49,21 @@ export async function POST(request: Request) {
     if (action === "verify-mpin") {
       const enteredMpin = String(body.mpin || "").trim();
       if (!enteredMpin) {
-        return NextResponse.json(
-          { success: false, error: "Please enter your Security MPIN." },
-          { status: 400 }
-        );
+        return NextResponse.json({ success: false, error: "Please enter your Security MPIN." }, { status: 400 });
       }
 
-      // Check if any active staff record for this mobile matches the MPIN
-      const matchedDoc = activeStaffDocs.find((d) => {
-        const data = d.data();
-        return String(data.mpin || "").trim() === enteredMpin;
-      });
+      const matchedStaff = staffRecords.find(
+        (s: any) => String(s.mpin || "").trim() === enteredMpin
+      );
 
-      if (!matchedDoc) {
+      if (!matchedStaff) {
         return NextResponse.json(
           { success: false, error: "Incorrect Security MPIN. Please try again." },
           { status: 401 }
         );
       }
 
-      const staffData = matchedDoc.data();
-      const staffName = staffData.name || "Staff Member";
+      const staffName = matchedStaff.name || "Staff Member";
 
       // Issue authenticated JWT session token for Staff
       const sessionToken = await createSessionToken({
@@ -90,6 +71,10 @@ export async function POST(request: Request) {
         role: "Staff",
         mobile: cleanMobile,
         staffName: staffName,
+        staffId: matchedStaff.id,
+        businessId: matchedStaff.business_id,
+        storeId: matchedStaff.store_id || undefined,
+        access: Array.isArray(matchedStaff.access) ? matchedStaff.access : [],
         createdAt: Date.now(),
       });
 
@@ -111,7 +96,19 @@ export async function POST(request: Request) {
         maxAge: 7 * 24 * 60 * 60,
       });
 
-      // Clear any prior active_store_id cookie to force store selection on onboarding
+      if (matchedStaff.business_id) {
+        response.cookies.set({
+          name: ACTIVE_BUSINESS_COOKIE,
+          value: matchedStaff.business_id,
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
+          path: "/",
+          maxAge: 7 * 24 * 60 * 60,
+        });
+      }
+
+      // Clear active_store_id to allow branch selection
       response.cookies.set({
         name: ACTIVE_STORE_COOKIE,
         value: "",

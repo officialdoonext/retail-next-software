@@ -3,11 +3,12 @@ import { cookies } from "next/headers";
 import {
   verifySessionToken,
   createSessionToken,
+  isBusinessAllowed,
   AUTH_COOKIE_NAME,
   ACTIVE_STORE_COOKIE,
+  ACTIVE_BUSINESS_COOKIE,
 } from "@/lib/auth";
-import { db } from "@/lib/firebase";
-import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
+import { getSupabaseAdmin } from "@/lib/supabase";
 
 export async function POST(request: Request) {
   try {
@@ -18,7 +19,7 @@ export async function POST(request: Request) {
     }
 
     const session = await verifySessionToken(token);
-    if (!session) {
+    if (!session || !session.email) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }
 
@@ -27,146 +28,69 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: "Store ID is required." }, { status: 400 });
     }
 
-    const storeDoc = await getDoc(doc(db, "stores", storeId));
-    if (!storeDoc.exists()) {
+    const supabase = getSupabaseAdmin();
+
+    // 1. Fetch store from Supabase
+    const { data: store, error: storeErr } = await supabase
+      .from("stores")
+      .select("*")
+      .eq("id", storeId)
+      .single();
+
+    if (storeErr || !store) {
       return NextResponse.json({ success: false, error: "Store not found." }, { status: 404 });
     }
 
-    const store = storeDoc.data();
+    // 2. Fetch business
+    const { data: business, error: busErr } = await supabase
+      .from("businesses")
+      .select("*")
+      .eq("id", store.business_id)
+      .single();
 
-    let staffDocData: any = null;
-    let staffDocId: string | null = null;
+    if (busErr || !business) {
+      return NextResponse.json({ success: false, error: "Business record not found." }, { status: 404 });
+    }
+
     let allowedAccess: string[] = [];
 
     if (session.role === "Staff") {
-      // Staff validation: verify staff is registered and active for this specific store
       const cleanMobile = String(session.mobile || "").replace(/\D/g, "");
-      const staffRef = collection(db, "staff");
-      const staffQ = query(
-        staffRef,
-        where("storeId", "==", storeId),
-        where("mobile", "==", cleanMobile)
-      );
-      const staffSnap = await getDocs(staffQ);
+      const { data: staffList } = await supabase
+        .from("staff")
+        .select("*")
+        .eq("store_id", storeId)
+        .eq("mobile", cleanMobile)
+        .eq("status", "Active");
 
-      if (staffSnap.empty) {
+      if (!staffList || staffList.length === 0) {
         return NextResponse.json(
-          { success: false, error: "Access denied. You are not registered as staff for this store." },
+          { success: false, error: "Access denied. You are not active staff for this store." },
           { status: 403 }
         );
       }
 
-      const activeRecord = staffSnap.docs.find(
-        (d) => !d.data().status || d.data().status === "Active"
-      );
-      if (!activeRecord) {
-        return NextResponse.json(
-          { success: false, error: "Your staff account for this store is currently inactive." },
-          { status: 403 }
-        );
-      }
-
-      staffDocData = activeRecord.data();
-      staffDocId = activeRecord.id;
-      allowedAccess = Array.isArray(staffDocData.access) ? staffDocData.access : [];
-
-      if (allowedAccess.length === 0) {
-        return NextResponse.json(
-          {
-            success: false,
-            error:
-              "No permissions have been granted to your staff account for this store. Please contact your store manager.",
-          },
-          { status: 403 }
-        );
-      }
+      const staff = staffList[0];
+      allowedAccess = Array.isArray(staff.access) ? staff.access : [];
     } else {
-      // Admin validation: verify account plan is Active and not expired
-      const userDocRef = doc(db, "users", session.email.toLowerCase().replace(/[^a-zA-Z0-9_]/g, "_"));
-      const userSnap = await getDoc(userDocRef);
-      if (!userSnap.exists()) {
-        return NextResponse.json(
-          { success: false, error: "Administrator account record not found." },
-          { status: 403 }
-        );
-      }
-
-      const userData = userSnap.data();
-      const isPlanActive = userData.status?.toLowerCase() === "active";
-      let userExpiry: number | null = null;
-      if (typeof userData.expiryDate === "string" || typeof userData.expiryDate === "number") {
-        const t = new Date(userData.expiryDate).getTime();
-        if (!isNaN(t)) userExpiry = t;
-      } else if (typeof userData.expiryDate === "object" && userData.expiryDate !== null) {
-        if (typeof userData.expiryDate.toDate === "function") {
-          userExpiry = userData.expiryDate.toDate().getTime();
-        } else if ("seconds" in userData.expiryDate) {
-          userExpiry = userData.expiryDate.seconds * 1000;
-        }
-      }
-
-      if (!isPlanActive || !userExpiry || userExpiry <= Date.now()) {
-        return NextResponse.json(
-          {
-            success: false,
-            error:
-              "Your administrator account plan is inactive or expired. Please contact the system administrator to activate your plan.",
-          },
-          { status: 403 }
-        );
-      }
-
-      // Verify store ownership
-      if (store.ownerEmail !== session.email) {
+      // Admin: verify business ownership
+      if (business.email?.toLowerCase() !== session.email.toLowerCase() && business.owner_id !== session.userId) {
         return NextResponse.json({ success: false, error: "Access denied." }, { status: 403 });
       }
-    }
 
-    // Strict validation: Must be Active
-    if (store.status !== "Active") {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Store is currently Inactive. Awaiting administrator activation.",
-        },
-        { status: 403 }
-      );
-    }
-
-    // Strict validation: Expiration date must be present and in the future
-    if (!store.expires) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Store has no valid activation expiry date. Awaiting administrator activation.",
-        },
-        { status: 403 }
-      );
-    }
-
-    let expiryTime: number | null = null;
-    if (typeof store.expires === "string" || typeof store.expires === "number") {
-      const parsed = new Date(store.expires).getTime();
-      if (!isNaN(parsed)) expiryTime = parsed;
-    } else if (typeof store.expires === "object" && store.expires !== null) {
-      if (typeof store.expires.toDate === "function") {
-        expiryTime = store.expires.toDate().getTime();
-      } else if ("seconds" in store.expires) {
-        expiryTime = store.expires.seconds * 1000;
+      // Check business status and expiry
+      if (!isBusinessAllowed(business.status, business.expiry_date)) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "Your business subscription is inactive or expired. Please contact support.",
+          },
+          { status: 403 }
+        );
       }
     }
 
-    if (!expiryTime || expiryTime <= Date.now()) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Store subscription has expired. Please contact support to renew.",
-        },
-        { status: 403 }
-      );
-    }
-
-    // Determine the smart default landing route
+    // Determine default landing route
     let defaultRoute = "/dashboard";
     if (session.role === "Staff") {
       defaultRoute = allowedAccess.includes("/dashboard")
@@ -174,85 +98,57 @@ export async function POST(request: Request) {
         : allowedAccess[0] || "/pos";
     }
 
-    // Store is verified, active, and unexpired!
+    // Update JWT token with storeId and businessId
+    const updatedToken = await createSessionToken({
+      ...session,
+      businessId: business.id,
+      businessName: business.name,
+      storeId: store.id,
+      status: business.status,
+      expiryDate: business.expiry_date,
+      plan: business.plan,
+      createdAt: Date.now(),
+    });
+
     const response = NextResponse.json({
       success: true,
       store: {
-        id: storeDoc.id,
+        id: store.id,
         name: store.name,
         code: store.code,
+      },
+      business: {
+        id: business.id,
+        name: business.name,
       },
       defaultRoute,
       role: session.role,
       access: allowedAccess,
     });
 
-    // If staff, issue an updated JWT embedded with storeId, staffId, and access array
-    if (session.role === "Staff") {
-      const updatedStaffToken = await createSessionToken({
-        ...session,
-        storeId: storeDoc.id,
-        staffId: staffDocId || undefined,
-        staffName: staffDocData?.name || session.staffName,
-        access: allowedAccess,
-        createdAt: Date.now(),
-      });
+    response.cookies.set({
+      name: AUTH_COOKIE_NAME,
+      value: updatedToken,
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 7 * 24 * 60 * 60,
+    });
 
-      response.cookies.set({
-        name: AUTH_COOKIE_NAME,
-        value: updatedStaffToken,
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
-        path: "/",
-        maxAge: 7 * 24 * 60 * 60,
-      });
-
-      // Client-readable cookie for zero-delay instant sidebar rendering
-      response.cookies.set({
-        name: "staff_role",
-        value: "Staff",
-        httpOnly: false,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
-        path: "/",
-        maxAge: 7 * 24 * 60 * 60,
-      });
-      response.cookies.set({
-        name: "staff_access",
-        value: encodeURIComponent(JSON.stringify(allowedAccess)),
-        httpOnly: false,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
-        path: "/",
-        maxAge: 7 * 24 * 60 * 60,
-      });
-    } else {
-      // Admin selection
-      response.cookies.set({
-        name: "staff_role",
-        value: "Admin",
-        httpOnly: false,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
-        path: "/",
-        maxAge: 7 * 24 * 60 * 60,
-      });
-      response.cookies.set({
-        name: "staff_access",
-        value: "",
-        httpOnly: false,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
-        path: "/",
-        maxAge: 0,
-      });
-    }
-
-    // Set active_store_id cookie
     response.cookies.set({
       name: ACTIVE_STORE_COOKIE,
-      value: storeDoc.id,
+      value: store.id,
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 7 * 24 * 60 * 60,
+    });
+
+    response.cookies.set({
+      name: ACTIVE_BUSINESS_COOKIE,
+      value: business.id,
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
@@ -261,11 +157,8 @@ export async function POST(request: Request) {
     });
 
     return response;
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error selecting store:", error);
-    return NextResponse.json(
-      { success: false, error: "Internal server error while selecting store." },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: "Internal server error." }, { status: 500 });
   }
 }

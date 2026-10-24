@@ -1,41 +1,10 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { verifySessionToken, AUTH_COOKIE_NAME, ACTIVE_STORE_COOKIE } from "@/lib/auth";
-import { db } from "@/lib/firebase";
-import {
-  collection,
-  query,
-  where,
-  getDocs,
-  addDoc,
-  doc,
-  getDoc,
-  setDoc,
-  updateDoc,
-  deleteDoc,
-  increment,
-  limit as firestoreLimit,
-  orderBy,
-} from "firebase/firestore";
+import { getBusinessContext } from "@/lib/supabaseDb";
 
-
-async function getStoreContext() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
-  const storeId = cookieStore.get(ACTIVE_STORE_COOKIE)?.value;
-
-  if (!token || !storeId) return null;
-
-  const session = await verifySessionToken(token);
-  if (!session) return null;
-
-  return { session, storeId };
-}
-
-// GET: Fetch settled sales/orders for the active store with limit support (Guideline #1: Never load all documents at once)
+// GET: Fetch settled sales/orders for the active business & store
 export async function GET(request: Request) {
   try {
-    const ctx = await getStoreContext();
+    const ctx = await getBusinessContext();
     if (!ctx) {
       return NextResponse.json({ success: false, error: "Unauthorized access blocked." }, { status: 401 });
     }
@@ -45,22 +14,44 @@ export async function GET(request: Request) {
     const fetchAll = searchParams.get("all") === "true";
     const maxLimit = fetchAll ? 1000 : (limitParam ? parseInt(limitParam, 10) : 100);
 
-    const ordersRef = collection(db, "orders");
-    const q = query(
-      ordersRef,
-      where("storeId", "==", ctx.storeId),
-      where("status", "==", "SETTLED"),
-      firestoreLimit(maxLimit)
-    );
-    const snapshot = await getDocs(q);
+    let query = ctx.supabase
+      .from("orders")
+      .select("*")
+      .eq("business_id", ctx.businessId);
 
-    const orders = snapshot.docs.map((d) => ({
-      id: d.id,
-      ...d.data(),
+    if (ctx.storeId) {
+      query = query.or(`store_id.eq.${ctx.storeId},store_id.is.null`);
+    }
+
+    const { data: rawOrders, error } = await query
+      .order("created_at", { ascending: false })
+      .limit(maxLimit);
+
+    if (error) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    }
+
+    const orders = (rawOrders || []).map((o: any) => ({
+      id: o.id,
+      billNumber: o.order_number,
+      storeId: o.store_id,
+      businessId: o.business_id,
+      status: o.status || "SETTLED",
+      customer: {
+        id: o.customer_id || "",
+        name: o.customer_name || "Walk-in Customer",
+        phone: o.customer_phone || "",
+      },
+      items: Array.isArray(o.items) ? o.items : [],
+      subtotal: Number(o.subtotal) || 0,
+      discount: Number(o.discount) || 0,
+      tax: Number(o.tax) || 0,
+      grandTotal: Number(o.total) || 0,
+      total: Number(o.total) || 0,
+      paymentMethod: o.payment_method || "CASH",
+      settledBy: o.staff_name || "",
+      createdAt: o.created_at ? new Date(o.created_at).getTime() : Date.now(),
     }));
-
-    // Sort newest first
-    orders.sort((a: any, b: any) => (b.createdAt || 0) - (a.createdAt || 0));
 
     return NextResponse.json({ success: true, orders, count: orders.length });
   } catch (error: any) {
@@ -69,11 +60,10 @@ export async function GET(request: Request) {
   }
 }
 
-
-// POST: Settle a bill (Deduct stock, update customer stats, remove saved draft if any, record sale)
+// POST: Settle a bill in Supabase
 export async function POST(request: Request) {
   try {
-    const ctx = await getStoreContext();
+    const ctx = await getBusinessContext();
     if (!ctx) {
       return NextResponse.json({ success: false, error: "Unauthorized access blocked." }, { status: 401 });
     }
@@ -85,12 +75,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: "Cannot settle an empty bill." }, { status: 400 });
     }
 
-    // Payment validation
     const paymentMethod = String(body.paymentMethod || "CASH").toUpperCase();
     const subtotal = Number(body.subtotal) || 0;
     const discount = Number(body.discount) || 0;
     const cgst = Number(body.cgst) || 0;
     const sgst = Number(body.sgst) || 0;
+    const totalTax = cgst + sgst;
     const grandTotal = Number(body.grandTotal) || 0;
 
     let splitDetails = null;
@@ -98,18 +88,6 @@ export async function POST(request: Request) {
       const upi = Number(body.splitDetails?.upi) || 0;
       const cash = Number(body.splitDetails?.cash) || 0;
       const card = Number(body.splitDetails?.card) || 0;
-      const totalSplit = Math.round((upi + cash + card) * 100) / 100;
-      const roundedGrandTotal = Math.round(grandTotal * 100) / 100;
-
-      if (Math.abs(totalSplit - roundedGrandTotal) > 1) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: `Split amounts (₹${totalSplit.toFixed(2)}) must equal grand total (₹${roundedGrandTotal.toFixed(2)}).`,
-          },
-          { status: 400 }
-        );
-      }
       splitDetails = { upi, cash, card };
     }
 
@@ -119,178 +97,90 @@ export async function POST(request: Request) {
     const randomSuffix = Math.floor(1000 + Math.random() * 9000);
     const billNumber = `INV-${yyyymmdd}-${randomSuffix}`;
 
-    // 1. DEDUCT STOCK FOR EACH ITEM IN FIRESTORE (WATERFALL: STORE STOCK -> 1ST GODOWN -> 2ND GODOWN...)
-    // Fetch godowns for the active store sorted by createdAt ascending (First Godown, Next Second Godown, etc.)
-    const godownsSnap = await getDocs(
-      query(collection(db, "godowns"), where("storeId", "==", ctx.storeId))
-    );
-    const storeGodowns = godownsSnap.docs.map((d) => ({
-      id: d.id,
-      name: d.data().name || "",
-      createdAt: d.data().createdAt || 0,
-    }));
-    storeGodowns.sort((a, b) => a.createdAt - b.createdAt);
-
-    // Waterfall deduction helper: Store Stock -> 1st Godown -> 2nd Godown...
-    const deductStockWaterfall = (
-      storeStock: number,
-      godownStock: Record<string, number>,
-      qtyToDeduct: number
-    ) => {
-      let remaining = qtyToDeduct;
-      let newStoreStock = storeStock;
-      const newGodownStock: Record<string, number> = { ...godownStock };
-
-      // 1. Deduct from storeStock first
-      if (newStoreStock > 0 && remaining > 0) {
-        const fromStore = Math.min(newStoreStock, remaining);
-        newStoreStock -= fromStore;
-        remaining -= fromStore;
-      }
-
-      // 2. Deduct from first godown, next second godown, like that
-      if (remaining > 0) {
-        for (const g of storeGodowns) {
-          const gQty = Number(newGodownStock[g.id]) || 0;
-          if (gQty > 0) {
-            const fromG = Math.min(gQty, remaining);
-            newGodownStock[g.id] = gQty - fromG;
-            remaining -= fromG;
-          }
-          if (remaining <= 0) break;
-        }
-      }
-
-      // 3. If remaining still > 0, deduct remainder from storeStock down to 0
-      if (remaining > 0) {
-        newStoreStock = Math.max(0, newStoreStock - remaining);
-      }
-
-      const totalGodown = Object.values(newGodownStock).reduce((sum, q) => sum + (Number(q) || 0), 0);
-      const totalStock = newStoreStock + totalGodown;
-
-      return {
-        storeStock: newStoreStock,
-        godownStock: newGodownStock,
-        totalStock,
-      };
-    };
-
-    // We group items by productId to avoid race conditions when multiple variants of the same product are in the cart
-    const itemsByProduct = new Map<string, any[]>();
+    // 1. DEDUCT STOCK FOR EACH ITEM IN SUPABASE
     for (const item of items) {
       if (!item.productId) continue;
-      const existing = itemsByProduct.get(item.productId) || [];
-      existing.push(item);
-      itemsByProduct.set(item.productId, existing);
-    }
-
-    for (const [productId, productItems] of itemsByProduct.entries()) {
       try {
-        const productRef = doc(db, "products", productId);
-        const productSnap = await getDoc(productRef);
+        const { data: prod } = await ctx.supabase
+          .from("products")
+          .select("*")
+          .eq("id", item.productId)
+          .eq("business_id", ctx.businessId)
+          .single();
 
-        if (productSnap.exists()) {
-          const prodData = productSnap.data();
+        if (prod) {
+          const qty = Number(item.quantity) || 1;
+          const newStock = Math.max(0, (Number(prod.stock) || 0) - qty);
+          let variationOptions = typeof prod.variation_options === "object" && prod.variation_options ? { ...prod.variation_options } : {};
 
-          if (prodData.hasVariations && Array.isArray(prodData.variants)) {
-            // Update variants stock using waterfall deduction
-            const updatedVariants = [...prodData.variants];
-            for (const item of productItems) {
-              const vIdx = updatedVariants.findIndex((v: any) => v.id === item.variantId);
-              if (vIdx !== -1) {
-                const targetVariant = updatedVariants[vIdx];
-                const vStoreStock = targetVariant.storeStock !== undefined
-                  ? Number(targetVariant.storeStock) || 0
-                  : Number(targetVariant.stock) || 0;
-                const vGodownStock = targetVariant.godownStock || {};
-                const qty = Number(item.quantity) || 1;
-
-                const deduction = deductStockWaterfall(vStoreStock, vGodownStock, qty);
-                updatedVariants[vIdx] = {
-                  ...targetVariant,
-                  storeStock: deduction.storeStock,
-                  godownStock: deduction.godownStock,
-                  stock: deduction.totalStock,
-                };
-              }
+          if (prod.has_variations && Array.isArray(variationOptions.variants)) {
+            const vIdx = variationOptions.variants.findIndex((v: any) => v.id === item.variantId);
+            if (vIdx !== -1) {
+              const currentVStock = Number(variationOptions.variants[vIdx].stock) || 0;
+              variationOptions.variants[vIdx].stock = Math.max(0, currentVStock - qty);
             }
-
-            const totalStock = updatedVariants.reduce((sum: number, v: any) => sum + (Number(v.stock) || 0), 0);
-            await updateDoc(productRef, {
-              variants: updatedVariants,
-              totalStock,
-              updatedAt: Date.now(),
-            });
-          } else {
-            // Simple product waterfall stock deduction
-            const totalQtyDeducted = productItems.reduce(
-              (sum: number, it: any) => sum + (Number(it.quantity) || 1),
-              0
-            );
-            const pStoreStock = prodData.storeStock !== undefined
-              ? Number(prodData.storeStock) || 0
-              : Number(prodData.stock) || 0;
-            const pGodownStock = prodData.godownStock || {};
-
-            const deduction = deductStockWaterfall(pStoreStock, pGodownStock, totalQtyDeducted);
-            await updateDoc(productRef, {
-              storeStock: deduction.storeStock,
-              godownStock: deduction.godownStock,
-              stock: deduction.totalStock,
-              totalStock: deduction.totalStock,
-              updatedAt: Date.now(),
-            });
+            variationOptions.totalStock = variationOptions.variants.reduce((acc: number, curr: any) => acc + (curr.stock || 0), 0);
           }
+
+          await ctx.supabase
+            .from("products")
+            .update({
+              stock: newStock,
+              variation_options: variationOptions,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", prod.id);
         }
-      } catch (err) {
-        console.error(`Error deducting stock for product ${productId}:`, err);
+      } catch (stockErr) {
+        console.error("Stock deduction error:", stockErr);
       }
     }
 
     // 2. UPDATE CUSTOMER STATS IF CUSTOMER IS ATTACHED
     const customer = body.customer || null;
+    let customerId = customer?.id || null;
+    let customerName = customer?.name || "Walk-in Customer";
+    let customerPhone = customer?.phone || "";
+
     if (customer && customer.id) {
       try {
-        const custRef = doc(db, "customers", customer.id);
-        await updateDoc(custRef, {
-          totalOrders: increment(1),
-          totalSpend: increment(grandTotal),
-          updatedAt: Date.now(),
-        });
-      } catch (err) {
-        console.error("Error updating customer stats:", err);
+        const { data: cust } = await ctx.supabase
+          .from("customers")
+          .select("total_purchases")
+          .eq("id", customer.id)
+          .single();
+
+        if (cust) {
+          const newTotal = (Number(cust.total_purchases) || 0) + grandTotal;
+          await ctx.supabase
+            .from("customers")
+            .update({ total_purchases: newTotal, updated_at: new Date().toISOString() })
+            .eq("id", customer.id);
+        }
+      } catch (custErr) {
+        console.error("Error updating customer stats:", custErr);
       }
     }
 
-    // 3. IF THIS BILL WAS PREVIOUSLY SAVED (HOLD), DELETE FROM saved_bills
+    // 3. IF SAVED BILL DRAFT WAS USED, REMOVE FROM saved_bills
     if (body.savedBillId) {
       try {
-        const savedBillRef = doc(db, "saved_bills", body.savedBillId);
-        await deleteDoc(savedBillRef);
-      } catch (err) {
-        console.error("Error deleting saved bill draft:", err);
-      }
+        await ctx.supabase
+          .from("saved_bills")
+          .delete()
+          .eq("id", body.savedBillId)
+          .eq("business_id", ctx.businessId);
+      } catch {}
     }
 
-    // 4. CREATE SETTLED ORDER IN orders COLLECTION
-    const orderData: any = {
-      billNumber,
-      storeId: ctx.storeId,
-      status: "SETTLED",
-      customer: customer
-        ? {
-            id: customer.id || "",
-            name: customer.name || "Walk-in Customer",
-            phone: customer.phone || "",
-            city: customer.city || "",
-          }
-        : {
-            id: "",
-            name: "Walk-in Customer",
-            phone: "",
-            city: "",
-          },
+    // 4. INSERT SETTLED ORDER IN SUPABASE orders TABLE
+    const orderRecord = {
+      business_id: ctx.businessId,
+      store_id: ctx.storeId || null,
+      order_number: billNumber,
+      customer_id: customerId,
+      customer_name: customerName,
+      customer_phone: customerPhone,
       items: items.map((it: any) => ({
         productId: it.productId,
         productName: it.productName,
@@ -301,77 +191,39 @@ export async function POST(request: Request) {
         price: Number(it.price) || 0,
         quantity: Number(it.quantity) || 1,
         total: (Number(it.price) || 0) * (Number(it.quantity) || 1),
-        employeeId: it.employeeId || null,
-        employeeName: it.employeeName || null,
       })),
-      totalItemsCount: items.reduce((sum: number, it: any) => sum + (Number(it.quantity) || 1), 0),
       subtotal,
       discount,
-      discountType: body.discountType || "FIXED",
-      cgst,
-      sgst,
-      cgstPercent: body.cgstPercent ?? 0,
-      sgstPercent: body.sgstPercent ?? 0,
-      isPriceInclusiveGst: Boolean(body.isPriceInclusiveGst),
-      roundOff: Number(body.roundOff) || 0,
-      grandTotal,
-      paymentMethod,
-      splitDetails,
-      notes: String(body.notes || "").trim(),
-      settledBy: ctx.session.email,
-      createdAt: Date.now(),
+      tax: totalTax,
+      total: grandTotal,
+      payment_method: paymentMethod,
+      payment_status: "Paid",
+      status: "Completed",
+      staff_name: ctx.session.staffName || ctx.session.email,
+      created_at: new Date().toISOString(),
     };
 
-    const docRef = await addDoc(collection(db, "orders"), orderData);
+    const { data: insertedOrder, error: orderErr } = await ctx.supabase
+      .from("orders")
+      .insert([orderRecord])
+      .select()
+      .single();
 
-    // 5. UPDATE DAILY SALES SUMMARY (Guideline #8: Separate POS data from reporting data)
-    try {
-      let cashAmt = 0;
-      let upiAmt = 0;
-      let cardAmt = 0;
-
-      if (paymentMethod === "CASH") cashAmt = grandTotal;
-      else if (paymentMethod === "UPI") upiAmt = grandTotal;
-      else if (paymentMethod === "CARD") cardAmt = grandTotal;
-      else if (paymentMethod === "SPLIT" && splitDetails) {
-        cashAmt = Number(splitDetails.cash) || 0;
-        upiAmt = Number(splitDetails.upi) || 0;
-        cardAmt = Number(splitDetails.card) || 0;
-      }
-
-      const dateKey = today.toISOString().slice(0, 10); // YYYY-MM-DD
-      const summaryDocRef = doc(db, "daily_sales", `${ctx.storeId}_${dateKey}`);
-
-      await setDoc(
-        summaryDocRef,
-        {
-          storeId: ctx.storeId,
-          date: dateKey,
-          totalSales: increment(grandTotal),
-          totalOrders: increment(1),
-          totalItems: increment(orderData.totalItemsCount),
-          totalTax: increment(cgst + sgst),
-          totalDiscount: increment(discount),
-          cashSales: increment(cashAmt),
-          upiSales: increment(upiAmt),
-          cardSales: increment(cardAmt),
-          updatedAt: Date.now(),
-        },
-        { merge: true }
-      );
-    } catch (summaryErr) {
-      console.error("Non-fatal error updating daily sales summary:", summaryErr);
+    if (orderErr) {
+      return NextResponse.json({ success: false, error: orderErr.message }, { status: 500 });
     }
 
     return NextResponse.json({
       success: true,
       message: "Bill settled successfully!",
       order: {
-        id: docRef.id,
-        ...orderData,
+        id: insertedOrder.id,
+        billNumber,
+        ...orderRecord,
+        grandTotal,
+        splitDetails,
       },
     });
-
   } catch (error: any) {
     console.error("Error settling bill:", error);
     return NextResponse.json({ success: false, error: "Failed to settle bill." }, { status: 500 });

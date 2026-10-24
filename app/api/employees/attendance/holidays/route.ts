@@ -1,32 +1,10 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { verifySessionToken, AUTH_COOKIE_NAME, ACTIVE_STORE_COOKIE } from "@/lib/auth";
-import { db } from "@/lib/firebase";
-import {
-  collection,
-  query,
-  where,
-  getDocs,
-  addDoc,
-  doc,
-  deleteDoc,
-  getDoc,
-} from "firebase/firestore";
-
-async function getStoreContext() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
-  const storeId = cookieStore.get(ACTIVE_STORE_COOKIE)?.value;
-  if (!token || !storeId) return null;
-  const session = await verifySessionToken(token);
-  if (!session) return null;
-  return { session, storeId };
-}
+import { getBusinessContext } from "@/lib/supabaseDb";
 
 // GET /api/employees/attendance/holidays
 export async function GET() {
   try {
-    const ctx = await getStoreContext();
+    const ctx = await getBusinessContext();
     if (!ctx) {
       return NextResponse.json(
         { success: false, error: "Unauthorized or no active store." },
@@ -34,19 +12,31 @@ export async function GET() {
       );
     }
 
-    const holRef = collection(db, "store_holidays");
-    const q = query(holRef, where("storeId", "==", ctx.storeId));
-    const snap = await getDocs(q);
+    let query = ctx.supabase
+      .from("store_holidays")
+      .select("*")
+      .eq("business_id", ctx.businessId);
 
-    const holidays = snap.docs
-      .map((d) => ({ id: d.id, ...d.data() }))
-      .sort((a: any, b: any) => (a.date || "").localeCompare(b.date || ""));
+    if (ctx.storeId) {
+      query = query.or(`store_id.eq.${ctx.storeId},store_id.is.null`);
+    }
+
+    const { data, error } = await query.order("date", { ascending: true });
+    if (error) throw error;
+
+    const holidays = (data || []).map((row: any) => ({
+      id: row.id,
+      storeId: row.store_id,
+      name: row.name,
+      date: row.date,
+      createdAt: new Date(row.created_at).getTime(),
+    }));
 
     return NextResponse.json({ success: true, holidays });
   } catch (err: any) {
     console.error("GET holidays error:", err);
     return NextResponse.json(
-      { success: false, error: "Failed to fetch holidays." },
+      { success: false, error: err?.message || "Failed to fetch holidays." },
       { status: 500 }
     );
   }
@@ -55,7 +45,7 @@ export async function GET() {
 // POST /api/employees/attendance/holidays
 export async function POST(request: Request) {
   try {
-    const ctx = await getStoreContext();
+    const ctx = await getBusinessContext();
     if (!ctx) {
       return NextResponse.json(
         { success: false, error: "Unauthorized or no active store." },
@@ -75,24 +65,35 @@ export async function POST(request: Request) {
     }
 
     const holData = {
-      storeId: ctx.storeId,
+      business_id: ctx.businessId,
+      store_id: ctx.storeId || null,
       name,
       date,
-      createdAt: Date.now(),
-      createdBy: ctx.session.email || ctx.session.staffId || "user",
+      created_by: ctx.session.email || "system",
     };
 
-    const docRef = await addDoc(collection(db, "store_holidays"), holData);
+    const { data: newHol, error } = await ctx.supabase
+      .from("store_holidays")
+      .insert(holData)
+      .select()
+      .single();
+
+    if (error) throw error;
 
     return NextResponse.json({
       success: true,
-      holiday: { id: docRef.id, ...holData },
+      holiday: {
+        id: newHol.id,
+        name: newHol.name,
+        date: newHol.date,
+        createdAt: new Date(newHol.created_at).getTime(),
+      },
       message: "Holiday added successfully.",
     });
   } catch (err: any) {
     console.error("POST holidays error:", err);
     return NextResponse.json(
-      { success: false, error: "Failed to add holiday." },
+      { success: false, error: err?.message || "Failed to add holiday." },
       { status: 500 }
     );
   }
@@ -101,7 +102,7 @@ export async function POST(request: Request) {
 // DELETE /api/employees/attendance/holidays?id=...
 export async function DELETE(request: Request) {
   try {
-    const ctx = await getStoreContext();
+    const ctx = await getBusinessContext();
     if (!ctx) {
       return NextResponse.json(
         { success: false, error: "Unauthorized or no active store." },
@@ -115,18 +116,19 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ success: false, error: "Holiday ID required." }, { status: 400 });
     }
 
-    const holRef = doc(db, "store_holidays", id);
-    const snap = await getDoc(holRef);
-    if (!snap.exists() || snap.data().storeId !== ctx.storeId) {
-      return NextResponse.json({ success: false, error: "Holiday not found." }, { status: 404 });
-    }
+    const { error } = await ctx.supabase
+      .from("store_holidays")
+      .delete()
+      .eq("id", id)
+      .eq("business_id", ctx.businessId);
 
-    await deleteDoc(holRef);
+    if (error) throw error;
+
     return NextResponse.json({ success: true, message: "Holiday deleted successfully." });
   } catch (err: any) {
     console.error("DELETE holidays error:", err);
     return NextResponse.json(
-      { success: false, error: "Failed to delete holiday." },
+      { success: false, error: err?.message || "Failed to delete holiday." },
       { status: 500 }
     );
   }

@@ -1,26 +1,10 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { verifySessionToken, AUTH_COOKIE_NAME, ACTIVE_STORE_COOKIE } from "@/lib/auth";
-import { db } from "@/lib/firebase";
-import { collection, query, where, getDocs, doc, getDoc } from "firebase/firestore";
+import { getBusinessContext } from "@/lib/supabaseDb";
 
-async function getStoreContext() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
-  const storeId = cookieStore.get(ACTIVE_STORE_COOKIE)?.value;
-
-  if (!token || !storeId) return null;
-
-  const session = await verifySessionToken(token);
-  if (!session) return null;
-
-  return { session, storeId };
-}
-
-// GET /api/dashboard/summary: Fast summary aggregation reading daily_sales documents (Guideline #8)
+// GET /api/dashboard/summary: Aggregate dashboard metrics from Supabase
 export async function GET(request: Request) {
   try {
-    const ctx = await getStoreContext();
+    const ctx = await getBusinessContext();
     if (!ctx) {
       return NextResponse.json({ success: false, error: "Unauthorized access." }, { status: 401 });
     }
@@ -29,29 +13,54 @@ export async function GET(request: Request) {
     const todayStr = new Date().toISOString().slice(0, 10);
     const requestedDate = searchParams.get("date") || todayStr;
 
-    // Single document read for today's summary
-    const todayDocRef = doc(db, "daily_sales", `${ctx.storeId}_${requestedDate}`);
-    const todaySnap = await getDoc(todayDocRef);
+    let ordersQuery = ctx.supabase
+      .from("orders")
+      .select("*")
+      .eq("business_id", ctx.businessId);
 
-    let todaySummary = null;
-    if (todaySnap.exists()) {
-      todaySummary = todaySnap.data();
+    if (ctx.storeId) {
+      ordersQuery = ordersQuery.or(`store_id.eq.${ctx.storeId},store_id.is.null`);
     }
 
-    // Optional: read last 7 days summaries
-    const summariesRef = collection(db, "daily_sales");
-    const q = query(summariesRef, where("storeId", "==", ctx.storeId));
-    const allSummariesSnap = await getDocs(q);
+    const { data: allOrders } = await ordersQuery.order("created_at", { ascending: false }).limit(200);
 
-    const summaries = allSummariesSnap.docs.map((d) => ({
-      id: d.id,
-      ...d.data(),
-    }));
+    const orders = allOrders || [];
+    const todayOrders = orders.filter((o: any) => o.created_at?.startsWith(requestedDate));
+
+    const totalSales = todayOrders.reduce((sum: number, o: any) => sum + (Number(o.total) || 0), 0);
+    const totalOrders = todayOrders.length;
+    const totalTax = todayOrders.reduce((sum: number, o: any) => sum + (Number(o.tax) || 0), 0);
+    const totalDiscount = todayOrders.reduce((sum: number, o: any) => sum + (Number(o.discount) || 0), 0);
+
+    let cashSales = 0;
+    let upiSales = 0;
+    let cardSales = 0;
+
+    todayOrders.forEach((o: any) => {
+      const pMethod = String(o.payment_method || "").toUpperCase();
+      const amt = Number(o.total) || 0;
+      if (pMethod === "CASH") cashSales += amt;
+      else if (pMethod === "UPI") upiSales += amt;
+      else if (pMethod === "CARD") cardSales += amt;
+      else cashSales += amt;
+    });
+
+    const todaySummary = {
+      date: requestedDate,
+      totalSales,
+      totalOrders,
+      totalItems: todayOrders.reduce((sum: number, o: any) => sum + (Array.isArray(o.items) ? o.items.length : 1), 0),
+      totalTax,
+      totalDiscount,
+      cashSales,
+      upiSales,
+      cardSales,
+    };
 
     return NextResponse.json({
       success: true,
       todaySummary,
-      summaries,
+      summaries: [todaySummary],
     });
   } catch (error: any) {
     console.error("Error reading dashboard summary:", error);

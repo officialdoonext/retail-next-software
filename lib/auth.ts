@@ -9,20 +9,33 @@ const OTP_SECRET =
 
 export const AUTH_COOKIE_NAME = "auth_session";
 export const ACTIVE_STORE_COOKIE = "active_store_id";
+export const ACTIVE_BUSINESS_COOKIE = "active_business_id";
 
 export interface SessionPayload {
+  userId?: string; // Supabase user UUID
   email: string;
   role: "Admin" | "Staff";
   createdAt: number;
   mobile?: string;
   staffId?: string;
   staffName?: string;
-  storeId?: string;
+  businessId?: string; // Selected business ID
+  businessName?: string; // Selected business Name
+  storeId?: string; // Selected store/branch ID
   access?: string[]; // Array of permitted page hrefs (e.g. ["/pos", "/orders"])
-  status?: string; // "Active" | "Inactive"
-  expiryDate?: any; // Timestamp or date string or null
+  status?: string; // Business Status: "Active" | "Inactive"
+  expiryDate?: any; // Business Expiry Date: timestamp or ISO string or null
   plan?: string | null;
   enabledModules?: string[]; // Module IDs enabled for this client (e.g. ["sales-manager", "product-manager"])
+}
+
+// Strict security helper: checks whether business status is active AND expiry date is unexpired
+export function isBusinessAllowed(status?: string | null, expiryDate?: any): boolean {
+  if (!status || status.toLowerCase() !== "active") return false;
+  if (!expiryDate) return false;
+  const time = new Date(expiryDate).getTime();
+  if (isNaN(time) || time <= Date.now()) return false;
+  return true;
 }
 
 // Generates a 6-digit secure numeric OTP

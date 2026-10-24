@@ -1,81 +1,52 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { verifySessionToken, AUTH_COOKIE_NAME, ACTIVE_STORE_COOKIE } from "@/lib/auth";
-import { db } from "@/lib/firebase";
-import {
-  collection,
-  query,
-  where,
-  getDocs,
-  addDoc,
-  updateDoc,
-  deleteDoc,
-  doc,
-  getDoc,
-} from "firebase/firestore";
+import { getBusinessContext } from "@/lib/supabaseDb";
 
-async function getStoreContext() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
-  const storeId = cookieStore.get(ACTIVE_STORE_COOKIE)?.value;
-
-  if (!token || !storeId) return null;
-
-  const session = await verifySessionToken(token);
-  if (!session) return null;
-
-  return { session, storeId };
-}
-
-// GET: Fetch all godowns for the active store
+// GET: Fetch all godowns for the active business & store
 export async function GET() {
   try {
-    const ctx = await getStoreContext();
+    const ctx = await getBusinessContext();
     if (!ctx) {
-      return NextResponse.json(
-        { success: false, error: "Unauthorized or no active store selected." },
-        { status: 401 }
-      );
+      return NextResponse.json({ success: false, error: "Unauthorized or no active store selected." }, { status: 401 });
     }
 
-    const godownsRef = collection(db, "godowns");
-    const q = query(godownsRef, where("storeId", "==", ctx.storeId));
-    const snap = await getDocs(q);
+    let query = ctx.supabase
+      .from("godowns")
+      .select("*")
+      .eq("business_id", ctx.businessId);
 
-    const godowns = snap.docs.map((docSnap) => {
-      const data = docSnap.data();
-      return {
-        id: docSnap.id,
-        name: data.name || "",
-        address: data.address || "",
-        createdBy: data.createdBy || "",
-        createdAt: data.createdAt || 0,
-        updatedAt: data.updatedAt || 0,
-      };
-    });
+    if (ctx.storeId) {
+      query = query.or(`store_id.eq.${ctx.storeId},store_id.is.null`);
+    }
 
-    // Sort by createdAt descending
-    godowns.sort((a, b) => b.createdAt - a.createdAt);
+    const { data: rawGodowns, error } = await query.order("created_at", { ascending: false });
+
+    if (error) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    }
+
+    const godowns = (rawGodowns || []).map((d: any) => ({
+      id: d.id,
+      name: d.name || "",
+      address: d.location || "",
+      location: d.location || "",
+      storeId: d.store_id,
+      businessId: d.business_id,
+      createdAt: d.created_at ? new Date(d.created_at).getTime() : Date.now(),
+    }));
 
     return NextResponse.json({ success: true, godowns });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error fetching godowns:", error);
-    return NextResponse.json(
-      { success: false, error: "Failed to fetch godowns." },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: "Failed to fetch godowns." }, { status: 500 });
   }
 }
 
-// POST: Create a new godown
+// POST: Create a new godown in Supabase
 export async function POST(request: Request) {
   try {
-    const ctx = await getStoreContext();
+    const ctx = await getBusinessContext();
     if (!ctx) {
-      return NextResponse.json(
-        { success: false, error: "Unauthorized or no active store selected." },
-        { status: 401 }
-      );
+      return NextResponse.json({ success: false, error: "Unauthorized or no active store selected." }, { status: 401 });
     }
 
     const body = await request.json();
@@ -83,44 +54,47 @@ export async function POST(request: Request) {
     const address = String(body.address || "").trim();
 
     if (!name) {
-      return NextResponse.json(
-        { success: false, error: "Godown name is required." },
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, error: "Godown name is required." }, { status: 400 });
     }
 
-    const now = Date.now();
     const godownData = {
+      business_id: ctx.businessId,
+      store_id: ctx.storeId || null,
       name,
-      address,
-      storeId: ctx.storeId,
-      createdBy: ctx.session.email,
-      createdAt: now,
-      updatedAt: now,
+      location: address,
+      created_at: new Date().toISOString(),
     };
 
-    const docRef = await addDoc(collection(db, "godowns"), godownData);
+    const { data: inserted, error } = await ctx.supabase
+      .from("godowns")
+      .insert([godownData])
+      .select()
+      .single();
+
+    if (error) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    }
 
     return NextResponse.json({
       success: true,
       godown: {
-        id: docRef.id,
-        ...godownData,
+        id: inserted.id,
+        name: inserted.name,
+        address: inserted.location,
+        storeId: inserted.store_id,
+        businessId: inserted.business_id,
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error creating godown:", error);
-    return NextResponse.json(
-      { success: false, error: "Failed to create godown." },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: "Failed to create godown." }, { status: 500 });
   }
 }
 
 // PUT: Update an existing godown
 export async function PUT(request: Request) {
   try {
-    const ctx = await getStoreContext();
+    const ctx = await getBusinessContext();
     if (!ctx) {
       return NextResponse.json({ success: false, error: "Unauthorized." }, { status: 401 });
     }
@@ -131,55 +105,39 @@ export async function PUT(request: Request) {
     const address = String(body.address || "").trim();
 
     if (!id || !name) {
-      return NextResponse.json(
-        { success: false, error: "Godown ID and name are required." },
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, error: "Godown ID and name are required." }, { status: 400 });
     }
 
-    const godownDocRef = doc(db, "godowns", id);
-    const snap = await getDoc(godownDocRef);
+    const { data: updated, error } = await ctx.supabase
+      .from("godowns")
+      .update({ name, location: address })
+      .eq("id", id)
+      .eq("business_id", ctx.businessId)
+      .select()
+      .single();
 
-    if (!snap.exists()) {
-      return NextResponse.json({ success: false, error: "Godown not found." }, { status: 404 });
+    if (error || !updated) {
+      return NextResponse.json({ success: false, error: "Failed to update godown or access denied." }, { status: 403 });
     }
-
-    if (snap.data().storeId !== ctx.storeId) {
-      return NextResponse.json(
-        { success: false, error: "Access denied to godown." },
-        { status: 403 }
-      );
-    }
-
-    const updatePayload = {
-      name,
-      address,
-      updatedAt: Date.now(),
-    };
-
-    await updateDoc(godownDocRef, updatePayload);
 
     return NextResponse.json({
       success: true,
       godown: {
-        id,
-        ...snap.data(),
-        ...updatePayload,
+        id: updated.id,
+        name: updated.name,
+        address: updated.location,
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error updating godown:", error);
-    return NextResponse.json(
-      { success: false, error: "Failed to update godown." },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: "Failed to update godown." }, { status: 500 });
   }
 }
 
 // DELETE: Delete a godown
 export async function DELETE(request: Request) {
   try {
-    const ctx = await getStoreContext();
+    const ctx = await getBusinessContext();
     if (!ctx) {
       return NextResponse.json({ success: false, error: "Unauthorized." }, { status: 401 });
     }
@@ -188,34 +146,22 @@ export async function DELETE(request: Request) {
     const godownId = searchParams.get("id");
 
     if (!godownId) {
-      return NextResponse.json(
-        { success: false, error: "Godown ID is required." },
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, error: "Godown ID is required." }, { status: 400 });
     }
 
-    const godownDocRef = doc(db, "godowns", godownId);
-    const snap = await getDoc(godownDocRef);
+    const { error } = await ctx.supabase
+      .from("godowns")
+      .delete()
+      .eq("id", godownId)
+      .eq("business_id", ctx.businessId);
 
-    if (!snap.exists()) {
-      return NextResponse.json({ success: false, error: "Godown not found." }, { status: 404 });
+    if (error) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
     }
-
-    if (snap.data().storeId !== ctx.storeId) {
-      return NextResponse.json(
-        { success: false, error: "Access denied to godown." },
-        { status: 403 }
-      );
-    }
-
-    await deleteDoc(godownDocRef);
 
     return NextResponse.json({ success: true, message: "Godown deleted successfully." });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error deleting godown:", error);
-    return NextResponse.json(
-      { success: false, error: "Failed to delete godown." },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: "Failed to delete godown." }, { status: 500 });
   }
 }

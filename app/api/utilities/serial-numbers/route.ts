@@ -1,31 +1,5 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { verifySessionToken, AUTH_COOKIE_NAME, ACTIVE_STORE_COOKIE } from "@/lib/auth";
-import { db } from "@/lib/firebase";
-import {
-  collection,
-  query,
-  where,
-  getDocs,
-  writeBatch,
-  doc,
-  deleteDoc,
-  getDoc,
-  addDoc,
-} from "firebase/firestore";
-
-async function getStoreContext() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
-  const storeId = cookieStore.get(ACTIVE_STORE_COOKIE)?.value;
-
-  if (!token || !storeId) return null;
-
-  const session = await verifySessionToken(token);
-  if (!session) return null;
-
-  return { session, storeId };
-}
+import { getBusinessContext } from "@/lib/supabaseDb";
 
 function extractNumericValue(str: string): number | null {
   const matches = str.match(/\d+/g);
@@ -36,9 +10,9 @@ function extractNumericValue(str: string): number | null {
 }
 
 // GET: Fetch serial numbers for active store and calculate next start number
-export async function GET(request: Request) {
+export async function GET() {
   try {
-    const ctx = await getStoreContext();
+    const ctx = await getBusinessContext();
     if (!ctx) {
       return NextResponse.json(
         { success: false, error: "Unauthorized or no active store selected." },
@@ -46,29 +20,40 @@ export async function GET(request: Request) {
       );
     }
 
-    const serialsRef = collection(db, "serial_numbers");
-    const q = query(serialsRef, where("storeId", "==", ctx.storeId));
-    const snap = await getDocs(q);
+    let query = ctx.supabase
+      .from("serial_numbers")
+      .select("*")
+      .eq("business_id", ctx.businessId);
+
+    if (ctx.storeId) {
+      query = query.eq("store_id", ctx.storeId);
+    }
+
+    const { data, error } = await query.order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Error fetching serial numbers:", error);
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    }
 
     let maxNumber = 0;
-    const serialNumbers = snap.docs.map((docSnap) => {
-      const data = docSnap.data();
+    const serialNumbers = (data || []).map((row: any) => {
       const num =
-        typeof data.numericValue === "number"
-          ? data.numericValue
-          : extractNumericValue(data.serialNumber || "") || 0;
+        typeof row.numeric_value === "number"
+          ? row.numeric_value
+          : extractNumericValue(row.serial_number || "") || 0;
 
       if (num > maxNumber) {
         maxNumber = num;
       }
 
       return {
-        id: docSnap.id,
-        serialNumber: String(data.serialNumber || ""),
+        id: row.id,
+        serialNumber: String(row.serial_number || ""),
         numericValue: num,
-        status: data.status || "Available",
-        createdBy: data.createdBy || "",
-        createdAt: data.createdAt || 0,
+        status: row.status || "Available",
+        createdBy: row.created_by || "",
+        createdAt: new Date(row.created_at).getTime(),
       };
     });
 
@@ -88,10 +73,10 @@ export async function GET(request: Request) {
       totalCount: serialNumbers.length,
       nextStartNumber,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error fetching serial numbers:", error);
     return NextResponse.json(
-      { success: false, error: "Failed to fetch serial numbers." },
+      { success: false, error: error.message || "Failed to fetch serial numbers." },
       { status: 500 }
     );
   }
@@ -100,7 +85,7 @@ export async function GET(request: Request) {
 // POST: Add single serial number OR bulk create serial numbers
 export async function POST(request: Request) {
   try {
-    const ctx = await getStoreContext();
+    const ctx = await getBusinessContext();
     if (!ctx) {
       return NextResponse.json(
         { success: false, error: "Unauthorized or no active store selected." },
@@ -110,8 +95,6 @@ export async function POST(request: Request) {
 
     const body = await request.json();
     const mode = body.mode || "single";
-    const serialsRef = collection(db, "serial_numbers");
-    const now = Date.now();
 
     // Mode 1: Single Serial Number
     if (mode === "single") {
@@ -127,21 +110,32 @@ export async function POST(request: Request) {
       const numericValue = extractNumericValue(serialNumber) || 0;
 
       const serialData = {
-        serialNumber,
-        numericValue,
+        business_id: ctx.businessId,
+        store_id: ctx.storeId || null,
+        serial_number: serialNumber,
+        numeric_value: numericValue,
         status: "Available",
-        storeId: ctx.storeId,
-        createdBy: ctx.session.email,
-        createdAt: now,
+        created_by: ctx.session.email || "system",
       };
 
-      const docRef = await addDoc(serialsRef, serialData);
+      const { data, error } = await ctx.supabase
+        .from("serial_numbers")
+        .insert(serialData)
+        .select()
+        .single();
+
+      if (error) {
+        return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+      }
 
       return NextResponse.json({
         success: true,
         serial: {
-          id: docRef.id,
-          ...serialData,
+          id: data.id,
+          serialNumber: data.serial_number,
+          numericValue: data.numeric_value,
+          status: data.status,
+          createdAt: new Date(data.created_at).getTime(),
         },
       });
     }
@@ -178,30 +172,27 @@ export async function POST(request: Request) {
       for (let num = startNumber; num <= endNumber; num++) {
         const serialNumber = prefix ? `${prefix}${num}` : `${num}`;
         itemsToInsert.push({
-          serialNumber,
-          numericValue: num,
+          business_id: ctx.businessId,
+          store_id: ctx.storeId || null,
+          serial_number: serialNumber,
+          numeric_value: num,
           status: "Available",
-          storeId: ctx.storeId,
-          createdBy: ctx.session.email,
-          createdAt: now,
+          created_by: ctx.session.email || "system",
         });
       }
 
-      // Write in chunks of 400 with writeBatch
-      const chunkSize = 400;
+      // Supabase supports bulk insert in batches of 500
+      const chunkSize = 500;
       let createdCount = 0;
 
       for (let i = 0; i < itemsToInsert.length; i += chunkSize) {
         const chunk = itemsToInsert.slice(i, i + chunkSize);
-        const batch = writeBatch(db);
-
-        chunk.forEach((item) => {
-          const newDocRef = doc(serialsRef);
-          batch.set(newDocRef, item);
-          createdCount++;
-        });
-
-        await batch.commit();
+        const { error } = await ctx.supabase.from("serial_numbers").insert(chunk);
+        if (error) {
+          console.error("Error bulk inserting serials:", error);
+          return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+        }
+        createdCount += chunk.length;
       }
 
       return NextResponse.json({
@@ -215,10 +206,10 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({ success: false, error: "Invalid creation mode." }, { status: 400 });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error creating serial number(s):", error);
     return NextResponse.json(
-      { success: false, error: "Failed to create serial number(s)." },
+      { success: false, error: error.message || "Failed to create serial number(s)." },
       { status: 500 }
     );
   }
@@ -227,7 +218,7 @@ export async function POST(request: Request) {
 // DELETE: Delete single serial number or bulk delete
 export async function DELETE(request: Request) {
   try {
-    const ctx = await getStoreContext();
+    const ctx = await getBusinessContext();
     if (!ctx) {
       return NextResponse.json({ success: false, error: "Unauthorized." }, { status: 401 });
     }
@@ -237,21 +228,16 @@ export async function DELETE(request: Request) {
 
     // Single delete
     if (serialId) {
-      const serialDocRef = doc(db, "serial_numbers", serialId);
-      const snap = await getDoc(serialDocRef);
+      const { error } = await ctx.supabase
+        .from("serial_numbers")
+        .delete()
+        .eq("id", serialId)
+        .eq("business_id", ctx.businessId);
 
-      if (!snap.exists()) {
-        return NextResponse.json({ success: false, error: "Serial number not found." }, { status: 404 });
+      if (error) {
+        return NextResponse.json({ success: false, error: error.message }, { status: 500 });
       }
 
-      if (snap.data().storeId !== ctx.storeId) {
-        return NextResponse.json(
-          { success: false, error: "Access denied to serial number." },
-          { status: 403 }
-        );
-      }
-
-      await deleteDoc(serialDocRef);
       return NextResponse.json({ success: true, message: "Serial number deleted successfully." });
     }
 
@@ -263,26 +249,20 @@ export async function DELETE(request: Request) {
 
     if (body && Array.isArray(body.ids) && body.ids.length > 0) {
       const ids: string[] = body.ids;
-      const chunkSize = 400;
-      let deletedCount = 0;
+      const { error } = await ctx.supabase
+        .from("serial_numbers")
+        .delete()
+        .in("id", ids)
+        .eq("business_id", ctx.businessId);
 
-      for (let i = 0; i < ids.length; i += chunkSize) {
-        const chunk = ids.slice(i, i + chunkSize);
-        const batch = writeBatch(db);
-
-        chunk.forEach((id) => {
-          const docRef = doc(db, "serial_numbers", id);
-          batch.delete(docRef);
-          deletedCount++;
-        });
-
-        await batch.commit();
+      if (error) {
+        return NextResponse.json({ success: false, error: error.message }, { status: 500 });
       }
 
       return NextResponse.json({
         success: true,
-        deletedCount,
-        message: `Successfully deleted ${deletedCount} serial numbers.`,
+        deletedCount: ids.length,
+        message: `Successfully deleted ${ids.length} serial numbers.`,
       });
     }
 
@@ -290,10 +270,10 @@ export async function DELETE(request: Request) {
       { success: false, error: "Serial number ID or list of IDs is required." },
       { status: 400 }
     );
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error deleting serial number(s):", error);
     return NextResponse.json(
-      { success: false, error: "Failed to delete serial number(s)." },
+      { success: false, error: error.message || "Failed to delete serial number(s)." },
       { status: 500 }
     );
   }

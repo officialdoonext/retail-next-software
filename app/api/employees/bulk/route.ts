@@ -1,26 +1,9 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { verifySessionToken, AUTH_COOKIE_NAME, ACTIVE_STORE_COOKIE } from "@/lib/auth";
-import { db } from "@/lib/firebase";
-import { collection, query, where, getDocs, addDoc } from "firebase/firestore";
+import { getBusinessContext } from "@/lib/supabaseDb";
 import QRCode from "qrcode";
 import imagekit from "@/lib/imagekit";
 import { compressImageToTargetSize } from "@/lib/compressImage";
 
-async function getStoreContext() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
-  const storeId = cookieStore.get(ACTIVE_STORE_COOKIE)?.value;
-  if (!token || !storeId) return null;
-  const session = await verifySessionToken(token);
-  if (!session) return null;
-  return { session, storeId };
-}
-
-/**
- * Generates a QR code image for StoreID/EmployeeID, compresses to <= 60KB,
- * and uploads to ImageKit.
- */
 async function generateAndUploadEmployeeQr(storeId: string, employeeId: string): Promise<string> {
   try {
     const qrContent = `${storeId}/${employeeId}`;
@@ -52,7 +35,7 @@ async function generateAndUploadEmployeeQr(storeId: string, employeeId: string):
 
 export async function POST(request: Request) {
   try {
-    const ctx = await getStoreContext();
+    const ctx = await getBusinessContext();
     if (!ctx) {
       return NextResponse.json(
         { success: false, error: "Unauthorized or no active store." },
@@ -70,20 +53,20 @@ export async function POST(request: Request) {
       );
     }
 
-    // 1. Fetch existing employees for the active store to avoid duplicate mobiles / IDs
-    const empRef = collection(db, "employees");
-    const q = query(empRef, where("storeId", "==", ctx.storeId));
-    const snap = await getDocs(q);
+    // Fetch existing employees to prevent duplicate mobile / IDs
+    const { data: existingRows } = await ctx.supabase
+      .from("employees")
+      .select("mobile, employee_id")
+      .eq("business_id", ctx.businessId);
 
     const existingMobiles = new Set<string>();
     const existingIds = new Set<string>();
     let maxIdNum = 1000000;
 
-    snap.docs.forEach((d) => {
-      const data = d.data();
-      if (data.mobile) existingMobiles.add(String(data.mobile));
-      if (data.employeeId) {
-        const idStr = String(data.employeeId);
+    (existingRows || []).forEach((row: any) => {
+      if (row.mobile) existingMobiles.add(String(row.mobile));
+      if (row.employee_id) {
+        const idStr = String(row.employee_id);
         existingIds.add(idStr);
         const num = parseInt(idStr, 10);
         if (!isNaN(num) && num > maxIdNum && num < 9999999) {
@@ -106,7 +89,6 @@ export async function POST(request: Request) {
     const savedEmployees: any[] = [];
     const skippedDuplicates: string[] = [];
 
-    // Process employees in controlled batches of 5 to avoid overloading ImageKit concurrent connections
     const CHUNK_SIZE = 5;
     for (let i = 0; i < rawList.length; i += CHUNK_SIZE) {
       const chunk = rawList.slice(i, i + CHUNK_SIZE);
@@ -134,7 +116,7 @@ export async function POST(request: Request) {
           const emergencyContactNumber = rawEcMobile.length >= 10 ? rawEcMobile.slice(-10) : "9876543210";
 
           if (!name || rawMobile.length < 10) {
-            return; // Skip invalid entries
+            return;
           }
 
           const cleanMobile = rawMobile.slice(-10);
@@ -144,7 +126,6 @@ export async function POST(request: Request) {
           }
           existingMobiles.add(cleanMobile);
 
-          // Assign unique 7-digit numeric Employee ID
           let employeeId = String(row.employeeId || row["Employee ID"] || "").trim();
           if (!employeeId || !/^\d{7}$/.test(employeeId) || existingIds.has(employeeId)) {
             employeeId = generateNextId();
@@ -152,32 +133,38 @@ export async function POST(request: Request) {
             existingIds.add(employeeId);
           }
 
-          // Generate & upload ImageKit QR code for StoreID/EmployeeID
-          const qrCodeUrl = await generateAndUploadEmployeeQr(ctx.storeId, employeeId);
+          const qrCodeUrl = await generateAndUploadEmployeeQr(ctx.storeId || "main", employeeId);
 
           const payload = {
-            storeId: ctx.storeId,
-            employeeId,
+            business_id: ctx.businessId,
+            store_id: ctx.storeId || null,
+            employee_id: employeeId,
             name,
-            avatarUrl: avatarUrl || "", // If empty, first letter identification is used in UI
-            qrCodeUrl: qrCodeUrl || "",
+            avatar_url: avatarUrl || "",
+            qr_code_url: qrCodeUrl || "",
             mobile: cleanMobile,
             city,
             address,
             email,
-            salaryType,
-            salaryAmount,
-            acceptedLeaves,
-            emergencyContactNumber,
-            emergencyRelation,
-            emergencyName,
+            salary_type: salaryType,
+            salary_amount: salaryAmount,
+            accepted_leaves: acceptedLeaves,
+            emergency_contact_number: emergencyContactNumber,
+            emergency_relation: emergencyRelation,
+            emergency_name: emergencyName,
             status: "Active",
-            createdBy: ctx.session.email,
-            createdAt: Date.now(),
+            created_by: ctx.session.email || "system",
           };
 
-          const docRef = await addDoc(empRef, payload);
-          savedEmployees.push({ id: docRef.id, ...payload });
+          const { data: inserted } = await ctx.supabase
+            .from("employees")
+            .insert(payload)
+            .select()
+            .single();
+
+          if (inserted) {
+            savedEmployees.push({ id: inserted.id, ...payload });
+          }
         })
       );
     }

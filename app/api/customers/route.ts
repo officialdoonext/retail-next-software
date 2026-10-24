@@ -1,27 +1,10 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { verifySessionToken, AUTH_COOKIE_NAME, ACTIVE_STORE_COOKIE } from "@/lib/auth";
-import { db } from "@/lib/firebase";
-import { collection, query, where, getDocs, addDoc, updateDoc, deleteDoc, doc, getDoc, limit as firestoreLimit } from "firebase/firestore";
+import { getBusinessContext } from "@/lib/supabaseDb";
 
-
-async function getStoreContext() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
-  const storeId = cookieStore.get(ACTIVE_STORE_COOKIE)?.value;
-
-  if (!token || !storeId) return null;
-
-  const session = await verifySessionToken(token);
-  if (!session) return null;
-
-  return { session, storeId };
-}
-
-// GET: Fetch customers for the active store with limit support (Guideline #1)
+// GET: Fetch customers for the active business & store
 export async function GET(request: Request) {
   try {
-    const ctx = await getStoreContext();
+    const ctx = await getBusinessContext();
     if (!ctx) {
       return NextResponse.json(
         { success: false, error: "Unauthorized or no active store selected." },
@@ -34,36 +17,50 @@ export async function GET(request: Request) {
     const fetchAll = searchParams.get("all") === "true";
     const maxLimit = fetchAll ? 1000 : (limitParam ? parseInt(limitParam, 10) : 100);
 
-    const customersRef = collection(db, "customers");
-    const q = query(
-      customersRef,
-      where("storeId", "==", ctx.storeId),
-      firestoreLimit(maxLimit)
-    );
-    const snap = await getDocs(q);
+    let query = ctx.supabase
+      .from("customers")
+      .select("*")
+      .eq("business_id", ctx.businessId);
 
-    const customers = snap.docs
-      .map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }))
-      .sort((a: any, b: any) => (b.createdAt || 0) - (a.createdAt || 0));
+    if (ctx.storeId) {
+      query = query.or(`store_id.eq.${ctx.storeId},store_id.is.null`);
+    }
+
+    const { data: rawCustomers, error } = await query
+      .order("created_at", { ascending: false })
+      .limit(maxLimit);
+
+    if (error) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    }
+
+    const customers = (rawCustomers || []).map((c: any) => ({
+      id: c.id,
+      name: c.name,
+      phone: c.phone,
+      email: c.email || "",
+      city: c.city || "",
+      address: c.address || "",
+      gstNumber: c.gst_number || "",
+      totalSpend: Number(c.total_purchases) || 0,
+      totalPurchases: Number(c.total_purchases) || 0,
+      loyaltyPoints: Number(c.loyalty_points) || 0,
+      storeId: c.store_id,
+      businessId: c.business_id,
+      createdAt: c.created_at ? new Date(c.created_at).getTime() : Date.now(),
+    }));
 
     return NextResponse.json({ success: true, customers });
-
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error fetching customers:", error);
-    return NextResponse.json(
-      { success: false, error: "Failed to fetch customers." },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: "Failed to fetch customers." }, { status: 500 });
   }
 }
 
-// POST: Add new customer
+// POST: Add new customer in Supabase
 export async function POST(request: Request) {
   try {
-    const ctx = await getStoreContext();
+    const ctx = await getBusinessContext();
     if (!ctx) {
       return NextResponse.json(
         { success: false, error: "Unauthorized or no active store selected." },
@@ -79,36 +76,22 @@ export async function POST(request: Request) {
     const address = String(body.address || "").trim();
 
     if (!name) {
-      return NextResponse.json(
-        { success: false, error: "Customer name is required." },
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, error: "Customer name is required." }, { status: 400 });
     }
 
     if (!phone || phone.length < 10) {
-      return NextResponse.json(
-        { success: false, error: "Please enter a valid 10-digit mobile number." },
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, error: "Please enter a valid 10-digit mobile number." }, { status: 400 });
     }
 
-    if (!city) {
-      return NextResponse.json(
-        { success: false, error: "City is required." },
-        { status: 400 }
-      );
-    }
+    // Check duplicate mobile within this business
+    const { data: existingCust } = await ctx.supabase
+      .from("customers")
+      .select("id")
+      .eq("business_id", ctx.businessId)
+      .eq("phone", phone)
+      .limit(1);
 
-    // Check for duplicate mobile number in this store
-    const customersRef = collection(db, "customers");
-    const dupQuery = query(
-      customersRef,
-      where("storeId", "==", ctx.storeId),
-      where("phone", "==", phone)
-    );
-    const dupSnap = await getDocs(dupQuery);
-
-    if (!dupSnap.empty) {
+    if (existingCust && existingCust.length > 0) {
       return NextResponse.json(
         { success: false, error: `Customer with mobile number ${phone} is already registered.` },
         { status: 409 }
@@ -116,64 +99,60 @@ export async function POST(request: Request) {
     }
 
     const customerData = {
-      storeId: ctx.storeId,
+      business_id: ctx.businessId,
+      store_id: ctx.storeId || null,
       name,
       phone,
-      city,
-      email,
-      address,
-      totalOrders: 0,
-      totalSpend: 0,
-      createdBy: ctx.session.email,
-      createdAt: Date.now(),
+      city: city || "",
+      email: email || "",
+      address: address || "",
+      total_purchases: 0,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     };
 
-    const docRef = await addDoc(customersRef, customerData);
+    const { data: insertedCust, error } = await ctx.supabase
+      .from("customers")
+      .insert([customerData])
+      .select()
+      .single();
+
+    if (error) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    }
 
     return NextResponse.json({
       success: true,
       customer: {
-        id: docRef.id,
-        ...customerData,
+        id: insertedCust.id,
+        name: insertedCust.name,
+        phone: insertedCust.phone,
+        city: insertedCust.city,
+        email: insertedCust.email,
+        address: insertedCust.address,
+        totalSpend: 0,
+        storeId: insertedCust.store_id,
+        businessId: insertedCust.business_id,
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error creating customer:", error);
-    return NextResponse.json(
-      { success: false, error: "Failed to save customer." },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: "Failed to save customer." }, { status: 500 });
   }
 }
 
-// PUT: Update customer details
+// PUT: Update customer details in Supabase
 export async function PUT(request: Request) {
   try {
-    const ctx = await getStoreContext();
+    const ctx = await getBusinessContext();
     if (!ctx) {
-      return NextResponse.json(
-        { success: false, error: "Unauthorized or no active store selected." },
-        { status: 401 }
-      );
+      return NextResponse.json({ success: false, error: "Unauthorized." }, { status: 401 });
     }
 
     const body = await request.json();
     const id = String(body.id || "").trim();
     if (!id) {
-      return NextResponse.json(
-        { success: false, error: "Customer ID is required." },
-        { status: 400 }
-      );
-    }
-
-    const customerRef = doc(db, "customers", id);
-    const customerSnap = await getDoc(customerRef);
-
-    if (!customerSnap.exists() || customerSnap.data().storeId !== ctx.storeId) {
-      return NextResponse.json(
-        { success: false, error: "Customer not found." },
-        { status: 404 }
-      );
+      return NextResponse.json({ success: false, error: "Customer ID is required." }, { status: 400 });
     }
 
     const name = String(body.name || "").trim();
@@ -183,36 +162,21 @@ export async function PUT(request: Request) {
     const address = String(body.address || "").trim();
 
     if (!name) {
-      return NextResponse.json(
-        { success: false, error: "Customer name is required." },
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, error: "Customer name is required." }, { status: 400 });
     }
 
     if (!phone || phone.length < 10) {
-      return NextResponse.json(
-        { success: false, error: "Please enter a valid 10-digit mobile number." },
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, error: "Please enter a valid 10-digit mobile number." }, { status: 400 });
     }
 
-    if (!city) {
-      return NextResponse.json(
-        { success: false, error: "City is required." },
-        { status: 400 }
-      );
-    }
+    // Check duplicate phone
+    const { data: dupList } = await ctx.supabase
+      .from("customers")
+      .select("id")
+      .eq("business_id", ctx.businessId)
+      .eq("phone", phone);
 
-    // Check if phone number is taken by another customer in this store
-    const customersRef = collection(db, "customers");
-    const dupQuery = query(
-      customersRef,
-      where("storeId", "==", ctx.storeId),
-      where("phone", "==", phone)
-    );
-    const dupSnap = await getDocs(dupQuery);
-    const hasDuplicate = dupSnap.docs.some((d) => d.id !== id);
-
+    const hasDuplicate = (dupList || []).some((d: any) => d.id !== id);
     if (hasDuplicate) {
       return NextResponse.json(
         { success: false, error: `Another customer is already registered with mobile number ${phone}.` },
@@ -226,70 +190,67 @@ export async function PUT(request: Request) {
       city,
       email,
       address,
-      updatedAt: Date.now(),
+      updated_at: new Date().toISOString(),
     };
 
-    await updateDoc(customerRef, updatePayload);
+    const { data: updatedCust, error } = await ctx.supabase
+      .from("customers")
+      .update(updatePayload)
+      .eq("id", id)
+      .eq("business_id", ctx.businessId)
+      .select()
+      .single();
+
+    if (error || !updatedCust) {
+      return NextResponse.json({ success: false, error: "Failed to update customer or access denied." }, { status: 403 });
+    }
 
     return NextResponse.json({
       success: true,
       customer: {
-        id,
-        ...customerSnap.data(),
-        ...updatePayload,
+        id: updatedCust.id,
+        name: updatedCust.name,
+        phone: updatedCust.phone,
+        city: updatedCust.city,
+        email: updatedCust.email,
+        address: updatedCust.address,
+        totalSpend: Number(updatedCust.total_purchases) || 0,
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error updating customer:", error);
-    return NextResponse.json(
-      { success: false, error: "Failed to update customer." },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: "Failed to update customer." }, { status: 500 });
   }
 }
 
-// DELETE: Remove customer
+// DELETE: Remove customer in Supabase
 export async function DELETE(request: Request) {
   try {
-    const ctx = await getStoreContext();
+    const ctx = await getBusinessContext();
     if (!ctx) {
-      return NextResponse.json(
-        { success: false, error: "Unauthorized or no active store selected." },
-        { status: 401 }
-      );
+      return NextResponse.json({ success: false, error: "Unauthorized." }, { status: 401 });
     }
 
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
 
     if (!id) {
-      return NextResponse.json(
-        { success: false, error: "Customer ID is required." },
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, error: "Customer ID is required." }, { status: 400 });
     }
 
-    const customerRef = doc(db, "customers", id);
-    const customerSnap = await getDoc(customerRef);
+    const { error } = await ctx.supabase
+      .from("customers")
+      .delete()
+      .eq("id", id)
+      .eq("business_id", ctx.businessId);
 
-    if (!customerSnap.exists() || customerSnap.data().storeId !== ctx.storeId) {
-      return NextResponse.json(
-        { success: false, error: "Customer not found." },
-        { status: 404 }
-      );
+    if (error) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
     }
 
-    await deleteDoc(customerRef);
-
-    return NextResponse.json({
-      success: true,
-      message: "Customer deleted successfully.",
-    });
-  } catch (error) {
+    return NextResponse.json({ success: true, message: "Customer deleted successfully." });
+  } catch (error: any) {
     console.error("Error deleting customer:", error);
-    return NextResponse.json(
-      { success: false, error: "Failed to delete customer." },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: "Failed to delete customer." }, { status: 500 });
   }
 }

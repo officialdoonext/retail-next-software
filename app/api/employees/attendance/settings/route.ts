@@ -1,18 +1,5 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { verifySessionToken, AUTH_COOKIE_NAME, ACTIVE_STORE_COOKIE } from "@/lib/auth";
-import { db } from "@/lib/firebase";
-import { doc, getDoc, setDoc } from "firebase/firestore";
-
-async function getStoreContext() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
-  const storeId = cookieStore.get(ACTIVE_STORE_COOKIE)?.value;
-  if (!token || !storeId) return null;
-  const session = await verifySessionToken(token);
-  if (!session) return null;
-  return { session, storeId };
-}
+import { getBusinessContext } from "@/lib/supabaseDb";
 
 export interface AttendanceSettings {
   monthDivisor: 30 | 31;
@@ -31,7 +18,7 @@ const DEFAULT_SETTINGS: AttendanceSettings = {
 // GET /api/employees/attendance/settings
 export async function GET() {
   try {
-    const ctx = await getStoreContext();
+    const ctx = await getBusinessContext();
     if (!ctx) {
       return NextResponse.json(
         { success: false, error: "Unauthorized or no active store." },
@@ -39,19 +26,23 @@ export async function GET() {
       );
     }
 
-    const docRef = doc(db, "store_attendance_settings", ctx.storeId);
-    const snap = await getDoc(docRef);
+    const { data } = await ctx.supabase
+      .from("business_settings")
+      .select("settings")
+      .eq("business_id", ctx.businessId)
+      .eq("store_id", ctx.storeId || null)
+      .maybeSingle();
 
-    if (!snap.exists()) {
+    const attSettings = data?.settings?.attendance_settings;
+    if (!attSettings) {
       return NextResponse.json({ success: true, settings: DEFAULT_SETTINGS });
     }
 
-    const data = snap.data();
     const settings: AttendanceSettings = {
-      monthDivisor: data.monthDivisor === 31 ? 31 : 30,
-      enableAttendanceBonus: Boolean(data.enableAttendanceBonus),
-      bonusDays: Number(data.bonusDays) || 1,
-      sundayIsHoliday: data.sundayIsHoliday !== undefined ? Boolean(data.sundayIsHoliday) : true,
+      monthDivisor: attSettings.monthDivisor === 31 ? 31 : 30,
+      enableAttendanceBonus: Boolean(attSettings.enableAttendanceBonus),
+      bonusDays: Number(attSettings.bonusDays) || 1,
+      sundayIsHoliday: attSettings.sundayIsHoliday !== undefined ? Boolean(attSettings.sundayIsHoliday) : true,
     };
 
     return NextResponse.json({ success: true, settings });
@@ -67,7 +58,7 @@ export async function GET() {
 // POST /api/employees/attendance/settings
 export async function POST(request: Request) {
   try {
-    const ctx = await getStoreContext();
+    const ctx = await getBusinessContext();
     if (!ctx) {
       return NextResponse.json(
         { success: false, error: "Unauthorized or no active store." },
@@ -88,8 +79,31 @@ export async function POST(request: Request) {
       sundayIsHoliday,
     };
 
-    const docRef = doc(db, "store_attendance_settings", ctx.storeId);
-    await setDoc(docRef, { ...newSettings, updatedAt: Date.now() }, { merge: true });
+    const { data: existing } = await ctx.supabase
+      .from("business_settings")
+      .select("settings")
+      .eq("business_id", ctx.businessId)
+      .eq("store_id", ctx.storeId || null)
+      .maybeSingle();
+
+    const currentSettings = existing?.settings || {};
+    currentSettings.attendance_settings = newSettings;
+
+    const { error } = await ctx.supabase
+      .from("business_settings")
+      .upsert(
+        {
+          business_id: ctx.businessId,
+          store_id: ctx.storeId || null,
+          settings: currentSettings,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "business_id,store_id" }
+      );
+
+    if (error) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    }
 
     return NextResponse.json({
       success: true,

@@ -37,11 +37,11 @@ const SOFTWARE_ROUTES = [
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // 1. Skip static assets, Next internals, and public login assets
+  // 1. Skip static assets, Next internals, and public login/register assets
   if (
     pathname.startsWith("/_next") ||
-    pathname.startsWith("/api/auth/send-otp") ||
-    pathname.startsWith("/api/auth/verify-otp") ||
+    pathname.startsWith("/api/auth/login") ||
+    pathname.startsWith("/api/auth/register") ||
     pathname.startsWith("/api/auth/staff-login") ||
     pathname === "/favicon.ico" ||
     pathname === "/logo.jpeg" ||

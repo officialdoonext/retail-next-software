@@ -1,269 +1,184 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { verifySessionToken, AUTH_COOKIE_NAME, ACTIVE_STORE_COOKIE } from "@/lib/auth";
-import { db } from "@/lib/firebase";
-import {
-  collection,
-  query,
-  where,
-  getDocs,
-  addDoc,
-  updateDoc,
-  deleteDoc,
-  doc,
-  getDoc,
-} from "firebase/firestore";
+import { getBusinessContext } from "@/lib/supabaseDb";
 
-async function getStoreContext() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
-  const storeId = cookieStore.get(ACTIVE_STORE_COOKIE)?.value;
-  if (!token || !storeId) return null;
-  const session = await verifySessionToken(token);
-  if (!session) return null;
-  return { session, storeId };
-}
-
-// GET – fetch all staff for the active store
+// GET – fetch all staff for the active business & store
 export async function GET() {
   try {
-    const ctx = await getStoreContext();
-    if (!ctx)
-      return NextResponse.json(
-        { success: false, error: "Unauthorized or no active store." },
-        { status: 401 }
-      );
+    const ctx = await getBusinessContext();
+    if (!ctx) {
+      return NextResponse.json({ success: false, error: "Unauthorized or no active store." }, { status: 401 });
+    }
 
-    const staffRef = collection(db, "staff");
-    const q = query(staffRef, where("storeId", "==", ctx.storeId));
-    const snap = await getDocs(q);
+    let query = ctx.supabase
+      .from("staff")
+      .select("*")
+      .eq("business_id", ctx.businessId);
 
-    const staff = snap.docs
-      .map((d) => {
-        const data = d.data();
-        return {
-          id: d.id,
-          name: data.name,
-          mobile: data.mobile,
-          access: data.access ?? [],
-          status: data.status || "Active",
-          createdAt: data.createdAt,
-          storeId: data.storeId,
-        };
-      })
-      .sort((a: any, b: any) => (b.createdAt || 0) - (a.createdAt || 0));
+    if (ctx.storeId) {
+      query = query.or(`store_id.eq.${ctx.storeId},store_id.is.null`);
+    }
+
+    const { data: staffList, error } = await query.order("created_at", { ascending: false });
+
+    if (error) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    }
+
+    const staff = (staffList || []).map((d: any) => ({
+      id: d.id,
+      name: d.name,
+      mobile: d.mobile,
+      access: Array.isArray(d.access) ? d.access : [],
+      status: d.status || "Active",
+      createdAt: d.created_at ? new Date(d.created_at).getTime() : Date.now(),
+      storeId: d.store_id,
+      businessId: d.business_id,
+    }));
 
     return NextResponse.json({ success: true, staff });
   } catch (err) {
     console.error("GET /api/staff error:", err);
-    return NextResponse.json(
-      { success: false, error: "Failed to fetch staff." },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: "Failed to fetch staff." }, { status: 500 });
   }
 }
 
 // POST – add a new staff member
 export async function POST(request: Request) {
   try {
-    const ctx = await getStoreContext();
-    if (!ctx)
-      return NextResponse.json(
-        { success: false, error: "Unauthorized or no active store." },
-        { status: 401 }
-      );
+    const ctx = await getBusinessContext();
+    if (!ctx) {
+      return NextResponse.json({ success: false, error: "Unauthorized or no active store." }, { status: 401 });
+    }
 
     const body = await request.json();
     const name = String(body.name || "").trim();
-    const mobile = String(body.mobile || "")
-      .trim()
-      .replace(/\D/g, "");
+    const mobile = String(body.mobile || "").trim().replace(/\D/g, "");
     const mpin = String(body.mpin || "").trim();
     const access: string[] = Array.isArray(body.access) ? body.access : [];
 
-    if (!name)
-      return NextResponse.json(
-        { success: false, error: "Staff name is required." },
-        { status: 400 }
-      );
-    if (!mobile || mobile.length < 10)
-      return NextResponse.json(
-        { success: false, error: "Please enter a valid 10-digit mobile number." },
-        { status: 400 }
-      );
-    if (!mpin || mpin.length < 4)
-      return NextResponse.json(
-        { success: false, error: "MPIN must be at least 4 digits." },
-        { status: 400 }
-      );
-    if (!/^\d+$/.test(mpin))
-      return NextResponse.json(
-        { success: false, error: "MPIN must contain digits only." },
-        { status: 400 }
-      );
+    if (!name) return NextResponse.json({ success: false, error: "Staff name is required." }, { status: 400 });
+    if (!mobile || mobile.length < 10) return NextResponse.json({ success: false, error: "Please enter a valid 10-digit mobile number." }, { status: 400 });
+    if (!mpin || mpin.length < 4) return NextResponse.json({ success: false, error: "MPIN must be at least 4 digits." }, { status: 400 });
 
-    // Check duplicate mobile in store
-    const staffRef = collection(db, "staff");
-    const dupQ = query(
-      staffRef,
-      where("storeId", "==", ctx.storeId),
-      where("mobile", "==", mobile)
-    );
-    const dupSnap = await getDocs(dupQ);
-    if (!dupSnap.empty)
-      return NextResponse.json(
-        { success: false, error: `A staff member with mobile ${mobile} already exists.` },
-        { status: 409 }
-      );
+    // Check duplicate mobile in this store
+    let dupQuery = ctx.supabase
+      .from("staff")
+      .select("id")
+      .eq("business_id", ctx.businessId)
+      .eq("mobile", mobile);
 
-    const payload = {
-      storeId: ctx.storeId,
+    if (ctx.storeId) {
+      dupQuery = dupQuery.eq("store_id", ctx.storeId);
+    }
+
+    const { data: dupList } = await dupQuery;
+    if (dupList && dupList.length > 0) {
+      return NextResponse.json({ success: false, error: `Staff member with mobile ${mobile} already exists.` }, { status: 409 });
+    }
+
+    const staffData = {
+      business_id: ctx.businessId,
+      store_id: ctx.storeId || null,
       name,
       mobile,
       mpin,
       access,
       status: "Active",
-      createdBy: ctx.session.email,
-      createdAt: Date.now(),
+      created_at: new Date().toISOString(),
     };
 
-    const docRef = await addDoc(staffRef, payload);
+    const { data: insertedStaff, error } = await ctx.supabase
+      .from("staff")
+      .insert([staffData])
+      .select()
+      .single();
+
+    if (error) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    }
+
     return NextResponse.json({
       success: true,
-      staff: { id: docRef.id, ...payload },
+      staff: {
+        id: insertedStaff.id,
+        name: insertedStaff.name,
+        mobile: insertedStaff.mobile,
+        access: insertedStaff.access,
+        status: insertedStaff.status,
+        storeId: insertedStaff.store_id,
+        businessId: insertedStaff.business_id,
+      },
     });
   } catch (err) {
     console.error("POST /api/staff error:", err);
-    return NextResponse.json(
-      { success: false, error: "Failed to add staff member." },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: "Failed to add staff member." }, { status: 500 });
   }
 }
 
-// PUT – update an existing staff member
+// PUT – update staff access / details / status / MPIN
 export async function PUT(request: Request) {
   try {
-    const ctx = await getStoreContext();
-    if (!ctx)
-      return NextResponse.json(
-        { success: false, error: "Unauthorized or no active store." },
-        { status: 401 }
-      );
+    const ctx = await getBusinessContext();
+    if (!ctx) {
+      return NextResponse.json({ success: false, error: "Unauthorized." }, { status: 401 });
+    }
 
     const body = await request.json();
     const id = String(body.id || "").trim();
-    if (!id)
-      return NextResponse.json(
-        { success: false, error: "Staff ID is required." },
-        { status: 400 }
-      );
+    if (!id) return NextResponse.json({ success: false, error: "Staff ID is required." }, { status: 400 });
 
-    const staffDocRef = doc(db, "staff", id);
-    const staffSnap = await getDoc(staffDocRef);
-    if (!staffSnap.exists() || staffSnap.data().storeId !== ctx.storeId)
-      return NextResponse.json(
-        { success: false, error: "Staff member not found." },
-        { status: 404 }
-      );
+    const updateData: any = {};
+    if (body.name !== undefined) updateData.name = String(body.name).trim();
+    if (body.status !== undefined) updateData.status = body.status;
+    if (Array.isArray(body.access)) updateData.access = body.access;
+    if (body.mpin !== undefined && String(body.mpin).trim().length >= 4) {
+      updateData.mpin = String(body.mpin).trim();
+    }
 
-    const name = String(body.name || "").trim();
-    const mobile = String(body.mobile || "")
-      .trim()
-      .replace(/\D/g, "");
-    const mpin = String(body.mpin || "").trim();
-    const access: string[] = Array.isArray(body.access) ? body.access : [];
+    const { data: updatedStaff, error } = await ctx.supabase
+      .from("staff")
+      .update(updateData)
+      .eq("id", id)
+      .eq("business_id", ctx.businessId)
+      .select()
+      .single();
 
-    if (!name)
-      return NextResponse.json(
-        { success: false, error: "Staff name is required." },
-        { status: 400 }
-      );
-    if (!mobile || mobile.length < 10)
-      return NextResponse.json(
-        { success: false, error: "Please enter a valid 10-digit mobile number." },
-        { status: 400 }
-      );
-    if (!mpin || mpin.length < 4)
-      return NextResponse.json(
-        { success: false, error: "MPIN must be at least 4 digits." },
-        { status: 400 }
-      );
-    if (!/^\d+$/.test(mpin))
-      return NextResponse.json(
-        { success: false, error: "MPIN must contain digits only." },
-        { status: 400 }
-      );
+    if (error || !updatedStaff) {
+      return NextResponse.json({ success: false, error: "Failed to update staff member." }, { status: 403 });
+    }
 
-    // Check duplicate mobile in same store (excluding self)
-    const staffRef = collection(db, "staff");
-    const dupQ = query(
-      staffRef,
-      where("storeId", "==", ctx.storeId),
-      where("mobile", "==", mobile)
-    );
-    const dupSnap = await getDocs(dupQ);
-    const hasDup = dupSnap.docs.some((d) => d.id !== id);
-    if (hasDup)
-      return NextResponse.json(
-        { success: false, error: `Another staff member already has mobile ${mobile}.` },
-        { status: 409 }
-      );
-
-    const updatePayload = { name, mobile, mpin, access, updatedAt: Date.now() };
-    await updateDoc(staffDocRef, updatePayload);
-
-    return NextResponse.json({
-      success: true,
-      staff: { id, ...staffSnap.data(), ...updatePayload },
-    });
+    return NextResponse.json({ success: true, staff: updatedStaff });
   } catch (err) {
     console.error("PUT /api/staff error:", err);
-    return NextResponse.json(
-      { success: false, error: "Failed to update staff member." },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: "Failed to update staff member." }, { status: 500 });
   }
 }
 
-// DELETE – remove a staff member
+// DELETE – remove staff member
 export async function DELETE(request: Request) {
   try {
-    const ctx = await getStoreContext();
-    if (!ctx)
-      return NextResponse.json(
-        { success: false, error: "Unauthorized or no active store." },
-        { status: 401 }
-      );
+    const ctx = await getBusinessContext();
+    if (!ctx) {
+      return NextResponse.json({ success: false, error: "Unauthorized." }, { status: 401 });
+    }
 
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
-    if (!id)
-      return NextResponse.json(
-        { success: false, error: "Staff ID is required." },
-        { status: 400 }
-      );
+    if (!id) return NextResponse.json({ success: false, error: "Staff ID is required." }, { status: 400 });
 
-    const staffDocRef = doc(db, "staff", id);
-    const staffSnap = await getDoc(staffDocRef);
-    if (!staffSnap.exists() || staffSnap.data().storeId !== ctx.storeId)
-      return NextResponse.json(
-        { success: false, error: "Staff member not found." },
-        { status: 404 }
-      );
+    const { error } = await ctx.supabase
+      .from("staff")
+      .delete()
+      .eq("id", id)
+      .eq("business_id", ctx.businessId);
 
-    await deleteDoc(staffDocRef);
+    if (error) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    }
+
     return NextResponse.json({ success: true, message: "Staff member deleted." });
   } catch (err) {
     console.error("DELETE /api/staff error:", err);
-    return NextResponse.json(
-      { success: false, error: "Failed to delete staff member." },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: "Failed to delete staff member." }, { status: 500 });
   }
-}
-
-// GET single staff by ID – for view details (append ?id=xxx)
-export async function HEAD() {
-  return new NextResponse(null, { status: 200 });
 }

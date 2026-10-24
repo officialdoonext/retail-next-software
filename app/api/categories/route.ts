@@ -1,62 +1,99 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { verifySessionToken, AUTH_COOKIE_NAME, ACTIVE_STORE_COOKIE } from "@/lib/auth";
-import { db } from "@/lib/firebase";
-import { collection, query, where, getDocs, addDoc, deleteDoc, doc, getDoc, updateDoc } from "firebase/firestore";
+import { getBusinessContext } from "@/lib/supabaseDb";
 
-async function getStoreContext() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
-  let storeId = cookieStore.get(ACTIVE_STORE_COOKIE)?.value;
-
-  if (!token) return null;
-
-  const session = await verifySessionToken(token);
-  if (!session) return null;
-
-  // Fallback to user's first store if cookie is not set
-  if (!storeId && session.email) {
-    const storesRef = collection(db, "stores");
-    const q = query(storesRef, where("ownerEmail", "==", session.email));
-    const snap = await getDocs(q);
-    if (!snap.empty) {
-      storeId = snap.docs[0].id;
-    }
-  }
-
-  if (!storeId) return null;
-
-  return { session, storeId };
-}
-
-// GET: Fetch categories strictly for the active store
+// GET: Fetch categories strictly for the active business & store
 export async function GET() {
   try {
-    const ctx = await getStoreContext();
+    const ctx = await getBusinessContext();
     if (!ctx) {
-      return NextResponse.json({ success: false, error: "Unauthorized or no active store selected." }, { status: 401 });
+      return NextResponse.json({ success: false, error: "Unauthorized or no active business." }, { status: 401 });
     }
 
-    const categoriesRef = collection(db, "categories");
-    const q = query(categoriesRef, where("storeId", "==", ctx.storeId));
-    const snap = await getDocs(q);
+    let query = ctx.supabase
+      .from("categories")
+      .select("*")
+      .eq("business_id", ctx.businessId);
 
-    const categories = snap.docs.map((docSnap) => ({
-      id: docSnap.id,
-      ...docSnap.data(),
-    }));
+    if (ctx.storeId) {
+      query = query.or(`store_id.eq.${ctx.storeId},store_id.is.null`);
+    }
 
-    return NextResponse.json({ success: true, categories });
-  } catch (error) {
+    const { data: categories, error } = await query.order("name", { ascending: true });
+
+    if (error) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({
+      success: true,
+      categories: (categories || []).map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        slug: c.slug,
+        description: c.description,
+        storeId: c.store_id,
+        businessId: c.business_id,
+        createdAt: c.created_at,
+      })),
+    });
+  } catch (error: any) {
     console.error("Error fetching categories:", error);
     return NextResponse.json({ success: false, error: "Failed to fetch categories." }, { status: 500 });
+  }
+}
+
+// POST: Add new category for the active business & store
+export async function POST(request: Request) {
+  try {
+    const ctx = await getBusinessContext();
+    if (!ctx) {
+      return NextResponse.json({ success: false, error: "Unauthorized or no active business." }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const name = String(body.name || "").trim();
+
+    if (!name) {
+      return NextResponse.json({ success: false, error: "Category name is required." }, { status: 400 });
+    }
+
+    const categoryData = {
+      name,
+      business_id: ctx.businessId,
+      store_id: ctx.storeId || null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data: newCat, error } = await ctx.supabase
+      .from("categories")
+      .insert([categoryData])
+      .select()
+      .single();
+
+    if (error) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({
+      success: true,
+      category: {
+        id: newCat.id,
+        name: newCat.name,
+        storeId: newCat.store_id,
+        businessId: newCat.business_id,
+      },
+    });
+  } catch (error: any) {
+    console.error("Error creating category:", error);
+    return NextResponse.json({ success: false, error: "Failed to create category." }, { status: 500 });
   }
 }
 
 // PUT: Update category name
 export async function PUT(request: Request) {
   try {
-    const ctx = await getStoreContext();
+    const ctx = await getBusinessContext();
     if (!ctx) {
       return NextResponse.json({ success: false, error: "Unauthorized." }, { status: 401 });
     }
@@ -69,67 +106,29 @@ export async function PUT(request: Request) {
       return NextResponse.json({ success: false, error: "Category ID and name are required." }, { status: 400 });
     }
 
-    const catDocRef = doc(db, "categories", id);
-    const snap = await getDoc(catDocRef);
+    const { data: updatedCat, error } = await ctx.supabase
+      .from("categories")
+      .update({ name, updated_at: new Date().toISOString() })
+      .eq("id", id)
+      .eq("business_id", ctx.businessId)
+      .select()
+      .single();
 
-    if (!snap.exists()) {
-      return NextResponse.json({ success: false, error: "Category not found." }, { status: 404 });
+    if (error || !updatedCat) {
+      return NextResponse.json({ success: false, error: "Failed to update category or access denied." }, { status: 403 });
     }
 
-    if (snap.data().storeId !== ctx.storeId) {
-      return NextResponse.json({ success: false, error: "Access denied." }, { status: 403 });
-    }
-
-    await updateDoc(catDocRef, { name, updatedAt: Date.now() });
-
-    return NextResponse.json({ success: true, category: { id, ...snap.data(), name } });
-  } catch (error) {
+    return NextResponse.json({ success: true, category: { id: updatedCat.id, name: updatedCat.name } });
+  } catch (error: any) {
     console.error("Error updating category:", error);
     return NextResponse.json({ success: false, error: "Failed to update category." }, { status: 500 });
   }
 }
 
-// POST: Add new category for the active store
-export async function POST(request: Request) {
-  try {
-    const ctx = await getStoreContext();
-    if (!ctx) {
-      return NextResponse.json({ success: false, error: "Unauthorized or no active store selected." }, { status: 401 });
-    }
-
-    const body = await request.json();
-    const name = String(body.name || "").trim();
-
-    if (!name) {
-      return NextResponse.json({ success: false, error: "Category name is required." }, { status: 400 });
-    }
-
-    const categoryData = {
-      name,
-      storeId: ctx.storeId,
-      createdBy: ctx.session.email,
-      createdAt: Date.now(),
-    };
-
-    const docRef = await addDoc(collection(db, "categories"), categoryData);
-
-    return NextResponse.json({
-      success: true,
-      category: {
-        id: docRef.id,
-        ...categoryData,
-      },
-    });
-  } catch (error) {
-    console.error("Error creating category:", error);
-    return NextResponse.json({ success: false, error: "Failed to create category." }, { status: 500 });
-  }
-}
-
-// DELETE: Delete a category belonging to active store
+// DELETE: Delete a category belonging to active business
 export async function DELETE(request: Request) {
   try {
-    const ctx = await getStoreContext();
+    const ctx = await getBusinessContext();
     if (!ctx) {
       return NextResponse.json({ success: false, error: "Unauthorized." }, { status: 401 });
     }
@@ -141,21 +140,18 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ success: false, error: "Category ID is required." }, { status: 400 });
     }
 
-    const catDocRef = doc(db, "categories", categoryId);
-    const snap = await getDoc(catDocRef);
+    const { error } = await ctx.supabase
+      .from("categories")
+      .delete()
+      .eq("id", categoryId)
+      .eq("business_id", ctx.businessId);
 
-    if (!snap.exists()) {
-      return NextResponse.json({ success: false, error: "Category not found." }, { status: 404 });
+    if (error) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
     }
-
-    if (snap.data().storeId !== ctx.storeId) {
-      return NextResponse.json({ success: false, error: "Access denied to category." }, { status: 403 });
-    }
-
-    await deleteDoc(catDocRef);
 
     return NextResponse.json({ success: true, message: "Category deleted." });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error deleting category:", error);
     return NextResponse.json({ success: false, error: "Failed to delete category." }, { status: 500 });
   }

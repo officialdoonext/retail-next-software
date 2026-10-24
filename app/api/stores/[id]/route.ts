@@ -1,15 +1,5 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { verifySessionToken, AUTH_COOKIE_NAME } from "@/lib/auth";
-import { db } from "@/lib/firebase";
-import { doc, getDoc, updateDoc, deleteDoc } from "firebase/firestore";
-
-async function getSession() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
-  if (!token) return null;
-  return verifySessionToken(token);
-}
+import { getBusinessContext } from "@/lib/supabaseDb";
 
 // GET: Fetch single store by ID
 export async function GET(
@@ -17,34 +7,30 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await getSession();
-    if (!session) {
+    const ctx = await getBusinessContext();
+    if (!ctx) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }
 
     const { id } = await params;
-    const storeRef = doc(db, "stores", id);
-    const storeSnap = await getDoc(storeRef);
+    const { data: store, error } = await ctx.supabase
+      .from("stores")
+      .select("*")
+      .eq("id", id)
+      .eq("business_id", ctx.businessId)
+      .single();
 
-    if (!storeSnap.exists()) {
+    if (error || !store) {
       return NextResponse.json({ success: false, error: "Store not found." }, { status: 404 });
-    }
-
-    const storeData = storeSnap.data();
-    if (session.role !== "Staff" && storeData.ownerEmail !== session.email) {
-      return NextResponse.json({ success: false, error: "Access denied." }, { status: 403 });
     }
 
     return NextResponse.json({
       success: true,
-      store: { id: storeSnap.id, ...storeData },
+      store,
     });
   } catch (error) {
     console.error("Error fetching store:", error);
-    return NextResponse.json(
-      { success: false, error: "Failed to retrieve store." },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: "Failed to retrieve store." }, { status: 500 });
   }
 }
 
@@ -54,38 +40,24 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await getSession();
-    if (!session) {
+    const ctx = await getBusinessContext();
+    if (!ctx) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }
 
-    if (session.role === "Staff") {
-      return NextResponse.json(
-        { success: false, error: "Access denied. Only administrators can edit stores." },
-        { status: 403 }
-      );
-    }
-
-    const { id } = await params;
-    const storeRef = doc(db, "stores", id);
-    const storeSnap = await getDoc(storeRef);
-
-    if (!storeSnap.exists()) {
-      return NextResponse.json({ success: false, error: "Store not found." }, { status: 404 });
-    }
-
-    const existingStore = storeSnap.data();
-    if (existingStore.ownerEmail !== session.email) {
+    if (ctx.role === "Staff") {
       return NextResponse.json({ success: false, error: "Access denied." }, { status: 403 });
     }
 
+    const { id } = await params;
     const body = await request.json();
-    const name = String(body.name || existingStore.name || "").trim();
-    const mobileNumber = String(body.mobileNumber || body.phone || existingStore.mobileNumber || existingStore.phone || "").trim();
-    const city = String(body.city ?? existingStore.city ?? "").trim();
-    const fullAddress = String(body.fullAddress ?? body.address ?? existingStore.fullAddress ?? existingStore.location ?? "").trim();
-    const gstNumber = String(body.gstNumber ?? body.license ?? existingStore.gstNumber ?? existingStore.license ?? "").trim().toUpperCase();
-    const status = body.status ? (body.status === "Active" ? "Active" : "Inactive") : (existingStore.status || "Inactive");
+
+    const name = String(body.name || "").trim();
+    const mobileNumber = String(body.mobileNumber || body.phone || "").trim();
+    const city = String(body.city || "").trim();
+    const fullAddress = String(body.fullAddress || body.address || "").trim();
+    const gstNumber = String(body.gstNumber || body.license || "").trim().toUpperCase();
+    const status = body.status ? (body.status === "Active" ? "Active" : "Inactive") : "Active";
 
     if (!name) {
       return NextResponse.json({ success: false, error: "Store name is required." }, { status: 400 });
@@ -93,35 +65,37 @@ export async function PUT(
 
     const displayLocation = city ? (fullAddress ? `${city}, ${fullAddress}` : city) : fullAddress || "Main Branch";
 
-    const updatedFields = {
+    const updatedFields: any = {
       name,
-      mobileNumber,
+      mobile_number: mobileNumber,
       phone: mobileNumber,
       city,
-      fullAddress,
+      full_address: fullAddress,
       location: displayLocation,
-      gstNumber,
-      license: gstNumber || existingStore.license || `RET-TS-${Math.floor(1000 + Math.random() * 9000)}`,
+      gst_number: gstNumber,
       status,
-      updatedAt: Date.now(),
+      updated_at: new Date().toISOString(),
     };
 
-    await updateDoc(storeRef, updatedFields);
+    const { data: updatedStore, error } = await ctx.supabase
+      .from("stores")
+      .update(updatedFields)
+      .eq("id", id)
+      .eq("business_id", ctx.businessId)
+      .select()
+      .single();
+
+    if (error || !updatedStore) {
+      return NextResponse.json({ success: false, error: "Failed to update store." }, { status: 403 });
+    }
 
     return NextResponse.json({
       success: true,
-      store: {
-        id,
-        ...existingStore,
-        ...updatedFields,
-      },
+      store: updatedStore,
     });
   } catch (error) {
     console.error("Error updating store:", error);
-    return NextResponse.json(
-      { success: false, error: "Failed to update store." },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: "Failed to update store." }, { status: 500 });
   }
 }
 
@@ -131,32 +105,25 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await getSession();
-    if (!session) {
+    const ctx = await getBusinessContext();
+    if (!ctx) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }
 
-    if (session.role === "Staff") {
-      return NextResponse.json(
-        { success: false, error: "Access denied. Only administrators can delete stores." },
-        { status: 403 }
-      );
-    }
-
-    const { id } = await params;
-    const storeRef = doc(db, "stores", id);
-    const storeSnap = await getDoc(storeRef);
-
-    if (!storeSnap.exists()) {
-      return NextResponse.json({ success: false, error: "Store not found." }, { status: 404 });
-    }
-
-    const storeData = storeSnap.data();
-    if (storeData.ownerEmail !== session.email) {
+    if (ctx.role === "Staff") {
       return NextResponse.json({ success: false, error: "Access denied." }, { status: 403 });
     }
 
-    await deleteDoc(storeRef);
+    const { id } = await params;
+    const { error } = await ctx.supabase
+      .from("stores")
+      .delete()
+      .eq("id", id)
+      .eq("business_id", ctx.businessId);
+
+    if (error) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    }
 
     return NextResponse.json({
       success: true,
@@ -164,9 +131,6 @@ export async function DELETE(
     });
   } catch (error) {
     console.error("Error deleting store:", error);
-    return NextResponse.json(
-      { success: false, error: "Failed to delete store." },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: "Failed to delete store." }, { status: 500 });
   }
 }

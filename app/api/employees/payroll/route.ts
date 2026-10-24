@@ -1,32 +1,10 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { verifySessionToken, AUTH_COOKIE_NAME, ACTIVE_STORE_COOKIE } from "@/lib/auth";
-import { db } from "@/lib/firebase";
-import {
-  collection,
-  query,
-  where,
-  getDocs,
-  doc,
-  getDoc,
-  setDoc,
-  writeBatch,
-} from "firebase/firestore";
-
-async function getStoreContext() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
-  const storeId = cookieStore.get(ACTIVE_STORE_COOKIE)?.value;
-  if (!token || !storeId) return null;
-  const session = await verifySessionToken(token);
-  if (!session) return null;
-  return { session, storeId };
-}
+import { getBusinessContext } from "@/lib/supabaseDb";
 
 // GET /api/employees/payroll?month=YYYY-MM
 export async function GET(request: Request) {
   try {
-    const ctx = await getStoreContext();
+    const ctx = await getBusinessContext();
     if (!ctx) {
       return NextResponse.json(
         { success: false, error: "Unauthorized or no active store." },
@@ -40,18 +18,35 @@ export async function GET(request: Request) {
     const month = searchParams.get("month") || currentMonthStr;
 
     // 1. Fetch Employees
-    const empRef = collection(db, "employees");
-    const empSnap = await getDocs(query(empRef, where("storeId", "==", ctx.storeId)));
-    const employees = empSnap.docs
-      .map((d) => ({ id: d.id, ...d.data() as any }))
-      .filter((e) => e.status !== "Terminated" && e.status !== "Inactive");
+    let empQuery = ctx.supabase
+      .from("employees")
+      .select("*")
+      .eq("business_id", ctx.businessId)
+      .neq("status", "Terminated")
+      .neq("status", "Inactive");
+
+    if (ctx.storeId) {
+      empQuery = empQuery.or(`store_id.eq.${ctx.storeId},store_id.is.null`);
+    }
+
+    const { data: empData, error: empErr } = await empQuery;
+    if (empErr) throw empErr;
+    const employees = empData || [];
 
     // 2. Fetch Settings
-    const setDocRef = doc(db, "store_attendance_settings", ctx.storeId);
-    const setSnap = await getDoc(setDocRef);
-    const settings = setSnap.exists()
-      ? setSnap.data()
-      : { monthDivisor: 30, enableAttendanceBonus: false, bonusDays: 1, sundayIsHoliday: true };
+    const { data: bSettings } = await ctx.supabase
+      .from("business_settings")
+      .select("settings")
+      .eq("business_id", ctx.businessId)
+      .eq("store_id", ctx.storeId || null)
+      .maybeSingle();
+
+    const settings = bSettings?.settings?.attendance_settings || {
+      monthDivisor: 30,
+      enableAttendanceBonus: false,
+      bonusDays: 1,
+      sundayIsHoliday: true,
+    };
 
     const monthDivisor = settings.monthDivisor === 31 ? 31 : 30;
     const enableAttendanceBonus = Boolean(settings.enableAttendanceBonus);
@@ -61,42 +56,84 @@ export async function GET(request: Request) {
     // 3. Fetch Holidays for this month
     const startOfMonth = `${month}-01`;
     const endOfMonth = `${month}-31`;
-    const holRef = collection(db, "store_holidays");
-    const holSnap = await getDocs(query(holRef, where("storeId", "==", ctx.storeId)));
-    const holidays = holSnap.docs
-      .map((d) => d.data())
-      .filter((h: any) => h.date >= startOfMonth && h.date <= endOfMonth);
+
+    let holQuery = ctx.supabase
+      .from("store_holidays")
+      .select("*")
+      .eq("business_id", ctx.businessId)
+      .gte("date", startOfMonth)
+      .lte("date", endOfMonth);
+
+    if (ctx.storeId) {
+      holQuery = holQuery.or(`store_id.eq.${ctx.storeId},store_id.is.null`);
+    }
+
+    const { data: holidaysData } = await holQuery;
+    const holidays = holidaysData || [];
     const holidayDates = new Set(holidays.map((h: any) => h.date));
 
-    // 4. Fetch Attendance records for this month (filter date in memory to avoid requiring Firestore composite indexes)
-    const attRef = collection(db, "employee_attendance");
-    const attSnap = await getDocs(query(attRef, where("storeId", "==", ctx.storeId)));
-    const attendanceRecords = attSnap.docs
-      .map((d) => d.data())
-      .filter((a: any) => a.date >= startOfMonth && a.date <= endOfMonth);
+    // 4. Fetch Attendance records for this month
+    let attQuery = ctx.supabase
+      .from("employee_attendance")
+      .select("*")
+      .eq("business_id", ctx.businessId)
+      .gte("date", startOfMonth)
+      .lte("date", endOfMonth);
+
+    if (ctx.storeId) {
+      attQuery = attQuery.or(`store_id.eq.${ctx.storeId},store_id.is.null`);
+    }
+
+    const { data: attData } = await attQuery;
+    const attendanceRecords = attData || [];
 
     // 5. Fetch Approved Leaves for this month
-    const leavesRef = collection(db, "employee_leaves");
-    const leavesSnap = await getDocs(query(leavesRef, where("storeId", "==", ctx.storeId)));
-    const leaves = leavesSnap.docs.map((d) => d.data());
+    let leavesQuery = ctx.supabase
+      .from("employee_leaves")
+      .select("*")
+      .eq("business_id", ctx.businessId);
+
+    if (ctx.storeId) {
+      leavesQuery = leavesQuery.or(`store_id.eq.${ctx.storeId},store_id.is.null`);
+    }
+
+    const { data: leavesData } = await leavesQuery;
+    const leaves = leavesData || [];
 
     // 6. Fetch Pending Advances per employee
-    const advRef = collection(db, "employee_advances");
-    const advSnap = await getDocs(query(advRef, where("storeId", "==", ctx.storeId)));
-    const advances = advSnap.docs
-      .map((d) => ({ id: d.id, ...d.data() as any }))
-      .filter((a) => (a.remainingAmount || 0) > 0 && a.status !== "Repaid");
+    let advQuery = ctx.supabase
+      .from("employee_advances")
+      .select("*")
+      .eq("business_id", ctx.businessId)
+      .gt("remaining_amount", 0)
+      .neq("status", "Repaid");
+
+    if (ctx.storeId) {
+      advQuery = advQuery.or(`store_id.eq.${ctx.storeId},store_id.is.null`);
+    }
+
+    const { data: advData } = await advQuery;
+    const advances = advData || [];
 
     const pendingAdvMap = new Map<string, number>();
-    advances.forEach((a) => {
-      const current = pendingAdvMap.get(a.employeeId) || 0;
-      pendingAdvMap.set(a.employeeId, current + (Number(a.remainingAmount) || 0));
+    advances.forEach((a: any) => {
+      const current = pendingAdvMap.get(a.employee_id) || 0;
+      pendingAdvMap.set(a.employee_id, current + (Number(a.remaining_amount) || 0));
     });
 
     // 7. Check if a finalized payroll already exists for this month
-    const payrollDocRef = doc(db, "employee_payroll", `${ctx.storeId}_${month}`);
-    const payrollSnap = await getDoc(payrollDocRef);
-    const savedPayroll = payrollSnap.exists() ? payrollSnap.data() : null;
+    let payrollQuery = ctx.supabase
+      .from("employee_payroll")
+      .select("*")
+      .eq("business_id", ctx.businessId)
+      .eq("month", month);
+
+    if (ctx.storeId) {
+      payrollQuery = payrollQuery.eq("store_id", ctx.storeId);
+    }
+
+    const { data: savedPayrollRow } = await payrollQuery.maybeSingle();
+    const savedPayroll = savedPayrollRow ? savedPayrollRow.records : null;
 
     // Calculate calendar days in month
     const [yearNum, monthNum] = month.split("-").map(Number);
@@ -112,11 +149,12 @@ export async function GET(request: Request) {
     }
 
     // Compute payroll details per employee
-    const payrollList = employees.map((emp) => {
-      // If already saved in finalized payroll, merge with saved customizations
-      const savedRec = savedPayroll?.records?.find((r: any) => r.employeeId === emp.id);
+    const payrollList = employees.map((emp: any) => {
+      const savedRec = Array.isArray(savedPayroll)
+        ? savedPayroll.find((r: any) => r.employeeId === emp.id)
+        : null;
 
-      const empAtt = attendanceRecords.filter((a: any) => a.employeeId === emp.id);
+      const empAtt = attendanceRecords.filter((a: any) => a.employee_id === emp.id);
       let presentDays = 0;
       let halfDays = 0;
       let absentDays = 0;
@@ -127,53 +165,34 @@ export async function GET(request: Request) {
         else if (a.status === "Absent") absentDays += 1;
       });
 
-      // Employee's accepted leaves allowance
-      const acceptedLeaves = Number(emp.acceptedLeaves) || 0;
+      const acceptedLeaves = Number(emp.accepted_leaves) || 0;
 
-      // Count approved leaves taken this month
       const empLeaves = leaves.filter((l: any) => {
-        if (l.employeeId !== emp.id) return false;
-        return l.fromDate <= endOfMonth && l.toDate >= startOfMonth;
+        if (l.employee_id !== emp.id) return false;
+        return l.from_date <= endOfMonth && l.to_date >= startOfMonth;
       });
-      const approvedLeavesTaken = empLeaves.reduce((acc, curr) => acc + (curr.daysCount || 0), 0);
+      const approvedLeavesTaken = empLeaves.reduce((acc: number, curr: any) => acc + (curr.days_count || 0), 0);
 
-      // Base salary & per-day salary
-      const baseSalary = Number(emp.salaryAmount) || 0;
+      const baseSalary = Number(emp.salary_amount) || 0;
       const perDaySalary =
-        emp.salaryType === "daily" ? baseSalary : Math.round((baseSalary / monthDivisor) * 100) / 100;
+        emp.salary_type === "daily" ? baseSalary : Math.round((baseSalary / monthDivisor) * 100) / 100;
 
-      // Paid holidays & Sundays
-      let paidHolidaysCount = holidays.length;
-      if (sundayIsHoliday) {
-        paidHolidaysCount += Array.from(sundays).filter((s) => !holidayDates.has(s)).length;
-      }
-
-      // Total payable days
-      // Present days + (Half days * 0.5) + Accepted leaves applied (up to approved leaves taken)
       const payableLeaves = Math.min(acceptedLeaves, approvedLeavesTaken);
       const effectiveWorkingPresent = presentDays + halfDays * 0.5;
-
-      // Unexcused absences = absent days - payable leaves
       const unexcusedAbsences = Math.max(0, absentDays - payableLeaves);
 
-      // Full Attendance Bonus Eligibility:
-      // Eligible if: bonus is enabled AND unexcusedAbsences == 0 (all absences are covered by accepted leaves)
       const isBonusEligible = enableAttendanceBonus && unexcusedAbsences === 0 && effectiveWorkingPresent > 0;
       const applyBonus = savedRec?.applyBonus !== undefined ? savedRec.applyBonus : isBonusEligible;
       const bonusAmount = applyBonus ? Math.round(bonusDays * perDaySalary) : 0;
 
-      // Total gross payable
-      // For monthly: baseSalary - (unexcusedAbsences * perDaySalary) + bonusAmount
-      // For daily: (effectiveWorkingPresent + payableLeaves) * perDaySalary + bonusAmount
       let grossEarnings = 0;
-      if (emp.salaryType === "daily") {
+      if (emp.salary_type === "daily") {
         grossEarnings = Math.max(0, Math.round((effectiveWorkingPresent + payableLeaves) * perDaySalary + bonusAmount));
       } else {
         const deductionForAbsence = Math.round(unexcusedAbsences * perDaySalary);
         grossEarnings = Math.max(0, Math.round(baseSalary - deductionForAbsence + bonusAmount));
       }
 
-      // Pending Advance
       const pendingAdvance = pendingAdvMap.get(emp.id) || 0;
       const advanceDeduction =
         savedRec?.advanceDeduction !== undefined
@@ -184,11 +203,11 @@ export async function GET(request: Request) {
 
       return {
         employeeId: emp.id,
-        employeeNumericId: emp.employeeId || "",
+        employeeNumericId: emp.employee_id || "",
         employeeName: emp.name,
-        avatarUrl: emp.avatarUrl || "",
+        avatarUrl: emp.avatar_url || "",
         mobile: emp.mobile || "",
-        salaryType: emp.salaryType || "monthly",
+        salaryType: emp.salary_type || "monthly",
         baseSalary,
         perDaySalary,
         presentDays,
@@ -225,17 +244,16 @@ export async function GET(request: Request) {
   } catch (err: any) {
     console.error("GET payroll error:", err);
     return NextResponse.json(
-      { success: false, error: "Failed to calculate payroll." },
+      { success: false, error: err?.message || "Failed to calculate payroll." },
       { status: 500 }
     );
   }
 }
 
 // POST /api/employees/payroll
-// Saves finalized payroll records and processes advance deductions via FIFO
 export async function POST(request: Request) {
   try {
-    const ctx = await getStoreContext();
+    const ctx = await getBusinessContext();
     if (!ctx) {
       return NextResponse.json(
         { success: false, error: "Unauthorized or no active store." },
@@ -253,69 +271,72 @@ export async function POST(request: Request) {
       );
     }
 
-    const batch = writeBatch(db);
-
     // Save payroll doc
-    const payrollDocRef = doc(db, "employee_payroll", `${ctx.storeId}_${month}`);
-    batch.set(
-      payrollDocRef,
-      {
-        storeId: ctx.storeId,
-        month,
-        records,
-        updatedAt: Date.now(),
-        updatedBy: ctx.session.email || ctx.session.staffId || "user",
-      },
-      { merge: true }
-    );
+    const { error: pErr } = await ctx.supabase
+      .from("employee_payroll")
+      .upsert(
+        {
+          business_id: ctx.businessId,
+          store_id: ctx.storeId || null,
+          month,
+          records,
+          updated_by: ctx.session.email || "system",
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "store_id,month" }
+      );
 
-    // If advance deductions were made, automatically settle advances via FIFO
-    const advRef = collection(db, "employee_advances");
-    const advSnap = await getDocs(query(advRef, where("storeId", "==", ctx.storeId)));
-    const allAdvances = advSnap.docs.map((d) => ({ id: d.id, ...d.data() as any }));
+    if (pErr) throw pErr;
 
+    // Process advance deductions via FIFO
     for (const rec of records) {
       const deduction = Number(rec.advanceDeduction) || 0;
       if (deduction > 0) {
-        // Find pending advances for this employee sorted by createdAt asc (FIFO)
-        const empPending = allAdvances
-          .filter((a) => a.employeeId === rec.employeeId && a.remainingAmount > 0 && a.status !== "Repaid")
-          .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+        const { data: advances } = await ctx.supabase
+          .from("employee_advances")
+          .select("*")
+          .eq("business_id", ctx.businessId)
+          .eq("employee_id", rec.employeeId)
+          .gt("remaining_amount", 0)
+          .neq("status", "Repaid")
+          .order("created_at", { ascending: true });
 
         let left = deduction;
-        for (const adv of empPending) {
+        for (const adv of (advances || [])) {
           if (left <= 0) break;
-          const curr = adv.remainingAmount || 0;
-          const targetDoc = doc(db, "employee_advances", adv.id);
+          const curr = Number(adv.remaining_amount) || 0;
           if (left >= curr) {
             left -= curr;
-            adv.remainingAmount = 0;
-            batch.update(targetDoc, { remainingAmount: 0, status: "Repaid", updatedAt: Date.now() });
+            await ctx.supabase
+              .from("employee_advances")
+              .update({ remaining_amount: 0, status: "Repaid", updated_at: new Date().toISOString() })
+              .eq("id", adv.id);
           } else {
             const newRem = curr - left;
-            adv.remainingAmount = newRem;
             left = 0;
-            batch.update(targetDoc, { remainingAmount: newRem, status: "Partially Repaid", updatedAt: Date.now() });
+            await ctx.supabase
+              .from("employee_advances")
+              .update({ remaining_amount: newRem, status: "Partially Repaid", updated_at: new Date().toISOString() })
+              .eq("id", adv.id);
           }
         }
 
         // Record a repayment entry
-        const repDocRef = doc(collection(db, "employee_repayments"));
-        batch.set(repDocRef, {
-          storeId: ctx.storeId,
-          employeeId: rec.employeeId,
-          employeeNumericId: rec.employeeNumericId || "",
-          employeeName: rec.employeeName || "",
-          amount: deduction,
-          date: new Date().toISOString().split("T")[0],
-          notes: `Payroll Advance Deduction for ${month}`,
-          createdAt: Date.now(),
-          createdBy: ctx.session.email || ctx.session.staffId || "user",
-        });
+        await ctx.supabase
+          .from("employee_repayments")
+          .insert({
+            business_id: ctx.businessId,
+            store_id: ctx.storeId || null,
+            employee_id: rec.employeeId,
+            employee_numeric_id: rec.employeeNumericId || "",
+            employee_name: rec.employeeName || "",
+            amount: deduction,
+            date: new Date().toISOString().split("T")[0],
+            notes: `Payroll Advance Deduction for ${month}`,
+            created_by: ctx.session.email || "system",
+          });
       }
     }
-
-    await batch.commit();
 
     return NextResponse.json({
       success: true,
@@ -324,7 +345,7 @@ export async function POST(request: Request) {
   } catch (err: any) {
     console.error("POST payroll error:", err);
     return NextResponse.json(
-      { success: false, error: "Failed to save payroll." },
+      { success: false, error: err?.message || "Failed to save payroll." },
       { status: 500 }
     );
   }

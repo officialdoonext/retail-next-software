@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { verifySessionToken, createSessionToken, AUTH_COOKIE_NAME, ACTIVE_STORE_COOKIE } from "@/lib/auth";
-import { db } from "@/lib/firebase";
-import { doc, getDoc } from "firebase/firestore";
+import {
+  verifySessionToken,
+  createSessionToken,
+  isBusinessAllowed,
+  AUTH_COOKIE_NAME,
+  ACTIVE_BUSINESS_COOKIE,
+  ACTIVE_STORE_COOKIE,
+} from "@/lib/auth";
+import { createClient } from "@supabase/supabase-js";
 
 export async function GET() {
   try {
@@ -14,68 +20,85 @@ export async function GET() {
     }
 
     const payload = await verifySessionToken(token);
-    if (!payload) {
+    if (!payload || !payload.email) {
       return NextResponse.json({ authenticated: false }, { status: 401 });
     }
 
-    const activeStoreId = cookieStore.get(ACTIVE_STORE_COOKIE)?.value || null;
-    let activeStore = null;
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 
-    if (activeStoreId) {
-      const storeSnap = await getDoc(doc(db, "stores", activeStoreId));
-      if (storeSnap.exists()) {
-        const sData = storeSnap.data();
-        activeStore = {
-          id: storeSnap.id,
-          name: sData.name,
-          code: sData.code || "",
-          location: sData.location || "",
-          status: sData.status || "Active",
-          expires: sData.expires || null,
-        };
-      }
-    }
+    let currentBusiness: any = null;
+    let businessesList: any[] = [];
+    const activeBusinessId = cookieStore.get(ACTIVE_BUSINESS_COOKIE)?.value || payload.businessId;
 
-    let userDocData: any = null;
-    if (payload.email) {
+    if (supabaseUrl && !supabaseUrl.includes("your-project-id")) {
       try {
-        const userSnap = await getDoc(
-          doc(db, "users", payload.email.toLowerCase().replace(/[^a-zA-Z0-9_]/g, "_"))
-        );
-        if (userSnap.exists()) {
-          userDocData = userSnap.data();
+        const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+          auth: { persistSession: false, autoRefreshToken: false },
+        });
+
+        // Query user's businesses
+        const { data: businesses } = await supabaseAdmin
+          .from("businesses")
+          .select("*")
+          .or(`email.eq.${payload.email.toLowerCase()}${payload.userId ? `,owner_id.eq.${payload.userId}` : ""}`)
+          .order("created_at", { ascending: false });
+
+        businessesList = businesses || [];
+
+        if (activeBusinessId) {
+          currentBusiness = businessesList.find((b) => b.id === activeBusinessId);
         }
-      } catch (err) {
-        console.error("Error fetching user record:", err);
+        if (!currentBusiness && businessesList.length > 0) {
+          currentBusiness = businessesList[0];
+        }
+      } catch (dbErr) {
+        console.error("Error reading business from Supabase:", dbErr);
       }
     }
 
-    const liveModules = Array.isArray(userDocData?.enabledModules) ? userDocData.enabledModules : null;
+    // Determine live status and expiry date
+    const liveStatus = currentBusiness?.status || payload.status || "Inactive";
+    const liveExpiry = currentBusiness ? currentBusiness.expiry_date : payload.expiryDate ?? null;
+    const livePlan = currentBusiness?.plan ?? payload.plan ?? null;
+    const liveModules = Array.isArray(currentBusiness?.enabled_modules)
+      ? currentBusiness.enabled_modules
+      : payload.enabledModules || null;
 
-    // Refresh JWT session token with live status, expiry and enabled modules
+    const isAllowed =
+      payload.role === "Staff" ? true : isBusinessAllowed(liveStatus, liveExpiry);
+
+    // Refresh JWT session token with live status and business ID
     const updatedToken = await createSessionToken({
       ...payload,
-      status: userDocData?.status || payload.status,
-      plan: userDocData?.plan ?? payload.plan,
-      expiryDate: userDocData?.expiryDate ?? payload.expiryDate,
+      businessId: currentBusiness?.id || payload.businessId,
+      businessName: currentBusiness?.name || payload.businessName,
+      status: liveStatus,
+      plan: livePlan,
+      expiryDate: liveExpiry,
       enabledModules: liveModules || undefined,
     });
 
     const response = NextResponse.json({
       authenticated: true,
+      isAllowed,
       user: {
+        userId: payload.userId,
         email: payload.email,
         role: payload.role,
         mobile: payload.mobile || null,
         staffName: payload.staffName || null,
         staffId: payload.staffId || null,
         access: payload.access || [],
-        status: userDocData?.status || (payload.role === "Admin" ? "Inactive" : "Active"),
-        plan: userDocData?.plan || null,
-        expiryDate: userDocData?.expiryDate ?? null,
+        businessId: currentBusiness?.id || payload.businessId || null,
+        businessName: currentBusiness?.name || payload.businessName || null,
+        status: liveStatus,
+        plan: livePlan,
+        expiryDate: liveExpiry,
         enabledModules: liveModules,
       },
-      activeStore,
+      businesses: businessesList,
+      currentBusiness,
     });
 
     // Keep auth_session JWT synchronized
@@ -89,19 +112,16 @@ export async function GET() {
       maxAge: 7 * 24 * 60 * 60,
     });
 
-    // Set client_modules cookie for instantaneous zero-flash client & middleware access
-    if (liveModules) {
+    if (currentBusiness?.id) {
       response.cookies.set({
-        name: "client_modules",
-        value: encodeURIComponent(JSON.stringify(liveModules)),
-        httpOnly: false,
+        name: ACTIVE_BUSINESS_COOKIE,
+        value: currentBusiness.id,
+        httpOnly: true,
         secure: process.env.NODE_ENV === "production",
         sameSite: "lax",
         path: "/",
         maxAge: 7 * 24 * 60 * 60,
       });
-    } else {
-      response.cookies.delete("client_modules");
     }
 
     return response;

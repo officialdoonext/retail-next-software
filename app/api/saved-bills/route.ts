@@ -1,51 +1,39 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { verifySessionToken, AUTH_COOKIE_NAME, ACTIVE_STORE_COOKIE } from "@/lib/auth";
-import { db } from "@/lib/firebase";
-import {
-  collection,
-  query,
-  where,
-  getDocs,
-  addDoc,
-  doc,
-  getDoc,
-  deleteDoc,
-  updateDoc,
-} from "firebase/firestore";
+import { getBusinessContext } from "@/lib/supabaseDb";
 
-async function getStoreContext() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
-  const storeId = cookieStore.get(ACTIVE_STORE_COOKIE)?.value;
-
-  if (!token || !storeId) return null;
-
-  const session = await verifySessionToken(token);
-  if (!session) return null;
-
-  return { session, storeId };
-}
-
-// GET: Fetch all saved/held draft bills for the active store
+// GET: Fetch all saved/held draft bills for the active business & store
 export async function GET() {
   try {
-    const ctx = await getStoreContext();
+    const ctx = await getBusinessContext();
     if (!ctx) {
       return NextResponse.json({ success: false, error: "Unauthorized access blocked." }, { status: 401 });
     }
 
-    const savedBillsRef = collection(db, "saved_bills");
-    const q = query(savedBillsRef, where("storeId", "==", ctx.storeId));
-    const snapshot = await getDocs(q);
+    let query = ctx.supabase
+      .from("saved_bills")
+      .select("*")
+      .eq("business_id", ctx.businessId);
 
-    const savedBills = snapshot.docs.map((d) => ({
+    if (ctx.storeId) {
+      query = query.or(`store_id.eq.${ctx.storeId},store_id.is.null`);
+    }
+
+    const { data: rawBills, error } = await query.order("created_at", { ascending: false });
+
+    if (error) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    }
+
+    const savedBills = (rawBills || []).map((d: any) => ({
       id: d.id,
-      ...d.data(),
+      draftNumber: d.bill_name,
+      storeId: d.store_id,
+      businessId: d.business_id,
+      customer: d.customer_info,
+      items: Array.isArray(d.items) ? d.items : [],
+      totalItemsCount: Array.isArray(d.items) ? d.items.reduce((s: number, i: any) => s + (Number(i.quantity) || 1), 0) : 0,
+      createdAt: d.created_at ? new Date(d.created_at).getTime() : Date.now(),
     }));
-
-    // Sort newest first
-    savedBills.sort((a: any, b: any) => (b.createdAt || 0) - (a.createdAt || 0));
 
     return NextResponse.json({ success: true, savedBills });
   } catch (error: any) {
@@ -54,10 +42,10 @@ export async function GET() {
   }
 }
 
-// POST: Save cart as a draft bill (Hold bill without deducting stock)
+// POST: Save cart as a draft bill in Supabase
 export async function POST(request: Request) {
   try {
-    const ctx = await getStoreContext();
+    const ctx = await getBusinessContext();
     if (!ctx) {
       return NextResponse.json({ success: false, error: "Unauthorized access blocked." }, { status: 401 });
     }
@@ -71,46 +59,28 @@ export async function POST(request: Request) {
 
     const draftNumber = `HOLD-${Date.now().toString().slice(-6)}`;
 
-    const savedBillData: any = {
-      draftNumber,
-      storeId: ctx.storeId,
-      customer: body.customer || null,
-      items: items.map((it: any, index: number) => ({
-        cartId: it.cartId || (it.variantId ? `${it.productId}_${it.variantId}` : it.productId) || `item_${Date.now()}_${index}`,
-        productId: it.productId,
-        productName: it.productName,
-        variantId: it.variantId || null,
-        variantName: it.variantName || null,
-        barcode: it.barcode || "",
-        sku: it.sku || "",
-        price: Number(it.price) || 0,
-        quantity: Number(it.quantity) || 1,
-        total: (Number(it.price) || 0) * (Number(it.quantity) || 1),
-      })),
-      totalItemsCount: items.reduce((sum: number, it: any) => sum + (Number(it.quantity) || 1), 0),
-      subtotal: Number(body.subtotal) || 0,
-      discount: Number(body.discount) || 0,
-      discountType: body.discountType || "FIXED",
-      cgst: Number(body.cgst) || 0,
-      sgst: Number(body.sgst) || 0,
-      grandTotal: Number(body.grandTotal) || 0,
-      paymentMethod: body.paymentMethod || "CASH",
-      notes: String(body.notes || "").trim(),
-      savedBy: ctx.session.email,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+    const savedBillData = {
+      business_id: ctx.businessId,
+      store_id: ctx.storeId || null,
+      bill_name: draftNumber,
+      items,
+      customer_info: body.customer || {},
+      created_at: new Date().toISOString(),
     };
 
-    // If an existing savedBillId was passed, update it instead of creating duplicate
     if (body.id) {
-      const existingRef = doc(db, "saved_bills", body.id);
-      const snap = await getDoc(existingRef);
-      if (snap.exists() && snap.data().storeId === ctx.storeId) {
-        await updateDoc(existingRef, {
-          ...savedBillData,
-          draftNumber: snap.data().draftNumber || draftNumber,
-          updatedAt: Date.now(),
-        });
+      const { data: updatedBill, error: upErr } = await ctx.supabase
+        .from("saved_bills")
+        .update({
+          items,
+          customer_info: body.customer || {},
+        })
+        .eq("id", body.id)
+        .eq("business_id", ctx.businessId)
+        .select()
+        .single();
+
+      if (!upErr && updatedBill) {
         return NextResponse.json({
           success: true,
           message: "Saved bill updated successfully.",
@@ -119,13 +89,22 @@ export async function POST(request: Request) {
       }
     }
 
-    const docRef = await addDoc(collection(db, "saved_bills"), savedBillData);
+    const { data: insertedBill, error } = await ctx.supabase
+      .from("saved_bills")
+      .insert([savedBillData])
+      .select()
+      .single();
+
+    if (error) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    }
 
     return NextResponse.json({
       success: true,
       message: "Bill placed on hold in saved bills.",
       savedBill: {
-        id: docRef.id,
+        id: insertedBill.id,
+        draftNumber,
         ...savedBillData,
       },
     });
@@ -135,10 +114,10 @@ export async function POST(request: Request) {
   }
 }
 
-// DELETE: Discard a saved bill by id
+// DELETE: Discard a saved bill in Supabase
 export async function DELETE(request: Request) {
   try {
-    const ctx = await getStoreContext();
+    const ctx = await getBusinessContext();
     if (!ctx) {
       return NextResponse.json({ success: false, error: "Unauthorized access blocked." }, { status: 401 });
     }
@@ -150,14 +129,15 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ success: false, error: "Missing bill ID." }, { status: 400 });
     }
 
-    const billRef = doc(db, "saved_bills", billId);
-    const snap = await getDoc(billRef);
+    const { error } = await ctx.supabase
+      .from("saved_bills")
+      .delete()
+      .eq("id", billId)
+      .eq("business_id", ctx.businessId);
 
-    if (!snap.exists() || snap.data().storeId !== ctx.storeId) {
-      return NextResponse.json({ success: false, error: "Saved bill not found or unauthorized." }, { status: 404 });
+    if (error) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
     }
-
-    await deleteDoc(billRef);
 
     return NextResponse.json({ success: true, message: "Saved bill removed." });
   } catch (error: any) {

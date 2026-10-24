@@ -1,31 +1,10 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { verifySessionToken, AUTH_COOKIE_NAME, ACTIVE_STORE_COOKIE } from "@/lib/auth";
-import { db } from "@/lib/firebase";
-import {
-  collection,
-  query,
-  where,
-  getDocs,
-  doc,
-  setDoc,
-  writeBatch,
-} from "firebase/firestore";
-
-async function getStoreContext() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
-  const storeId = cookieStore.get(ACTIVE_STORE_COOKIE)?.value;
-  if (!token || !storeId) return null;
-  const session = await verifySessionToken(token);
-  if (!session) return null;
-  return { session, storeId };
-}
+import { getBusinessContext } from "@/lib/supabaseDb";
 
 // GET /api/employees/attendance?date=YYYY-MM-DD
 export async function GET(request: Request) {
   try {
-    const ctx = await getStoreContext();
+    const ctx = await getBusinessContext();
     if (!ctx) {
       return NextResponse.json(
         { success: false, error: "Unauthorized or no active store." },
@@ -37,30 +16,59 @@ export async function GET(request: Request) {
     const date = searchParams.get("date") || new Date().toISOString().split("T")[0];
     const month = searchParams.get("month"); // e.g. "2026-09"
 
-    const attRef = collection(db, "employee_attendance");
-    let attendance: any[] = [];
+    let attQuery = ctx.supabase
+      .from("employee_attendance")
+      .select("*")
+      .eq("business_id", ctx.businessId);
+
+    if (ctx.storeId) {
+      attQuery = attQuery.or(`store_id.eq.${ctx.storeId},store_id.is.null`);
+    }
+
     if (month) {
       const startOfMonth = `${month}-01`;
       const endOfMonth = `${month}-31`;
-      const snap = await getDocs(query(attRef, where("storeId", "==", ctx.storeId)));
-      attendance = snap.docs
-        .map((d) => ({ id: d.id, ...d.data() }))
-        .filter((a: any) => a.date >= startOfMonth && a.date <= endOfMonth);
+      attQuery = attQuery.gte("date", startOfMonth).lte("date", endOfMonth);
     } else {
-      const attQuery = query(
-        attRef,
-        where("storeId", "==", ctx.storeId),
-        where("date", "==", date)
-      );
-      const snap = await getDocs(attQuery);
-      attendance = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      attQuery = attQuery.eq("date", date);
     }
 
+    const { data: attData, error: attErr } = await attQuery;
+    if (attErr) throw attErr;
+
+    const attendance = (attData || []).map((row: any) => ({
+      id: row.id,
+      storeId: row.store_id,
+      employeeId: row.employee_id,
+      employeeNumericId: row.employee_numeric_id,
+      employeeName: row.employee_name,
+      date: row.date,
+      status: row.status,
+      isLeave: row.is_leave,
+      updatedAt: new Date(row.updated_at).getTime(),
+    }));
+
     // Fetch leaves active on this date (or during this month)
-    const leavesRef = collection(db, "employee_leaves");
-    const leavesQuery = query(leavesRef, where("storeId", "==", ctx.storeId));
-    const leavesSnap = await getDocs(leavesQuery);
-    const allLeaves = leavesSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    let leavesQuery = ctx.supabase
+      .from("employee_leaves")
+      .select("*")
+      .eq("business_id", ctx.businessId);
+
+    if (ctx.storeId) {
+      leavesQuery = leavesQuery.or(`store_id.eq.${ctx.storeId},store_id.is.null`);
+    }
+
+    const { data: leavesData } = await leavesQuery;
+    const allLeaves = (leavesData || []).map((l: any) => ({
+      id: l.id,
+      employeeId: l.employee_id,
+      employeeName: l.employee_name,
+      fromDate: l.from_date,
+      toDate: l.to_date,
+      daysCount: l.days_count,
+      reason: l.reason,
+      status: l.status,
+    }));
 
     const leavesOnDate = allLeaves.filter((l: any) => {
       if (date) {
@@ -79,17 +87,16 @@ export async function GET(request: Request) {
   } catch (err: any) {
     console.error("GET /api/employees/attendance error:", err);
     return NextResponse.json(
-      { success: false, error: "Failed to fetch attendance." },
+      { success: false, error: err?.message || "Failed to fetch attendance." },
       { status: 500 }
     );
   }
 }
 
 // POST /api/employees/attendance
-// Body: { date: "YYYY-MM-DD", records: [ { employeeId, employeeNumericId, employeeName, status, isLeave } ] }
 export async function POST(request: Request) {
   try {
-    const ctx = await getStoreContext();
+    const ctx = await getBusinessContext();
     if (!ctx) {
       return NextResponse.json(
         { success: false, error: "Unauthorized or no active store." },
@@ -107,33 +114,31 @@ export async function POST(request: Request) {
       );
     }
 
-    const batch = writeBatch(db);
-    const now = Date.now();
+    const itemsToUpsert = records
+      .filter((rec: any) => Boolean(rec.employeeId))
+      .map((rec: any) => ({
+        business_id: ctx.businessId,
+        store_id: ctx.storeId || null,
+        date,
+        employee_id: rec.employeeId,
+        employee_numeric_id: rec.employeeNumericId || "",
+        employee_name: rec.employeeName || "",
+        status: rec.status,
+        is_leave: Boolean(rec.isLeave),
+        updated_by: ctx.session.email || "system",
+        updated_at: new Date().toISOString(),
+      }));
 
-    for (const rec of records) {
-      if (!rec.employeeId) continue;
-      // Deterministic doc ID to avoid duplicates per employee per date
-      const docId = `att_${ctx.storeId}_${rec.employeeId}_${date}`;
-      const docRef = doc(db, "employee_attendance", docId);
+    const { error } = await ctx.supabase
+      .from("employee_attendance")
+      .upsert(itemsToUpsert, {
+        onConflict: "store_id,employee_id,date",
+      });
 
-      batch.set(
-        docRef,
-        {
-          storeId: ctx.storeId,
-          date,
-          employeeId: rec.employeeId,
-          employeeNumericId: rec.employeeNumericId || "",
-          employeeName: rec.employeeName || "",
-          status: rec.status, // "Present" | "Absent" | "Half Day"
-          isLeave: Boolean(rec.isLeave),
-          updatedAt: now,
-          updatedBy: ctx.session.email || ctx.session.staffId || "user",
-        },
-        { merge: true }
-      );
+    if (error) {
+      console.error("Upsert attendance error:", error);
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
     }
-
-    await batch.commit();
 
     return NextResponse.json({
       success: true,
@@ -142,7 +147,7 @@ export async function POST(request: Request) {
   } catch (err: any) {
     console.error("POST /api/employees/attendance error:", err);
     return NextResponse.json(
-      { success: false, error: "Failed to save attendance." },
+      { success: false, error: err?.message || "Failed to save attendance." },
       { status: 500 }
     );
   }

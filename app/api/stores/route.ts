@@ -1,10 +1,8 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { verifySessionToken, AUTH_COOKIE_NAME, ACTIVE_STORE_COOKIE } from "@/lib/auth";
-import { db } from "@/lib/firebase";
-import { collection, query, where, getDocs, addDoc, doc, getDoc } from "firebase/firestore";
+import { verifySessionToken, AUTH_COOKIE_NAME, ACTIVE_STORE_COOKIE, ACTIVE_BUSINESS_COOKIE } from "@/lib/auth";
+import { getSupabaseAdmin } from "@/lib/supabase";
 
-// Helper to authenticate request
 async function getSession() {
   const cookieStore = await cookies();
   const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
@@ -12,12 +10,11 @@ async function getSession() {
   return verifySessionToken(token);
 }
 
-// Helper to determine maxStores limit for a user
-function resolveMaxStores(userData: any, currentCount = 0): number {
-  if (userData?.maxStores && !isNaN(Number(userData.maxStores)) && Number(userData.maxStores) > 0) {
-    return Number(userData.maxStores);
+function resolveMaxStores(businessData: any, currentCount = 0): number {
+  if (businessData?.max_stores && !isNaN(Number(businessData.max_stores)) && Number(businessData.max_stores) > 0) {
+    return Number(businessData.max_stores);
   }
-  const plan = String(userData?.plan || "").toLowerCase();
+  const plan = String(businessData?.plan || "").toLowerCase();
   if (plan.includes("unlimited")) return 999;
   if (plan.includes("enterprise")) return 20;
   if (plan.includes("business")) return 6;
@@ -26,78 +23,86 @@ function resolveMaxStores(userData: any, currentCount = 0): number {
   return Math.max(currentCount, 2);
 }
 
-// GET: Fetch all stores belonging to the authenticated user (or assigned to staff)
+// GET: Fetch all stores belonging to the active business (or assigned to staff)
 export async function GET() {
   try {
     const session = await getSession();
-    if (!session) {
+    if (!session || !session.email) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }
 
     const cookieStore = await cookies();
-    const activeStoreId = cookieStore.get(ACTIVE_STORE_COOKIE)?.value || null;
+    const activeStoreId = cookieStore.get(ACTIVE_STORE_COOKIE)?.value || session.storeId || null;
+    let businessId = cookieStore.get(ACTIVE_BUSINESS_COOKIE)?.value || session.businessId;
+
+    let supabase: any;
+    try {
+      supabase = getSupabaseAdmin();
+    } catch {
+      return NextResponse.json({ success: false, error: "Database not configured." }, { status: 500 });
+    }
+
+    // If businessId is not in session/cookie, resolve from businesses table
+    if (!businessId) {
+      const { data: businesses } = await supabase
+        .from("businesses")
+        .select("id")
+        .or(`email.eq.${session.email.toLowerCase()}${session.userId ? `,owner_id.eq.${session.userId}` : ""}`)
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      if (businesses && businesses.length > 0) {
+        businessId = businesses[0].id;
+      }
+    }
 
     let stores: any[] = [];
     let maxStores = 2;
 
     if (session.role === "Staff") {
-      // Staff user: only return stores where this staff member is actively enrolled
       const cleanMobile = String(session.mobile || "").replace(/\D/g, "");
-      const staffRef = collection(db, "staff");
-      const staffQ = query(staffRef, where("mobile", "==", cleanMobile));
-      const staffSnap = await getDocs(staffQ);
+      const { data: staffRecords } = await supabase
+        .from("staff")
+        .select("store_id")
+        .eq("mobile", cleanMobile)
+        .eq("status", "Active");
 
-      const storeIds = Array.from(
-        new Set(
-          staffSnap.docs
-            .filter((d) => !d.data().status || d.data().status === "Active")
-            .map((d) => d.data().storeId)
-            .filter(Boolean)
-        )
-      );
+      const storeIds = (staffRecords || []).map((s: any) => s.store_id).filter(Boolean);
 
       if (storeIds.length > 0) {
-        const storeDocs = await Promise.all(
-          storeIds.map((sid) => getDoc(doc(db, "stores", sid)))
-        );
+        const { data: staffStores } = await supabase
+          .from("stores")
+          .select("*")
+          .in("id", storeIds);
 
-        stores = storeDocs
-          .filter((d) => d.exists())
-          .map((docSnap) => ({
-            id: docSnap.id,
-            ...docSnap.data(),
-            isActiveSelection: docSnap.id === activeStoreId,
-          }));
+        stores = (staffStores || []).map((s: any) => ({
+          ...s,
+          isActiveSelection: s.id === activeStoreId,
+        }));
       }
       maxStores = Math.max(stores.length, 2);
     } else {
-      // Admin user: return all stores owned by the admin email
-      const storesRef = collection(db, "stores");
-      const q = query(storesRef, where("ownerEmail", "==", session.email));
-      const querySnapshot = await getDocs(q);
+      // Admin: query stores belonging to active business
+      if (businessId) {
+        const { data: busStores } = await supabase
+          .from("stores")
+          .select("*")
+          .eq("business_id", businessId)
+          .order("created_at", { ascending: false });
 
-      stores = querySnapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-        isActiveSelection: docSnap.id === activeStoreId,
-      }));
+        stores = (busStores || []).map((s: any) => ({
+          ...s,
+          isActiveSelection: s.id === activeStoreId,
+        }));
 
-      // Fetch user profile to read subscription maxStores limit
-      try {
-        const userDocRef = doc(
-          db,
-          "users",
-          session.email.toLowerCase().replace(/[^a-zA-Z0-9_]/g, "_")
-        );
-        const userSnap = await getDoc(userDocRef);
-        if (userSnap.exists()) {
-          maxStores = resolveMaxStores(userSnap.data(), stores.length);
-        } else {
-          maxStores = Math.max(stores.length, 2);
-        }
-      } catch (userErr) {
-        console.error("Error reading user maxStores:", userErr);
-        maxStores = Math.max(stores.length, 2);
+        // Fetch business details for max_stores limit
+        const { data: busData } = await supabase
+          .from("businesses")
+          .select("max_stores, plan")
+          .eq("id", businessId)
+          .single();
+
+        maxStores = resolveMaxStores(busData, stores.length);
       }
     }
 
@@ -109,22 +114,17 @@ export async function GET() {
       storesCount: stores.length,
       isLimitReached: stores.length >= maxStores,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error fetching stores:", error);
-    return NextResponse.json(
-      { success: false, error: "Failed to retrieve stores." },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: "Failed to retrieve stores." }, { status: 500 });
   }
 }
 
-// POST: Register a new store for the user (Admin only)
-// Strictly enforces store limit validation.
-// Once created, store is set to Active status with unexpired validity.
+// POST: Register a new store for the active business
 export async function POST(request: Request) {
   try {
     const session = await getSession();
-    if (!session) {
+    if (!session || !session.email) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }
 
@@ -135,31 +135,52 @@ export async function POST(request: Request) {
       );
     }
 
-    // 1. Check existing stores count for this admin
-    const storesRef = collection(db, "stores");
-    const countQuery = query(storesRef, where("ownerEmail", "==", session.email));
-    const currentStoresSnap = await getDocs(countQuery);
-    const currentStoresCount = currentStoresSnap.docs.length;
+    const cookieStore = await cookies();
+    let businessId = cookieStore.get(ACTIVE_BUSINESS_COOKIE)?.value || session.businessId;
 
-    // 2. Fetch user profile to check maxStores limit & subscription expiry
-    const userDocRef = doc(
-      db,
-      "users",
-      session.email.toLowerCase().replace(/[^a-zA-Z0-9_]/g, "_")
-    );
-    const userSnap = await getDoc(userDocRef);
-    const userData = userSnap.exists() ? userSnap.data() : null;
-    const maxStores = resolveMaxStores(userData, currentStoresCount);
+    const supabase = getSupabaseAdmin();
 
-    // 3. Strict Store Limit Enforcement: block if store limit is reached
-    if (currentStoresCount >= maxStores) {
+    if (!businessId) {
+      const { data: businesses } = await supabase
+        .from("businesses")
+        .select("id")
+        .or(`email.eq.${session.email.toLowerCase()}${session.userId ? `,owner_id.eq.${session.userId}` : ""}`)
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      if (businesses && businesses.length > 0) {
+        businessId = businesses[0].id;
+      }
+    }
+
+    if (!businessId) {
+      return NextResponse.json({ success: false, error: "Active business not found." }, { status: 400 });
+    }
+
+    // Check store limit for this business
+    const { data: currentStores } = await supabase
+      .from("stores")
+      .select("id")
+      .eq("business_id", businessId);
+
+    const currentCount = currentStores ? currentStores.length : 0;
+
+    const { data: busData } = await supabase
+      .from("businesses")
+      .select("max_stores, plan, expiry_date, status")
+      .eq("id", businessId)
+      .single();
+
+    const maxStores = resolveMaxStores(busData, currentCount);
+
+    if (currentCount >= maxStores) {
       return NextResponse.json(
         {
           success: false,
-          error: `Store limit reached (${currentStoresCount} of ${maxStores} allowed). Please contact your administrator to increase your store limit.`,
+          error: `Store limit reached (${currentCount} of ${maxStores} allowed). Please contact support to increase your store limit.`,
           limitReached: true,
           maxStores,
-          currentStoresCount,
+          currentStoresCount: currentCount,
         },
         { status: 403 }
       );
@@ -173,52 +194,45 @@ export async function POST(request: Request) {
     const gstNumber = String(body.gstNumber || body.license || "").trim().toUpperCase();
 
     if (!name) {
-      return NextResponse.json(
-        { success: false, error: "Store name is required." },
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, error: "Store name is required." }, { status: 400 });
     }
 
     const generatedCode = `RET ${Math.floor(1000 + Math.random() * 9000)}`;
     const displayLocation = city ? (fullAddress ? `${city}, ${fullAddress}` : city) : fullAddress || "Main Branch";
 
-    // Set expiry: use user's account expiry if valid, or default to 1 year ahead
-    let effectiveStoreExpiry: any = userData?.expiryDate || null;
-    if (!effectiveStoreExpiry) {
-      effectiveStoreExpiry = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
-    }
-
     const storeData = {
+      business_id: businessId,
       name,
-      mobileNumber: mobileNumber || "Not Provided",
+      mobile_number: mobileNumber || "Not Provided",
       phone: mobileNumber || "Not Provided",
       city: city || "",
-      fullAddress: fullAddress || "",
+      full_address: fullAddress || "",
       location: displayLocation,
-      gstNumber: gstNumber || "",
+      gst_number: gstNumber || "",
       license: gstNumber || `RET-TS-${Math.floor(1000 + Math.random() * 9000)}`,
       code: generatedCode,
-      ownerEmail: session.email,
-      // Strictly enforced: newly created stores are immediately Active
-      status: "Active" as const,
-      expires: effectiveStoreExpiry,
-      createdAt: Date.now(),
+      status: busData?.status === "Active" ? "Active" : "Inactive",
+      expires: busData?.expiry_date || null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     };
 
-    const docRef = await addDoc(collection(db, "stores"), storeData);
+    const { data: newStore, error: insertErr } = await supabase
+      .from("stores")
+      .insert([storeData])
+      .select()
+      .single();
+
+    if (insertErr) {
+      return NextResponse.json({ success: false, error: insertErr.message }, { status: 500 });
+    }
 
     return NextResponse.json({
       success: true,
-      store: {
-        id: docRef.id,
-        ...storeData,
-      },
+      store: newStore,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error creating store:", error);
-    return NextResponse.json(
-      { success: false, error: "Failed to create store." },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: "Failed to create store." }, { status: 500 });
   }
 }
