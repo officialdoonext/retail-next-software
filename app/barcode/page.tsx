@@ -8,6 +8,8 @@ import QRCode from "qrcode";
 interface Product {
   id: string;
   name: string;
+  shortCode?: string;
+  shortcode?: string;
   sku?: string;
   barcode?: string;
   categoryName?: string;
@@ -18,6 +20,8 @@ interface Product {
     id: string;
     name: string;
     barcode?: string;
+    shortCode?: string;
+    shortcode?: string;
     sku?: string;
     price?: number;
     stock?: number;
@@ -38,8 +42,8 @@ interface QueuedItem {
   showProductName: boolean;
   showPrice: boolean;
   showBarcodeText: boolean;
-  showSku: boolean;
-  sku: string;
+  showShortcode: boolean;
+  shortcode: string;
 }
 
 const BARCODE_FORMATS = [
@@ -77,15 +81,15 @@ export default function BarcodeGeneratorPage() {
   const [productName, setProductName] = useState("Fortune Sunlite Sunflower Oil 1L");
   const [price, setPrice] = useState("145.00");
   const [mrp, setMrp] = useState("160.00");
-  const [sku, setSku] = useState("GRO-SUN-1L");
+  const [shortcode, setShortcode] = useState("M-TSH-01");
 
-  // Display toggles
-  const [showStoreName, setShowStoreName] = useState(true);
-  const [showProductName, setShowProductName] = useState(true);
+  // Display toggles: By default ONLY barcode text, price, and shortcode are checked
+  const [showStoreName, setShowStoreName] = useState(false);
+  const [showProductName, setShowProductName] = useState(false);
   const [showPrice, setShowPrice] = useState(true);
   const [showMrp, setShowMrp] = useState(false);
   const [showBarcodeText, setShowBarcodeText] = useState(true);
-  const [showSku, setShowSku] = useState(true);
+  const [showShortcode, setShowShortcode] = useState(true);
 
   // Label size & layout settings
   const [selectedPreset, setSelectedPreset] = useState("50x25");
@@ -138,8 +142,9 @@ export default function BarcodeGeneratorPage() {
               setSelectedProductId(first.id);
               setProductName(first.name);
               setPrice(String(first.price || 0));
-              setSku(first.sku || "");
-              const initialBarcode = first.barcode || first.sku || `RN-${Math.floor(100000 + Math.random() * 900000)}`;
+              const initialSc = first.shortCode || first.shortcode || (first as any).short_code || "";
+              setShortcode(initialSc);
+              const initialBarcode = first.barcode || initialSc || `RN-${Math.floor(100000 + Math.random() * 900000)}`;
               setBarcodeValue(initialBarcode);
             }
           }
@@ -162,8 +167,9 @@ export default function BarcodeGeneratorPage() {
 
     setProductName(prod.name);
     setPrice(String(prod.price || 0));
-    setSku(prod.sku || "");
-    const code = prod.barcode || prod.sku || `RN-${Math.floor(100000 + Math.random() * 900000)}`;
+    const sc = prod.shortCode || prod.shortcode || (prod as any).short_code || "";
+    setShortcode(sc);
+    const code = prod.barcode || sc || `RN-${Math.floor(100000 + Math.random() * 900000)}`;
     setBarcodeValue(code);
   };
 
@@ -177,8 +183,9 @@ export default function BarcodeGeneratorPage() {
 
     setProductName(`${prod.name} (${variant.name})`);
     setPrice(String(variant.price || prod.price || 0));
-    setSku(variant.sku || prod.sku || "");
-    const code = variant.barcode || variant.sku || prod.barcode || `RN-${Math.floor(100000 + Math.random() * 900000)}`;
+    const sc = variant.shortCode || variant.shortcode || (variant as any).short_code || prod.shortCode || prod.shortcode || "";
+    setShortcode(sc);
+    const code = variant.barcode || sc || prod.barcode || `RN-${Math.floor(100000 + Math.random() * 900000)}`;
     setBarcodeValue(code);
   };
 
@@ -275,6 +282,8 @@ export default function BarcodeGeneratorPage() {
       .filter(
         (p) =>
           p.name.toLowerCase().includes(q) ||
+          (p.shortCode && p.shortCode.toLowerCase().includes(q)) ||
+          (p.shortcode && p.shortcode.toLowerCase().includes(q)) ||
           (p.sku && p.sku.toLowerCase().includes(q)) ||
           (p.barcode && p.barcode.toLowerCase().includes(q)) ||
           (p.categoryName && p.categoryName.toLowerCase().includes(q))
@@ -302,8 +311,8 @@ export default function BarcodeGeneratorPage() {
       showProductName,
       showPrice,
       showBarcodeText,
-      showSku,
-      sku,
+      showShortcode,
+      shortcode: shortcode.trim(),
     };
 
     setPrintQueue((prev) => [...prev, newItem]);
@@ -397,11 +406,20 @@ export default function BarcodeGeneratorPage() {
         ctx.drawImage(img, (canvas.width - svgW) / 2, yOffset, svgW, svgH);
         yOffset += svgH + 18;
 
-        // Draw price
+        // Draw shortcode & price
+        if (showShortcode && shortcode) {
+          ctx.font = "bold 18px Inter, monospace";
+          ctx.fillStyle = "#334155";
+          ctx.textAlign = "left";
+          ctx.fillText(shortcode, 20, yOffset);
+        }
+
         if (showPrice) {
           ctx.font = "bold 24px Inter, sans-serif";
           ctx.fillStyle = "#0f172a";
-          ctx.fillText(`MRP ₹ ${price}`, canvas.width / 2, yOffset);
+          ctx.textAlign = showShortcode && shortcode ? "right" : "center";
+          const xPos = showShortcode && shortcode ? canvas.width - 20 : canvas.width / 2;
+          ctx.fillText(`MRP ₹ ${price}`, xPos, yOffset);
         }
 
         const pngUrl = canvas.toDataURL("image/png");
@@ -558,7 +576,7 @@ export default function BarcodeGeneratorPage() {
                     </label>
                     <input
                       type="text"
-                      placeholder="Type name, SKU or barcode..."
+                      placeholder="Type name, shortcode or barcode..."
                       value={productSearch}
                       onChange={(e) => setProductSearch(e.target.value)}
                       className="w-full h-[34px] max-h-[34px] bg-[#f8fafc] border border-slate-200 rounded-[6px] px-3 text-xs text-slate-800 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#5e2b9d] focus:border-[#5e2b9d]"
@@ -574,11 +592,14 @@ export default function BarcodeGeneratorPage() {
                       onChange={(e) => handleProductSelect(e.target.value)}
                       className="w-full h-[34px] max-h-[34px] bg-[#f8fafc] border border-slate-200 rounded-[6px] px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#5e2b9d] focus:border-[#5e2b9d]"
                     >
-                      {filteredProducts.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name} — ₹{p.price} {p.sku ? `(${p.sku})` : ""}
-                        </option>
-                      ))}
+                      {filteredProducts.map((p) => {
+                        const sc = p.shortCode || p.shortcode || "";
+                        return (
+                          <option key={p.id} value={p.id}>
+                            {p.name} — ₹{p.price} {sc ? `(${sc})` : ""}
+                          </option>
+                        );
+                      })}
                     </select>
                   </div>
                 </div>
@@ -595,11 +616,14 @@ export default function BarcodeGeneratorPage() {
                       className="flex-1 h-[34px] max-h-[34px] bg-purple-50/50 border border-purple-200 rounded-[6px] px-2.5 text-xs text-purple-900 font-medium focus:outline-none focus:ring-1 focus:ring-[#5e2b9d]"
                     >
                       <option value="">Base Product (All Variants)</option>
-                      {selectedProduct.variants.map((v) => (
-                        <option key={v.id} value={v.id}>
-                          {v.name} — ₹{v.price || selectedProduct.price} {v.sku ? `[${v.sku}]` : ""}
-                        </option>
-                      ))}
+                      {selectedProduct.variants.map((v) => {
+                        const sc = v.shortCode || v.shortcode || "";
+                        return (
+                          <option key={v.id} value={v.id}>
+                            {v.name} — ₹{v.price || selectedProduct.price} {sc ? `[${sc}]` : ""}
+                          </option>
+                        );
+                      })}
                     </select>
                   </div>
                 )}
@@ -633,19 +657,32 @@ export default function BarcodeGeneratorPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                    Barcode Value / SKU String
+                    Barcode Value
                   </label>
                   <input
                     type="text"
                     required
                     value={barcodeValue}
                     onChange={(e) => setBarcodeValue(e.target.value)}
-                    placeholder="e.g. 8901030864789 or PROD-991"
+                    placeholder="e.g. 8901030864789"
                     className="w-full h-[34px] max-h-[34px] bg-[#f8fafc] border border-slate-200 rounded-[6px] px-3 font-mono text-xs text-slate-900 font-semibold focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#5e2b9d] focus:border-[#5e2b9d]"
                   />
                   <span className="text-[10px] text-slate-400 mt-1 block">
                     Must be valid format for chosen symbology
                   </span>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    Shortcode
+                  </label>
+                  <input
+                    type="text"
+                    value={shortcode}
+                    onChange={(e) => setShortcode(e.target.value)}
+                    placeholder="e.g. M-TSH-01"
+                    className="w-full h-[34px] max-h-[34px] bg-[#f8fafc] border border-slate-200 rounded-[6px] px-3 font-mono text-xs text-slate-900 font-semibold focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#5e2b9d] focus:border-[#5e2b9d]"
+                  />
                 </div>
 
                 <div>
@@ -777,11 +814,11 @@ export default function BarcodeGeneratorPage() {
                   <label className="flex items-center gap-2 cursor-pointer select-none">
                     <input
                       type="checkbox"
-                      checked={showSku}
-                      onChange={(e) => setShowSku(e.target.checked)}
+                      checked={showShortcode}
+                      onChange={(e) => setShowShortcode(e.target.checked)}
                       className="w-3.5 h-3.5 accent-[#5e2b9d] rounded cursor-pointer"
                     />
-                    <span className="text-slate-700">SKU Code</span>
+                    <span className="text-slate-700 font-semibold text-[#5e2b9d]">Shortcode</span>
                   </label>
                 </div>
               </div>
@@ -927,11 +964,11 @@ export default function BarcodeGeneratorPage() {
                     )}
                   </div>
 
-                  {/* Price & SKU Bottom Row */}
+                  {/* Price & Shortcode Bottom Row */}
                   <div className="w-full flex items-center justify-between border-t border-slate-200 pt-1 mt-0.5 px-0.5">
-                    {showSku ? (
-                      <span className="text-[9.5px] font-mono text-slate-500 truncate max-w-[80px]">
-                        {sku || barcodeValue}
+                    {showShortcode ? (
+                      <span className="text-[10px] font-mono font-bold text-slate-700 truncate max-w-[100px]" title={shortcode}>
+                        {shortcode}
                       </span>
                     ) : <span />}
 
@@ -1088,6 +1125,14 @@ export default function BarcodeGeneratorPage() {
                           {item.productName}
                         </h4>
                         <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-0.5">
+                          {item.shortcode && (
+                            <>
+                              <span className="font-mono font-semibold text-purple-700 bg-purple-50 px-1 py-0.5 rounded text-[10px]">
+                                {item.shortcode}
+                              </span>
+                              <span>•</span>
+                            </>
+                          )}
                           <span className="font-mono font-medium text-slate-700">
                             {item.barcodeValue}
                           </span>
@@ -1253,11 +1298,19 @@ export default function BarcodeGeneratorPage() {
                           }}
                         />
                       </div>
-                      {item.showPrice && (
-                        <div className="text-[11px] font-black w-full border-t border-black pt-0.5">
-                          MRP ₹{item.price}
-                        </div>
-                      )}
+                      {/* Bottom Row: Shortcode & Price */}
+                      <div className="w-full flex items-center justify-between border-t border-black pt-0.5 mt-0.5 px-0.5">
+                        {item.showShortcode && item.shortcode ? (
+                          <div className="text-[9px] font-mono font-bold truncate max-w-[85px] text-left">
+                            {item.shortcode}
+                          </div>
+                        ) : <div />}
+                        {item.showPrice && (
+                          <div className="text-[10px] font-black text-right ml-auto">
+                            MRP ₹{item.price}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   ))
                 )
@@ -1298,11 +1351,19 @@ export default function BarcodeGeneratorPage() {
                         }}
                       />
                     </div>
-                    {showPrice && (
-                      <div className="text-[11px] font-black w-full border-t border-black pt-0.5">
-                        MRP ₹{price}
-                      </div>
-                    )}
+                    {/* Bottom Row: Shortcode & Price */}
+                    <div className="w-full flex items-center justify-between border-t border-black pt-0.5 mt-0.5 px-0.5">
+                      {showShortcode && shortcode ? (
+                        <div className="text-[9px] font-mono font-bold truncate max-w-[85px] text-left">
+                          {shortcode}
+                        </div>
+                      ) : <div />}
+                      {showPrice && (
+                        <div className="text-[10px] font-black text-right ml-auto">
+                          MRP ₹{price}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ))}
           </div>
