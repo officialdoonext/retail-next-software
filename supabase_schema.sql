@@ -103,6 +103,8 @@ CREATE TABLE IF NOT EXISTS public.products (
   business_id UUID NOT NULL REFERENCES public.businesses(id) ON DELETE CASCADE,
   store_id UUID REFERENCES public.stores(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
+  description TEXT,
+  short_code TEXT,
   sku TEXT,
   barcode TEXT,
   category_id UUID REFERENCES public.categories(id) ON DELETE SET NULL,

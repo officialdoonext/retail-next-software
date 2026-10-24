@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { verifySessionToken, AUTH_COOKIE_NAME, ACTIVE_STORE_COOKIE } from "@/lib/auth";
+import { verifySessionToken, AUTH_COOKIE_NAME, ACTIVE_STORE_COOKIE, ACTIVE_BUSINESS_COOKIE } from "@/lib/auth";
 import imagekit from "@/lib/imagekit";
 import { compressImageToTargetSize } from "@/lib/compressImage";
 
@@ -9,8 +9,9 @@ export async function POST(request: Request) {
     const cookieStore = await cookies();
     const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
     const storeId = cookieStore.get(ACTIVE_STORE_COOKIE)?.value;
+    const businessId = cookieStore.get(ACTIVE_BUSINESS_COOKIE)?.value;
 
-    if (!token || !storeId) {
+    if (!token) {
       return NextResponse.json({ success: false, error: "Unauthorized access." }, { status: 401 });
     }
 
@@ -18,6 +19,8 @@ export async function POST(request: Request) {
     if (!session) {
       return NextResponse.json({ success: false, error: "Invalid session." }, { status: 401 });
     }
+
+    const folderScope = storeId || businessId || session.businessId || "general";
 
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
@@ -37,14 +40,14 @@ export async function POST(request: Request) {
     // Sanitize file name
     const ext = format === "webp" ? ".webp" : format === "jpeg" ? ".jpg" : "";
     const baseName = file.name.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9.-]/g, "_");
-    const cleanFileName = `${storeId}_${Date.now()}_${baseName}${ext || ".webp"}`;
-    const subfolder = String(formData.get("folder") || "general").replace(/[^a-zA-Z0-9_-]/g, "");
+    const cleanFileName = `${folderScope}_${Date.now()}_${baseName}${ext || ".webp"}`;
+    const subfolder = String(formData.get("folder") || "products").replace(/[^a-zA-Z0-9_-]/g, "");
 
     // Upload compressed buffer to ImageKit
     const uploadResponse = await imagekit.upload({
       file: compressedBuffer,
       fileName: cleanFileName,
-      folder: `/retailnext/${storeId}/${subfolder}`,
+      folder: `/retailnext/${folderScope}/${subfolder}`,
       useUniqueFileName: true,
     });
 
