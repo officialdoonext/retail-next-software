@@ -104,9 +104,10 @@ export default function ProductsPage() {
   const [description, setDescription] = useState("");
   const [shortCode, setShortCode] = useState("");
   const [sku, setSku] = useState("");
+  const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string>("");
   const [imageUrl, setImageUrl] = useState("");
   const [categoryId, setCategoryId] = useState("");
-  const [isUploadingImage, setIsUploadingImage] = useState(false);
 
   // Simple vs Variation Toggle
   const [hasVariations, setHasVariations] = useState(false);
@@ -237,6 +238,8 @@ export default function ProductsPage() {
     setSku(newSku);
     setShortCode(`PRD-${Math.floor(100 + Math.random() * 900)}`);
     setImageUrl("");
+    setSelectedImageFile(null);
+    setImagePreviewUrl("");
     setCategoryId(categories[0]?.id || "");
     setHasVariations(false);
 
@@ -265,6 +268,8 @@ export default function ProductsPage() {
     setShortCode(p.shortCode || "");
     setSku(p.sku);
     setImageUrl(p.imageUrl || "");
+    setSelectedImageFile(null);
+    setImagePreviewUrl(p.imageUrl || "");
     setCategoryId(p.categoryId || "");
     setHasVariations(p.hasVariations);
 
@@ -298,32 +303,19 @@ export default function ProductsPage() {
     setIsFormModalOpen(true);
   };
 
-  // Handle Image Upload to ImageKit
-  const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle local image file choice (Upload occurs ONLY on "Save Product")
+  const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    setSelectedImageFile(file);
+    setImagePreviewUrl(URL.createObjectURL(file));
+  };
 
-    try {
-      setIsUploadingImage(true);
-      const fd = new FormData();
-      fd.append("file", file);
-      fd.append("folder", "products");
-
-      const res = await fetch("/api/upload", {
-        method: "POST",
-        body: fd,
-      });
-      const data = await res.json();
-      if (res.ok && data.success && data.url) {
-        setImageUrl(data.url);
-      } else {
-        alert(data.error || "Failed to upload image.");
-      }
-    } catch {
-      alert("Error uploading image. Please check network.");
-    } finally {
-      setIsUploadingImage(false);
-    }
+  // Remove chosen or existing image
+  const handleRemoveImage = () => {
+    setSelectedImageFile(null);
+    setImagePreviewUrl("");
+    setImageUrl("");
   };
 
   // Add a new empty variant row
@@ -458,6 +450,28 @@ export default function ProductsPage() {
     setFormError("");
 
     try {
+      let finalImageUrl = imageUrl;
+
+      // 1. If an image file was selected, upload it to ImageKit first
+      if (selectedImageFile) {
+        const fd = new FormData();
+        fd.append("file", selectedImageFile);
+        fd.append("folder", "products");
+
+        const uploadRes = await fetch("/api/upload", {
+          method: "POST",
+          body: fd,
+        });
+        const uploadData = await uploadRes.json();
+        if (!uploadRes.ok || !uploadData.success || !uploadData.url) {
+          setFormError(uploadData.error || "Failed to upload image to ImageKit.");
+          setSubmitting(false);
+          return;
+        }
+        finalImageUrl = uploadData.url;
+        setImageUrl(finalImageUrl);
+      }
+
       const selectedCat = categories.find((c) => c.id === categoryId);
 
       // Build locationStocks for Simple Product
@@ -479,7 +493,7 @@ export default function ProductsPage() {
         description,
         shortCode,
         sku,
-        imageUrl,
+        imageUrl: finalImageUrl,
         categoryId: categoryId || null,
         categoryName: selectedCat ? selectedCat.name : "Uncategorized",
         hasVariations,
@@ -1006,20 +1020,25 @@ export default function ProductsPage() {
                       Product Image
                     </label>
                     <div className="border-2 border-dashed border-slate-200 hover:border-[#5e2b9d] rounded-[8px] p-3 text-center transition-colors bg-slate-50/50 flex flex-col items-center justify-center min-h-[140px] relative">
-                      {imageUrl ? (
+                      {imagePreviewUrl || imageUrl ? (
                         <div className="relative group w-full flex flex-col items-center">
                           <img
-                            src={imageUrl}
+                            src={imagePreviewUrl || imageUrl}
                             alt="Product preview"
-                            className="w-24 h-24 object-cover rounded-[6px] border border-slate-200 shadow-xs mb-2"
+                            className="w-24 h-24 object-cover rounded-[6px] border border-slate-200 shadow-xs mb-1.5 bg-white"
                           />
                           <button
                             type="button"
-                            onClick={() => setImageUrl("")}
+                            onClick={handleRemoveImage}
                             className="text-[11px] text-rose-600 hover:text-rose-800 font-medium cursor-pointer"
                           >
                             Remove Image
                           </button>
+                          {selectedImageFile && (
+                            <span className="text-[10px] text-emerald-600 font-medium mt-0.5">
+                              Ready to upload on save
+                            </span>
+                          )}
                         </div>
                       ) : (
                         <div>
@@ -1027,11 +1046,10 @@ export default function ProductsPage() {
                             <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                           </svg>
                           <label className="cursor-pointer text-xs font-semibold text-[#5e2b9d] hover:underline block">
-                            {isUploadingImage ? "Uploading..." : "Upload Image"}
+                            Choose Image
                             <input
                               type="file"
                               accept="image/*"
-                              disabled={isUploadingImage}
                               onChange={handleImageFileChange}
                               className="hidden"
                             />
