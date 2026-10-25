@@ -26,12 +26,12 @@ async function generateUnique7DigitEmployeeId(supabase: any, businessId: string)
 }
 
 /**
- * Generates a QR code image for StoreID/EmployeeID, compresses to <= 60KB,
- * and uploads to ImageKit.
+ * Generates a QR code image for businessId:employeeId (for attendance scanning),
+ * compresses to <= 60KB, and uploads to ImageKit.
  */
-async function generateAndUploadEmployeeQr(storeId: string, employeeId: string): Promise<string> {
+async function generateAndUploadEmployeeQr(businessId: string, employeeId: string): Promise<string> {
   try {
-    const qrContent = `${storeId}/${employeeId}`;
+    const qrContent = `${businessId}:${employeeId}`;
     const qrRawBuffer = await QRCode.toBuffer(qrContent, {
       width: 480,
       margin: 2,
@@ -46,8 +46,8 @@ async function generateAndUploadEmployeeQr(storeId: string, employeeId: string):
 
     const uploadRes = await imagekit.upload({
       file: compressedQrBuffer,
-      fileName: `qr_${storeId}_${employeeId}.png`,
-      folder: `/retailnext/${storeId}/employees/qrcodes`,
+      fileName: `qr_${businessId}_${employeeId}.png`,
+      folder: `/retailnext/${businessId}/employees/qrcodes`,
       useUniqueFileName: true,
     });
 
@@ -58,8 +58,8 @@ async function generateAndUploadEmployeeQr(storeId: string, employeeId: string):
   }
 }
 
-// GET /api/employees: Fetch list of employees for the active store
-export async function GET() {
+// GET /api/employees: Fetch list of employees for the active store with search & 24-item pagination
+export async function GET(request: Request) {
   try {
     const ctx = await getBusinessContext();
     if (!ctx) {
@@ -68,6 +68,13 @@ export async function GET() {
         { status: 401 }
       );
     }
+
+    const { searchParams } = new URL(request.url);
+    const fetchAll = searchParams.get("all") === "true";
+    const searchQuery = searchParams.get("search")?.trim().toLowerCase() || "";
+    const cityFilter = searchParams.get("city")?.trim() || "";
+    const salaryTypeFilter = searchParams.get("salaryType")?.trim() || "";
+    const statusFilter = searchParams.get("status")?.trim() || "";
 
     let query = ctx.supabase
       .from("employees")
@@ -84,28 +91,114 @@ export async function GET() {
       return NextResponse.json({ success: false, error: error.message }, { status: 500 });
     }
 
-    const employees = (data || []).map((row: any) => ({
-      id: row.id,
-      storeId: row.store_id,
-      employeeId: row.employee_id,
-      name: row.name,
-      mobile: row.mobile,
-      city: row.city,
-      address: row.address,
-      email: row.email,
-      salaryType: row.salary_type,
-      salaryAmount: Number(row.salary_amount) || 0,
-      acceptedLeaves: row.accepted_leaves || 0,
-      emergencyContactNumber: row.emergency_contact_number,
-      emergencyRelation: row.emergency_relation,
-      emergencyName: row.emergency_name,
-      avatarUrl: row.avatar_url,
-      qrCodeUrl: row.qr_code_url,
-      status: row.status || "Active",
-      createdAt: new Date(row.created_at).getTime(),
-    }));
+    let employees = (data || []).map((row: any) => {
+      let addressText = row.address || "";
+      let latitude: number | null = null;
+      let longitude: number | null = null;
 
-    return NextResponse.json({ success: true, employees });
+      if (addressText && typeof addressText === "string" && addressText.startsWith("{")) {
+        try {
+          const parsed = JSON.parse(addressText);
+          if (parsed && typeof parsed === "object") {
+            addressText = parsed.addressText || parsed.address || "";
+            latitude = parsed.latitude !== undefined && parsed.latitude !== null ? Number(parsed.latitude) : null;
+            longitude = parsed.longitude !== undefined && parsed.longitude !== null ? Number(parsed.longitude) : null;
+          }
+        } catch {}
+      }
+
+      return {
+        id: row.id,
+        storeId: row.store_id,
+        employeeId: row.employee_id,
+        name: row.name,
+        mobile: row.mobile,
+        city: row.city,
+        address: addressText,
+        latitude,
+        longitude,
+        email: row.email || "",
+        salaryType: row.salary_type || "monthly",
+        salaryAmount: Number(row.salary_amount) || 0,
+        acceptedLeaves: row.accepted_leaves || 0,
+        emergencyContactNumber: row.emergency_contact_number || "",
+        emergencyRelation: row.emergency_relation || "",
+        emergencyName: row.emergency_name || "",
+        avatarUrl: row.avatar_url || "",
+        qrCodeUrl: row.qr_code_url || "",
+        status: row.status || "Active",
+        createdAt: new Date(row.created_at).getTime(),
+      };
+    });
+
+    // Filter by search query
+    if (searchQuery) {
+      employees = employees.filter((e: any) => {
+        return (
+          e.name?.toLowerCase().includes(searchQuery) ||
+          e.mobile?.includes(searchQuery) ||
+          e.employeeId?.includes(searchQuery) ||
+          e.city?.toLowerCase().includes(searchQuery) ||
+          e.email?.toLowerCase().includes(searchQuery) ||
+          e.emergencyName?.toLowerCase().includes(searchQuery) ||
+          e.emergencyContactNumber?.includes(searchQuery)
+        );
+      });
+    }
+
+    // Filter by city
+    if (cityFilter && cityFilter !== "ALL") {
+      employees = employees.filter((e: any) => e.city?.toLowerCase() === cityFilter.toLowerCase());
+    }
+
+    // Filter by salary type
+    if (salaryTypeFilter && salaryTypeFilter !== "ALL") {
+      employees = employees.filter((e: any) => e.salaryType === salaryTypeFilter);
+    }
+
+    // Filter by status
+    if (statusFilter && statusFilter !== "ALL") {
+      employees = employees.filter((e: any) => e.status?.toLowerCase() === statusFilter.toLowerCase());
+    }
+
+    // Return All if requested (for attendance, payroll, bulk upload, ID cards)
+    if (fetchAll) {
+      return NextResponse.json({
+        success: true,
+        employees,
+        pagination: {
+          total: employees.length,
+          totalPages: 1,
+          page: 1,
+          limit: employees.length,
+          hasMore: false,
+        },
+      });
+    }
+
+    // Strictly 24 items per page default pagination
+    const pageParam = searchParams.get("page");
+    const limitParam = searchParams.get("limit");
+    const page = pageParam ? Math.max(1, parseInt(pageParam, 10)) : 1;
+    const limit = limitParam ? Math.max(1, parseInt(limitParam, 10)) : 24;
+
+    const total = employees.length;
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+    const startIndex = (page - 1) * limit;
+    const endIndex = startIndex + limit;
+    const paginatedEmployees = employees.slice(startIndex, endIndex);
+
+    return NextResponse.json({
+      success: true,
+      employees: paginatedEmployees,
+      pagination: {
+        total,
+        totalPages,
+        page,
+        limit,
+        hasMore: page < totalPages,
+      },
+    });
   } catch (err: any) {
     console.error("GET /api/employees error:", err);
     return NextResponse.json(
@@ -198,8 +291,17 @@ export async function POST(request: Request) {
       );
     }
 
-    const qrCodeUrl = await generateAndUploadEmployeeQr(ctx.storeId || "main", finalEmployeeId);
+    const qrCodeUrl = await generateAndUploadEmployeeQr(ctx.businessId, finalEmployeeId);
     const acceptedLeaves = Math.max(0, parseInt(String(body.acceptedLeaves ?? 0), 10) || 0);
+
+    const latitude = body.latitude !== undefined && body.latitude !== null && body.latitude !== "" ? Number(body.latitude) : null;
+    const longitude = body.longitude !== undefined && body.longitude !== null && body.longitude !== "" ? Number(body.longitude) : null;
+
+    const addressPayload = JSON.stringify({
+      addressText: address,
+      latitude,
+      longitude,
+    });
 
     const payload = {
       business_id: ctx.businessId,
@@ -210,7 +312,7 @@ export async function POST(request: Request) {
       qr_code_url: qrCodeUrl || "",
       mobile,
       city,
-      address,
+      address: addressPayload,
       email,
       salary_type: salaryType,
       salary_amount: salaryAmount,
@@ -240,8 +342,19 @@ export async function POST(request: Request) {
         employeeId: newEmp.employee_id,
         name: newEmp.name,
         mobile: newEmp.mobile,
+        city: newEmp.city,
+        address,
+        latitude,
+        longitude,
+        email: newEmp.email || "",
+        avatarUrl: newEmp.avatar_url || "",
+        qrCodeUrl: newEmp.qr_code_url || "",
         salaryType: newEmp.salary_type,
         salaryAmount: newEmp.salary_amount,
+        emergencyName: newEmp.emergency_name,
+        emergencyRelation: newEmp.emergency_relation,
+        emergencyContactNumber: newEmp.emergency_contact_number,
+        status: newEmp.status || "Active",
         createdAt: new Date(newEmp.created_at).getTime(),
       },
     });
@@ -299,11 +412,20 @@ export async function PUT(request: Request) {
     if (salaryAmount <= 0)
       return NextResponse.json({ success: false, error: "Please enter a valid salary / wage amount." }, { status: 400 });
 
+    const latitude = body.latitude !== undefined && body.latitude !== null && body.latitude !== "" ? Number(body.latitude) : null;
+    const longitude = body.longitude !== undefined && body.longitude !== null && body.longitude !== "" ? Number(body.longitude) : null;
+
+    const addressPayload = JSON.stringify({
+      addressText: address,
+      latitude,
+      longitude,
+    });
+
     const updatePayload: Record<string, any> = {
       name,
       mobile,
       city,
-      address,
+      address: addressPayload,
       email,
       salary_type: salaryType,
       salary_amount: salaryAmount,
@@ -315,6 +437,11 @@ export async function PUT(request: Request) {
 
     if (body.avatarUrl !== undefined) {
       updatePayload.avatar_url = String(body.avatarUrl || "").trim();
+    }
+
+    if (!existingData.qr_code_url) {
+      const freshQr = await generateAndUploadEmployeeQr(ctx.businessId, existingData.employee_id);
+      if (freshQr) updatePayload.qr_code_url = freshQr;
     }
 
     if (body.acceptedLeaves !== undefined) {
@@ -332,7 +459,30 @@ export async function PUT(request: Request) {
       return NextResponse.json({ success: false, error: uErr.message }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true, employee: updated });
+    return NextResponse.json({
+      success: true,
+      employee: {
+        id: updated.id,
+        storeId: updated.store_id,
+        employeeId: updated.employee_id,
+        name: updated.name,
+        mobile: updated.mobile,
+        city: updated.city,
+        address,
+        latitude,
+        longitude,
+        email: updated.email || "",
+        avatarUrl: updated.avatar_url || "",
+        qrCodeUrl: updated.qr_code_url || "",
+        salaryType: updated.salary_type,
+        salaryAmount: updated.salary_amount,
+        emergencyName: updated.emergency_name,
+        emergencyRelation: updated.emergency_relation,
+        emergencyContactNumber: updated.emergency_contact_number,
+        status: updated.status || "Active",
+        createdAt: new Date(updated.created_at).getTime(),
+      },
+    });
   } catch (err: any) {
     console.error("PUT /api/employees error:", err);
     return NextResponse.json({ success: false, error: "Failed to update employee." }, { status: 500 });
