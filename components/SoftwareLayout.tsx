@@ -565,13 +565,14 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
               isSidebarCollapsed ? "overflow-visible px-2.5" : "overflow-y-auto px-2.5 custom-sidebar-scroll"
             } py-1.5 space-y-0.5 select-none`}
           >
-            {visibleNavGroups.map((group) => {
+            {visibleNavGroups.map((group, groupIdx) => {
               const isActive = group.href
                 ? pathname === group.href
                 : false;
               const hasActiveChild = group.children?.some(
                 (c) => pathname === c.href || pathname.startsWith(c.href + "/")
               );
+              const isLowerHalf = groupIdx >= Math.floor(visibleNavGroups.length / 2);
 
               // ─── Collapsed Mode ──────────────────────────────────────────────
               if (isSidebarCollapsed) {
@@ -597,11 +598,14 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
                         </svg>
                       </Link>
 
-                      {/* Hover Popover with Name */}
-                      <div className="absolute left-[50px] top-1/2 -translate-y-1/2 z-50 pointer-events-none hidden group-hover:flex items-center animate-in fade-in zoom-in-95 duration-100">
-                        <div className="w-1.5 h-1.5 bg-slate-900 rotate-45 -mr-1 z-10" />
-                        <div className="px-3 py-1.5 rounded-[6px] bg-slate-900 text-white text-xs font-semibold whitespace-nowrap shadow-xl">
-                          {group.label}
+                      {/* Hover Popover with Name — White Card UI */}
+                      <div className="absolute left-[52px] top-1/2 -translate-y-1/2 z-50 pointer-events-none hidden group-hover:flex items-center animate-in fade-in zoom-in-95 duration-100">
+                        <div className="w-2 h-2 bg-white border-l border-b border-slate-200 rotate-45 -mr-1 z-10 shadow-2xs" />
+                        <div className="px-3 py-1.5 rounded-[8px] bg-white border border-slate-200/90 text-slate-800 text-xs font-semibold whitespace-nowrap shadow-xl flex items-center gap-2">
+                          <svg className="w-3.5 h-3.5 text-[#5e2b9d] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            {renderNavIcon(group.icon)}
+                          </svg>
+                          <span>{group.label}</span>
                         </div>
                       </div>
                     </div>
@@ -630,29 +634,44 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
                     </button>
 
                     {/* Popover on hover with Manager Name & Submenus */}
-                    <div className="absolute left-[48px] top-0 z-50 pointer-events-none group-hover:pointer-events-auto opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-150 transform translate-x-1 group-hover:translate-x-0">
-                      <div className="w-64 bg-white rounded-[8px] border border-slate-200/90 shadow-2xl overflow-hidden py-1">
-                        <div className="px-3.5 py-2 bg-slate-50 border-b border-slate-100 flex items-center gap-2">
-                          <svg className="w-4 h-4 text-[#5e2b9d] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            {Array.isArray(group.icon) ? (
-                              group.icon.map((d, i) => (
-                                <path key={i} strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d={d} />
-                              ))
-                            ) : (
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d={group.icon} />
-                            )}
-                          </svg>
-                          <span className="font-bold text-xs text-slate-900">{group.label}</span>
+                    <div
+                      className={`absolute left-[50px] ${
+                        isLowerHalf ? "bottom-[-4px]" : "top-[-4px]"
+                      } z-50 pointer-events-none group-hover:pointer-events-auto opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-150 transform translate-x-1 group-hover:translate-x-0`}
+                    >
+                      {/* Invisible hover bridge to prevent flicker when moving mouse into popover */}
+                      <div className="absolute -left-3 top-0 w-4 h-full pointer-events-auto" />
+
+                      <div className="w-64 bg-white rounded-[10px] border border-slate-200/90 shadow-2xl overflow-hidden flex flex-col max-h-[calc(100vh-100px)]">
+                        {/* Little pointing notch */}
+                        <div
+                          className={`absolute -left-1 w-2.5 h-2.5 bg-slate-50 border-l border-t border-slate-200 rotate-[-45deg] z-10 ${
+                            isLowerHalf ? "bottom-4" : "top-4"
+                          }`}
+                        />
+
+                        <div className="px-3.5 py-2.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between shrink-0">
+                          <div className="flex items-center gap-2">
+                            <div className="w-6 h-6 rounded-md bg-purple-100 text-[#5e2b9d] flex items-center justify-center shrink-0">
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                {renderNavIcon(group.icon)}
+                              </svg>
+                            </div>
+                            <span className="font-bold text-xs text-slate-900">{group.label}</span>
+                          </div>
+                          <span className="text-[10px] font-semibold text-[#5e2b9d] bg-purple-50 px-1.5 py-0.5 rounded border border-purple-100">
+                            {group.children?.length}
+                          </span>
                         </div>
 
-                        <div className="p-1.5 space-y-0.5 max-h-72 overflow-y-auto custom-sidebar-scroll">
+                        <div className="p-1.5 space-y-0.5 overflow-y-auto custom-sidebar-scroll flex-1">
                           {group.children?.map((child) => {
                             const isChildActive = pathname === child.href || pathname.startsWith(child.href + "/");
                             return (
                               <Link
                                 key={child.id}
                                 href={child.href}
-                                className={`h-8 px-2.5 rounded-[5px] flex items-center gap-2.5 text-xs font-medium transition-colors ${
+                                className={`h-8 px-2.5 rounded-[6px] flex items-center gap-2.5 text-xs font-medium transition-colors ${
                                   isChildActive
                                     ? "bg-[#5e2b9d] text-white shadow-2xs font-semibold"
                                     : "text-slate-700 hover:bg-purple-50 hover:text-[#5e2b9d]"
@@ -784,15 +803,23 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
           {/* Pinned Bottom Sidebar Footer */}
           {isSidebarCollapsed ? (
             <div className="shrink-0 py-2.5 border-t border-slate-100 bg-white flex justify-center">
-              <Link
-                href="/onboarding"
-                title="Onboarding & Settings"
-                className="w-9 h-9 rounded-[6px] flex items-center justify-center text-slate-400 hover:text-[#5e2b9d] hover:bg-purple-50 transition-colors"
-              >
-                <svg className="w-4 h-4 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
-                </svg>
-              </Link>
+              <div className="relative group flex justify-center">
+                <Link
+                  href="/onboarding"
+                  className="w-9 h-9 rounded-[6px] flex items-center justify-center text-slate-400 hover:text-[#5e2b9d] hover:bg-purple-50 transition-colors"
+                >
+                  <svg className="w-4 h-4 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                  </svg>
+                </Link>
+                {/* Hover Popover with Name — White Card UI */}
+                <div className="absolute left-[52px] top-1/2 -translate-y-1/2 z-50 pointer-events-none hidden group-hover:flex items-center animate-in fade-in zoom-in-95 duration-100">
+                  <div className="w-2 h-2 bg-white border-l border-b border-slate-200 rotate-45 -mr-1 z-10 shadow-2xs" />
+                  <div className="px-3 py-1.5 rounded-[8px] bg-white border border-slate-200/90 text-slate-800 text-xs font-semibold whitespace-nowrap shadow-xl flex items-center gap-1.5">
+                    <span>Onboarding & Plan</span>
+                  </div>
+                </div>
+              </div>
             </div>
           ) : (
             <div className="shrink-0 px-3.5 py-2.5 border-t border-slate-100 bg-white flex items-center justify-between text-[11px] text-slate-400">

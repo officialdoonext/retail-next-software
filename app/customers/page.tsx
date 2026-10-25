@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import SoftwareLayout from "@/components/SoftwareLayout";
 import CustomerModal, { CustomerFormData } from "@/components/CustomerModal";
+import BulkUploadCustomerModal from "@/components/BulkUploadCustomerModal";
 import { useToast } from "@/components/ToastProvider";
 
 interface CustomerItem extends CustomerFormData {
@@ -46,6 +47,7 @@ export default function CustomersPage() {
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<CustomerFormData | null>(null);
+  const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false);
 
   // View Details Modal
   const [viewingCustomer, setViewingCustomer] = useState<CustomerItem | null>(null);
@@ -222,6 +224,18 @@ export default function CustomersPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
               <span>Refresh</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsBulkUploadOpen(true)}
+              className="h-9 px-3.5 text-xs font-semibold text-[#5e2b9d] bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-lg shadow-2xs flex items-center gap-1.5 transition-all cursor-pointer"
+              title="Bulk import customers from Excel"
+            >
+              <svg className="w-4 h-4 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+              </svg>
+              <span>Bulk Upload</span>
             </button>
 
             <button
@@ -632,6 +646,16 @@ export default function CustomersPage() {
         onSaved={handleCustomerSaved}
         initialCustomer={editingCustomer}
         existingCustomers={allExistingCustomers}
+      />
+
+      {/* Bulk Upload Customer Modal */}
+      <BulkUploadCustomerModal
+        isOpen={isBulkUploadOpen}
+        onClose={() => setIsBulkUploadOpen(false)}
+        onSuccess={() => {
+          setIsBulkUploadOpen(false);
+          fetchCustomers(1);
+        }}
       />
 
       {/* Customer Quick Details Modal */}

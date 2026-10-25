@@ -4,9 +4,11 @@ import QRCode from "qrcode";
 import imagekit from "@/lib/imagekit";
 import { compressImageToTargetSize } from "@/lib/compressImage";
 
-async function generateAndUploadEmployeeQr(storeId: string, employeeId: string): Promise<string> {
+const DEFAULT_EMPLOYEE_AVATAR = "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200&auto=format&fit=crop&q=80";
+
+async function generateAndUploadEmployeeQr(businessId: string, employeeId: string): Promise<string> {
   try {
-    const qrContent = `${storeId}/${employeeId}`;
+    const qrContent = `${businessId}:${employeeId}`;
     const qrRawBuffer = await QRCode.toBuffer(qrContent, {
       width: 480,
       margin: 2,
@@ -21,8 +23,8 @@ async function generateAndUploadEmployeeQr(storeId: string, employeeId: string):
 
     const uploadRes = await imagekit.upload({
       file: compressedQrBuffer,
-      fileName: `qr_${storeId}_${employeeId}.png`,
-      folder: `/retailnext/${storeId}/employees/qrcodes`,
+      fileName: `qr_${businessId}_${employeeId}.png`,
+      folder: `/retailnext/${businessId}/employees/qrcodes`,
       useUniqueFileName: true,
     });
 
@@ -126,21 +128,17 @@ export async function POST(request: Request) {
           }
           existingMobiles.add(cleanMobile);
 
-          let employeeId = String(row.employeeId || row["Employee ID"] || "").trim();
-          if (!employeeId || !/^\d{7}$/.test(employeeId) || existingIds.has(employeeId)) {
-            employeeId = generateNextId();
-          } else {
-            existingIds.add(employeeId);
-          }
+          // Employee ID is always auto-generated, numeric, unique, non-editable
+          const employeeId = generateNextId();
 
-          const qrCodeUrl = await generateAndUploadEmployeeQr(ctx.storeId || "main", employeeId);
+          const qrCodeUrl = await generateAndUploadEmployeeQr(ctx.businessId, employeeId);
 
           const payload = {
             business_id: ctx.businessId,
             store_id: ctx.storeId || null,
             employee_id: employeeId,
             name,
-            avatar_url: avatarUrl || "",
+            avatar_url: avatarUrl || DEFAULT_EMPLOYEE_AVATAR,
             qr_code_url: qrCodeUrl || "",
             mobile: cleanMobile,
             city,

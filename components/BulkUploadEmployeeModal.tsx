@@ -3,7 +3,7 @@
 import React, { useState, useRef } from "react";
 import * as XLSX from "xlsx";
 import { useToast } from "@/components/ToastProvider";
-import { SAMPLE_50_EMPLOYEES } from "@/lib/sampleEmployees";
+import { SAMPLE_80_EMPLOYEES } from "@/lib/sampleEmployees";
 
 interface BulkUploadEmployeeModalProps {
   isOpen: boolean;
@@ -48,10 +48,10 @@ export default function BulkUploadEmployeeModal({
 
   if (!isOpen) return null;
 
-  // 1. Download 50 Sample Employees Excel (.xlsx)
+  // 1. Download 80 Sample Employees Excel (.xlsx)
   const handleDownloadSampleExcel = () => {
     try {
-      const ws = XLSX.utils.json_to_sheet(SAMPLE_50_EMPLOYEES);
+      const ws = XLSX.utils.json_to_sheet(SAMPLE_80_EMPLOYEES);
 
       // Auto-fit column widths
       ws["!cols"] = [
@@ -71,8 +71,8 @@ export default function BulkUploadEmployeeModal({
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "Employees");
 
-      XLSX.writeFile(wb, "RetailNext_Sample_50_Employees.xlsx");
-      toast.success("Sample Excel with 50 employees downloaded!");
+      XLSX.writeFile(wb, "RetailNext_Sample_80_Employees.xlsx");
+      toast.success("Sample Excel with 80 employees downloaded!");
     } catch (err) {
       console.error("Excel download error:", err);
       toast.error("Failed to generate sample Excel file.");
@@ -239,7 +239,7 @@ export default function BulkUploadEmployeeModal({
                 <h4 className="text-xs font-medium text-slate-900">Need a template with pre-filled data?</h4>
               </div>
               <p className="text-[11.5px] text-slate-500 mt-1 max-w-xl">
-                Download the sample Excel template containing <strong>50 realistic employee records</strong> with roles, salaries, cities, and emergency contacts.
+                Download the sample Excel template containing <strong>80 realistic employee records</strong> with roles, salaries, cities, and emergency contacts. Employee IDs are unique numeric and auto-generated. Missing photos will receive default avatars, and QR codes will generate automatically.
               </p>
             </div>
             <button
@@ -250,7 +250,7 @@ export default function BulkUploadEmployeeModal({
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
               </svg>
-              Download Sample Excel (50 Employees)
+              Download Sample Excel (80 Employees)
             </button>
           </div>
 
