@@ -12,6 +12,17 @@ interface SoftwareLayoutProps {
   children?: React.ReactNode;
 }
 
+function renderNavIcon(icon: string | string[]) {
+  if (Array.isArray(icon)) {
+    return icon.map((d, i) => (
+      <path key={i} strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d={d} />
+    ));
+  }
+  return <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d={icon} />;
+}
+
+import { useSidebar } from "@/context/SidebarContext";
+
 export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
   const pathname = usePathname();
   const router = useRouter();
@@ -31,10 +42,16 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [isMobileStoreMenuOpen, setIsMobileStoreMenuOpen] = useState(false);
   const [isStoreDropdownOpen, setIsStoreDropdownOpen] = useState(false);
-  const [openAccordions, setOpenAccordions] = useState<Record<string, boolean>>({
-    "sales-manager": true,
-    "product-manager": true,
-  });
+  const {
+    isCollapsed: isSidebarCollapsed,
+    toggleSidebar: toggleSidebarCollapse,
+    openAccordions,
+    toggleAccordion,
+    openAccordion,
+    setAllAccordions,
+    areAllOpen,
+    hasInteracted,
+  } = useSidebar();
 
   const { isConnected: printerConnected, printerType, printerName } = usePrinter();
   const [isPrinterModalOpen, setIsPrinterModalOpen] = useState(false);
@@ -93,11 +110,11 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
           (c) => pathname === c.href || pathname.startsWith(c.href + "/")
         );
         if (hasActiveChild) {
-          setOpenAccordions((prev) => ({ ...prev, [group.id]: true }));
+          openAccordion(group.id);
         }
       }
     });
-  }, [pathname]);
+  }, [pathname, openAccordion]);
 
   // Load session & check account validity
   useEffect(() => {
@@ -201,13 +218,6 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
     }
   };
 
-  // Toggle single accordion
-  const toggleAccordion = (groupId: string) => {
-    setOpenAccordions((prev) => ({
-      ...prev,
-      [groupId]: !prev[groupId],
-    }));
-  };
 
   const handleLogout = async () => {
     try {
@@ -264,22 +274,8 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
     return SIDEBAR_NAV.filter((group) => group.id === "dashboard");
   }, [mounted, modulesLoaded, userRole, staffAccess, enabledModules]);
 
-  // Toggle Collapse All / Expand All for currently visible groups
-  const areAllOpen = useMemo(() => {
-    const accordionGroups = visibleNavGroups.filter((g) => g.children);
-    return accordionGroups.length > 0 && accordionGroups.every((g) => !!openAccordions[g.id]);
-  }, [openAccordions, visibleNavGroups]);
-
   const handleToggleAllAccordions = () => {
-    if (areAllOpen) {
-      setOpenAccordions({});
-    } else {
-      const all: Record<string, boolean> = {};
-      visibleNavGroups.forEach((g) => {
-        if (g.children) all[g.id] = true;
-      });
-      setOpenAccordions(all);
-    }
+    setAllAccordions(!areAllOpen);
   };
 
   // Check if current route belongs to a disabled module
@@ -347,6 +343,24 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
           >
             <svg className="w-4 h-4 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
+
+          {/* Desktop Sidebar Collapse / Expand Toggle Button */}
+          <button
+            suppressHydrationWarning
+            type="button"
+            onClick={toggleSidebarCollapse}
+            title={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            className="hidden md:flex w-8 h-8 rounded-[6px] border border-slate-200 bg-[#f8fafc] items-center justify-center text-slate-600 hover:text-[#5e2b9d] hover:bg-purple-50 transition-colors cursor-pointer"
+            aria-label={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            <svg className="w-4 h-4 stroke-[1.8]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              {isSidebarCollapsed ? (
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+              ) : (
+                <path strokeLinecap="round" strokeLinejoin="round" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+              )}
             </svg>
           </button>
 
@@ -497,29 +511,174 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
 
       {/* Main Workspace: Fills remaining viewport height */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left Accordion Sidebar — Desktop Only (hidden on mobile, fixed 268px on md+) */}
-        <aside className="hidden md:flex w-[268px] h-full shrink-0 bg-white border-r border-slate-200/80 flex-col justify-between">
+        <aside
+          suppressHydrationWarning
+          className={`hidden md:flex ${
+            isSidebarCollapsed ? "w-[68px]" : "w-[268px]"
+          } h-full shrink-0 bg-white border-r border-slate-200/80 flex-col justify-between ${
+            hasInteracted ? "transition-[width] duration-200 ease-in-out" : ""
+          } z-30 relative`}
+        >
           {/* Top Quick Actions Header inside Sidebar */}
-          <div className="px-3.5 pt-2.5 pb-1 flex items-center justify-between text-[11px] font-semibold text-slate-400 uppercase tracking-wider shrink-0">
-            <span>Menu</span>
-            <button
-              type="button"
-              onClick={handleToggleAllAccordions}
-              className="text-[10.5px] font-medium text-slate-400 hover:text-[#5e2b9d] transition-colors cursor-pointer lowercase"
-            >
-              {areAllOpen ? "collapse all" : "expand all"}
-            </button>
-          </div>
+          {isSidebarCollapsed ? (
+            <div className="pt-2.5 pb-1 flex justify-center shrink-0">
+              <button
+                type="button"
+                onClick={toggleSidebarCollapse}
+                title="Expand sidebar"
+                className="w-8 h-8 flex items-center justify-center rounded-[6px] text-slate-400 hover:text-[#5e2b9d] hover:bg-purple-50 transition-colors cursor-pointer"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                </svg>
+              </button>
+            </div>
+          ) : (
+            <div className="px-3.5 pt-2.5 pb-1 flex items-center justify-between text-[11px] font-semibold text-slate-400 uppercase tracking-wider shrink-0">
+              <span>Menu</span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={handleToggleAllAccordions}
+                  className="text-[10.5px] font-medium text-slate-400 hover:text-[#5e2b9d] transition-colors cursor-pointer lowercase"
+                >
+                  {areAllOpen ? "collapse all" : "expand all"}
+                </button>
+                <button
+                  type="button"
+                  onClick={toggleSidebarCollapse}
+                  title="Collapse sidebar"
+                  className="w-5 h-5 flex items-center justify-center rounded text-slate-400 hover:text-[#5e2b9d] hover:bg-purple-50 transition-colors cursor-pointer"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Navigation Accordion List with Sleek Scrollbar */}
           <nav
             suppressHydrationWarning
-            className="flex-1 overflow-y-auto px-2.5 py-1.5 space-y-0.5 custom-sidebar-scroll select-none"
+            className={`flex-1 ${
+              isSidebarCollapsed ? "overflow-visible px-2.5" : "overflow-y-auto px-2.5 custom-sidebar-scroll"
+            } py-1.5 space-y-0.5 select-none`}
           >
             {visibleNavGroups.map((group) => {
-              // Direct Link (Dashboard, POS Billing, Stores)
+              const isActive = group.href
+                ? pathname === group.href
+                : false;
+              const hasActiveChild = group.children?.some(
+                (c) => pathname === c.href || pathname.startsWith(c.href + "/")
+              );
+
+              // ─── Collapsed Mode ──────────────────────────────────────────────
+              if (isSidebarCollapsed) {
+                if (group.href) {
+                  return (
+                    <div key={group.id} className="relative group flex justify-center py-0.5">
+                      <Link
+                        href={group.href}
+                        className={`w-10 h-10 rounded-[8px] flex items-center justify-center transition-all ${
+                          isActive
+                            ? "bg-[#5e2b9d] text-white shadow-xs"
+                            : "text-slate-700 hover:bg-purple-50/80 hover:text-[#5e2b9d]"
+                        }`}
+                      >
+                        <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          {Array.isArray(group.icon) ? (
+                            group.icon.map((d, i) => (
+                              <path key={i} strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d={d} />
+                            ))
+                          ) : (
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d={group.icon} />
+                          )}
+                        </svg>
+                      </Link>
+
+                      {/* Hover Popover with Name */}
+                      <div className="absolute left-[50px] top-1/2 -translate-y-1/2 z-50 pointer-events-none hidden group-hover:flex items-center animate-in fade-in zoom-in-95 duration-100">
+                        <div className="w-1.5 h-1.5 bg-slate-900 rotate-45 -mr-1 z-10" />
+                        <div className="px-3 py-1.5 rounded-[6px] bg-slate-900 text-white text-xs font-semibold whitespace-nowrap shadow-xl">
+                          {group.label}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div key={group.id} className="relative group flex justify-center py-0.5">
+                    <button
+                      type="button"
+                      className={`w-10 h-10 rounded-[8px] flex items-center justify-center transition-all cursor-pointer ${
+                        hasActiveChild
+                          ? "bg-purple-100 text-[#5e2b9d] font-semibold border border-purple-200"
+                          : "text-slate-700 hover:bg-purple-50/80 hover:text-[#5e2b9d]"
+                      }`}
+                    >
+                      <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        {Array.isArray(group.icon) ? (
+                          group.icon.map((d, i) => (
+                            <path key={i} strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d={d} />
+                          ))
+                        ) : (
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d={group.icon} />
+                        )}
+                      </svg>
+                    </button>
+
+                    {/* Popover on hover with Manager Name & Submenus */}
+                    <div className="absolute left-[48px] top-0 z-50 pointer-events-none group-hover:pointer-events-auto opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-150 transform translate-x-1 group-hover:translate-x-0">
+                      <div className="w-64 bg-white rounded-[8px] border border-slate-200/90 shadow-2xl overflow-hidden py-1">
+                        <div className="px-3.5 py-2 bg-slate-50 border-b border-slate-100 flex items-center gap-2">
+                          <svg className="w-4 h-4 text-[#5e2b9d] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            {Array.isArray(group.icon) ? (
+                              group.icon.map((d, i) => (
+                                <path key={i} strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d={d} />
+                              ))
+                            ) : (
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d={group.icon} />
+                            )}
+                          </svg>
+                          <span className="font-bold text-xs text-slate-900">{group.label}</span>
+                        </div>
+
+                        <div className="p-1.5 space-y-0.5 max-h-72 overflow-y-auto custom-sidebar-scroll">
+                          {group.children?.map((child) => {
+                            const isChildActive = pathname === child.href || pathname.startsWith(child.href + "/");
+                            return (
+                              <Link
+                                key={child.id}
+                                href={child.href}
+                                className={`h-8 px-2.5 rounded-[5px] flex items-center gap-2.5 text-xs font-medium transition-colors ${
+                                  isChildActive
+                                    ? "bg-[#5e2b9d] text-white shadow-2xs font-semibold"
+                                    : "text-slate-700 hover:bg-purple-50 hover:text-[#5e2b9d]"
+                                }`}
+                              >
+                                <svg
+                                  className={`w-3.5 h-3.5 shrink-0 ${isChildActive ? "text-white" : "text-slate-400"}`}
+                                  fill="none"
+                                  stroke="currentColor"
+                                  viewBox="0 0 24 24"
+                                >
+                                  {renderNavIcon(child.icon || group.icon)}
+                                </svg>
+                                <span className="truncate">{child.label}</span>
+                              </Link>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              // ─── Expanded Mode ──────────────────────────────────────────────
               if (group.href) {
-                const isActive = pathname === group.href;
                 return (
                   <Link
                     key={group.id}
@@ -544,11 +703,7 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
                 );
               }
 
-              // Accordion with Child Menus
               const isOpen = !!openAccordions[group.id];
-              const hasActiveChild = group.children?.some(
-                (c) => pathname === c.href || pathname.startsWith(c.href + "/")
-              );
 
               return (
                 <div key={group.id} className="flex flex-col">
@@ -577,11 +732,9 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d={group.icon} />
                         )}
                       </svg>
-                      {/* Ensures long titles like 'Return & Exchange Manager' fit comfortably without truncation */}
                       <span className="whitespace-nowrap">{group.label}</span>
                     </div>
 
-                    {/* Rotating Chevron */}
                     <svg
                       className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 shrink-0 ml-1 ${
                         isOpen ? "rotate-180 text-[#5e2b9d]" : ""
@@ -594,26 +747,29 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
                     </svg>
                   </button>
 
-                  {/* Accordion Submenu Items */}
+                  {/* Accordion Submenu Items with Distinct Icons */}
                   {isOpen && group.children && (
-                    <div className="flex flex-col ml-4 pl-2.5 border-l-2 border-slate-100 py-1 space-y-0.5 animate-in fade-in slide-in-from-top-1 duration-150">
+                    <div className="flex flex-col ml-3 pl-2 border-l-2 border-slate-100 py-1 space-y-0.5 animate-in fade-in slide-in-from-top-1 duration-150">
                       {group.children.map((child) => {
                         const isChildActive = pathname === child.href || pathname.startsWith(child.href + "/");
                         return (
                           <Link
                             key={child.id}
                             href={child.href}
-                            className={`h-[32px] max-h-[34px] px-2.5 rounded-[6px] flex items-center gap-2 text-[13px] font-medium transition-colors truncate ${
+                            className={`h-[32px] max-h-[34px] px-2.5 rounded-[6px] flex items-center gap-2.5 text-[12.5px] font-medium transition-colors truncate ${
                               isChildActive
-                                ? "bg-[#5e2b9d] text-white shadow-2xs"
+                                ? "bg-[#5e2b9d] text-white shadow-2xs font-semibold"
                                 : "text-slate-600 hover:text-slate-900 hover:bg-slate-100/70"
                             }`}
                           >
-                            <span
-                              className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                                isChildActive ? "bg-white" : "bg-slate-300"
-                              }`}
-                            />
+                            <svg
+                              className={`w-3.5 h-3.5 shrink-0 ${isChildActive ? "text-white" : "text-slate-400"}`}
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              {renderNavIcon(child.icon || group.icon)}
+                            </svg>
                             <span className="truncate">{child.label}</span>
                           </Link>
                         );
@@ -626,18 +782,32 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
           </nav>
 
           {/* Pinned Bottom Sidebar Footer */}
-          <div className="shrink-0 px-3.5 py-2.5 border-t border-slate-100 bg-white flex items-center justify-between text-[11px] text-slate-400">
-            <Link
-              href="/onboarding"
-              className="flex items-center gap-1.5 hover:text-[#5e2b9d] transition-colors"
-            >
-              <svg className="w-3.5 h-3.5 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
-              </svg>
-              <span>Onboarding</span>
-            </Link>
-            <span className="text-[10px] text-slate-400 font-mono">RetailNext</span>
-          </div>
+          {isSidebarCollapsed ? (
+            <div className="shrink-0 py-2.5 border-t border-slate-100 bg-white flex justify-center">
+              <Link
+                href="/onboarding"
+                title="Onboarding & Settings"
+                className="w-9 h-9 rounded-[6px] flex items-center justify-center text-slate-400 hover:text-[#5e2b9d] hover:bg-purple-50 transition-colors"
+              >
+                <svg className="w-4 h-4 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                </svg>
+              </Link>
+            </div>
+          ) : (
+            <div className="shrink-0 px-3.5 py-2.5 border-t border-slate-100 bg-white flex items-center justify-between text-[11px] text-slate-400">
+              <Link
+                href="/onboarding"
+                className="flex items-center gap-1.5 hover:text-[#5e2b9d] transition-colors"
+              >
+                <svg className="w-3.5 h-3.5 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                </svg>
+                <span>Onboarding</span>
+              </Link>
+              <span className="text-[10px] text-slate-400 font-mono">RetailNext</span>
+            </div>
+          )}
         </aside>
 
         {/* Page Content Container — Independent Scroll */}
@@ -810,17 +980,20 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
                               key={child.id}
                               href={child.href}
                               onClick={() => setIsMobileNavOpen(false)}
-                              className={`h-[32px] max-h-[34px] px-2.5 rounded-[6px] flex items-center gap-2 text-[13px] font-medium transition-colors truncate ${
+                              className={`h-[32px] max-h-[34px] px-2.5 rounded-[6px] flex items-center gap-2.5 text-[12.5px] font-medium transition-colors truncate ${
                                 isChildActive
-                                  ? "bg-[#5e2b9d] text-white shadow-2xs"
+                                  ? "bg-[#5e2b9d] text-white shadow-2xs font-semibold"
                                   : "text-slate-600 hover:text-slate-900 hover:bg-slate-100/70"
                               }`}
                             >
-                              <span
-                                className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                                  isChildActive ? "bg-white" : "bg-slate-300"
-                                }`}
-                              />
+                              <svg
+                                className={`w-3.5 h-3.5 shrink-0 ${isChildActive ? "text-white" : "text-slate-400"}`}
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                {renderNavIcon(child.icon || group.icon)}
+                              </svg>
                               <span className="truncate">{child.label}</span>
                             </Link>
                           );

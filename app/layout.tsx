@@ -5,6 +5,7 @@ import NumberInputScrollPrevention from "@/components/NumberInputScrollPreventio
 import { ToastProvider } from "@/components/ToastProvider";
 import PwaUpdater from "@/components/PwaUpdater";
 import { PrinterProvider } from "@/context/PrinterContext";
+import { SidebarProvider } from "@/context/SidebarContext";
 import QueryProvider from "@/components/providers/QueryProvider";
 
 
@@ -63,9 +64,11 @@ export default function RootLayout({
         <QueryProvider>
           <ToastProvider>
             <PrinterProvider>
-              <NumberInputScrollPrevention />
-              <PwaUpdater />
-              {children}
+              <SidebarProvider>
+                <NumberInputScrollPrevention />
+                <PwaUpdater />
+                {children}
+              </SidebarProvider>
             </PrinterProvider>
           </ToastProvider>
         </QueryProvider>
