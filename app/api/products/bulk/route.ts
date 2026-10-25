@@ -194,6 +194,59 @@ export async function POST(request: Request) {
       });
     });
 
+    // Fetch stores & warehouses for active business to distribute inventory
+    const [storesRes, warehousesRes] = await Promise.all([
+      ctx.supabase.from("stores").select("id, name").eq("business_id", ctx.businessId),
+      ctx.supabase.from("warehouses").select("id, name").eq("business_id", ctx.businessId),
+    ]);
+    const businessStores: { id: string; name: string }[] = storesRes.data || [];
+    const businessWarehouses: { id: string; name: string }[] = warehousesRes.data || [];
+
+    function allocateStockToLocations(totalStock: number) {
+      const storeStocks: { storeId: string; storeName: string; stock: number }[] = [];
+      const whStocks: { warehouseId: string; warehouseName: string; stock: number }[] = [];
+
+      if (totalStock <= 0 || (businessStores.length === 0 && businessWarehouses.length === 0)) {
+        businessStores.forEach((s) => storeStocks.push({ storeId: s.id, storeName: s.name, stock: 0 }));
+        businessWarehouses.forEach((w) => whStocks.push({ warehouseId: w.id, warehouseName: w.name, stock: 0 }));
+        return { stores: storeStocks, warehouses: whStocks };
+      }
+
+      const allLocs: { type: "store" | "warehouse"; id: string; name: string; weight: number }[] = [];
+      businessStores.forEach((s, idx) => {
+        const weight = idx === 0 ? 0.4 : 0.2 / Math.max(1, businessStores.length - 1);
+        allLocs.push({ type: "store", id: s.id, name: s.name, weight });
+      });
+      businessWarehouses.forEach((w, idx) => {
+        const weight = idx === 0 ? 0.25 : 0.15 / Math.max(1, businessWarehouses.length - 1);
+        allLocs.push({ type: "warehouse", id: w.id, name: w.name, weight });
+      });
+
+      const totalWeight = allLocs.reduce((sum, l) => sum + l.weight, 0);
+      let allocatedSum = 0;
+
+      allLocs.forEach((l, idx) => {
+        if (idx === allLocs.length - 1) {
+          const finalStock = Math.max(0, totalStock - allocatedSum);
+          if (l.type === "store") {
+            storeStocks.push({ storeId: l.id, storeName: l.name, stock: finalStock });
+          } else {
+            whStocks.push({ warehouseId: l.id, warehouseName: l.name, stock: finalStock });
+          }
+        } else {
+          const share = Math.floor((l.weight / totalWeight) * totalStock);
+          allocatedSum += share;
+          if (l.type === "store") {
+            storeStocks.push({ storeId: l.id, storeName: l.name, stock: share });
+          } else {
+            whStocks.push({ warehouseId: l.id, warehouseName: l.name, stock: share });
+          }
+        }
+      });
+
+      return { stores: storeStocks, warehouses: whStocks };
+    }
+
     // 4. Build product records for Supabase insert
     const productRows: any[] = [];
     let productIndex = 0;
@@ -235,7 +288,7 @@ export async function POST(request: Request) {
             price: it.salesPrice,
             mrp: it.listPrice,
             stock: it.stock,
-            locationStocks: { stores: [], warehouses: [] },
+            locationStocks: allocateStockToLocations(it.stock),
           };
         });
 
@@ -297,7 +350,7 @@ export async function POST(request: Request) {
             minPrice: first.salesPrice,
             listPrice: first.listPrice,
             salesPrice: first.salesPrice,
-            locationStocks: { stores: [], warehouses: [] },
+            locationStocks: allocateStockToLocations(first.stock),
           },
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
