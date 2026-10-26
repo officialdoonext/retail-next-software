@@ -34,6 +34,8 @@ function toProductViewModel(d: any) {
     salesPrice,
     price: salesPrice,
     mrp: listPrice,
+    taxRate: Number(d.tax_rate) || Number(extra.taxRate) || Number(extra.gstRate) || 0,
+    isTaxInclusive: extra.isTaxInclusive !== undefined ? Boolean(extra.isTaxInclusive) : (extra.taxType === "exclusive" ? false : true),
     stock: Number(d.stock) || Number(extra.totalStock) || 0,
     minStock: Number(d.min_stock) || Number(extra.bufferStock) || 0,
     locationStocks: extra.locationStocks || { stores: [], warehouses: [] },

@@ -12,7 +12,9 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const limitParam = searchParams.get("limit");
     const fetchAll = searchParams.get("all") === "true";
-    const maxLimit = fetchAll ? 1000 : (limitParam ? parseInt(limitParam, 10) : 100);
+    const startDate = searchParams.get("startDate");
+    const endDate = searchParams.get("endDate");
+    const maxLimit = fetchAll ? 5000 : (limitParam ? parseInt(limitParam, 10) : 1000);
 
     let query = ctx.supabase
       .from("orders")
@@ -23,6 +25,13 @@ export async function GET(request: Request) {
       query = query.or(`store_id.eq.${ctx.storeId},store_id.is.null`);
     }
 
+    if (startDate) {
+      query = query.gte("created_at", startDate);
+    }
+    if (endDate) {
+      query = query.lte("created_at", endDate);
+    }
+
     const { data: rawOrders, error } = await query
       .order("created_at", { ascending: false })
       .limit(maxLimit);
@@ -31,27 +40,37 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: false, error: error.message }, { status: 500 });
     }
 
-    const orders = (rawOrders || []).map((o: any) => ({
-      id: o.id,
-      billNumber: o.order_number,
-      storeId: o.store_id,
-      businessId: o.business_id,
-      status: o.status || "SETTLED",
-      customer: {
-        id: o.customer_id || "",
-        name: o.customer_name || "Walk-in Customer",
-        phone: o.customer_phone || "",
-      },
-      items: Array.isArray(o.items) ? o.items : [],
-      subtotal: Number(o.subtotal) || 0,
-      discount: Number(o.discount) || 0,
-      tax: Number(o.tax) || 0,
-      grandTotal: Number(o.total) || 0,
-      total: Number(o.total) || 0,
-      paymentMethod: o.payment_method || "CASH",
-      settledBy: o.staff_name || "",
-      createdAt: o.created_at ? new Date(o.created_at).getTime() : Date.now(),
-    }));
+    const orders = (rawOrders || []).map((o: any) => {
+      const rawItems = Array.isArray(o.items) ? o.items : [];
+      const billMeta = rawItems.find((it: any) => it._isBillMeta) || {};
+      const actualItems = rawItems.filter((it: any) => !it._isBillMeta);
+
+      return {
+        id: o.id,
+        billNumber: o.order_number,
+        storeId: o.store_id,
+        businessId: o.business_id,
+        status: o.status || "SETTLED",
+        customer: {
+          id: o.customer_id || "",
+          name: o.customer_name || "Walk-in Customer",
+          phone: o.customer_phone || "",
+        },
+        items: actualItems,
+        subtotal: Number(o.subtotal) || 0,
+        discount: Number(o.discount) || 0,
+        tax: Number(o.tax) || 0,
+        grandTotal: Number(o.total) || 0,
+        total: Number(o.total) || 0,
+        paymentMethod: o.payment_method || "CASH",
+        splitDetails: billMeta.splitDetails || null,
+        couponCode: billMeta.couponCode || null,
+        couponDiscount: billMeta.couponDiscount || 0,
+        customerDiscount: billMeta.customerDiscount || 0,
+        settledBy: o.staff_name || "",
+        createdAt: o.created_at ? new Date(o.created_at).getTime() : Date.now(),
+      };
+    });
 
     return NextResponse.json({ success: true, orders, count: orders.length });
   } catch (error: any) {
@@ -173,7 +192,45 @@ export async function POST(request: Request) {
       } catch {}
     }
 
-    // 4. INSERT SETTLED ORDER IN SUPABASE orders TABLE
+    // 4. MAP LINE ITEMS WITH FULL METADATA & EMPLOYEE ATTRIBUTION
+    const mappedItems = items.map((it: any) => ({
+      productId: it.productId,
+      productName: it.productName || it.name,
+      variantId: it.variantId || null,
+      variantName: it.variantName || null,
+      barcode: it.barcode || "",
+      sku: it.sku || "",
+      listPrice: Number(it.listPrice || it.mrp || it.price) || 0,
+      salePrice: Number(it.salePrice || it.price) || 0,
+      price: Number(it.salePrice || it.price) || 0,
+      quantity: Number(it.quantity) || 1,
+      taxRate: Number(it.taxRate) || 0,
+      isTaxInclusive: it.isTaxInclusive !== undefined ? Boolean(it.isTaxInclusive) : true,
+      taxableAmount: Number(it.taxableAmount) || 0,
+      taxAmount: Number(it.taxAmount) || 0,
+      subtotal: Number(it.subtotal) || (Number(it.salePrice || it.price) || 0) * (Number(it.quantity) || 1),
+      total: Number(it.subtotal) || (Number(it.salePrice || it.price) || 0) * (Number(it.quantity) || 1),
+      // Employee attribution per line item
+      employeeId: it.employeeId || null,
+      employeeName: it.employeeName || null,
+      employeeNumericId: it.employeeNumericId || null,
+      employeeMobile: it.employeeMobile || null,
+    }));
+
+    // Attach bill meta inside items array
+    const billMetaItem = {
+      _isBillMeta: true,
+      splitDetails,
+      couponCode: body.couponCode || null,
+      couponDiscount: Number(body.couponDiscount) || 0,
+      customerDiscount: Number(body.customerDiscount) || 0,
+    };
+
+    const finalPaymentMethod = paymentMethod === "SPLIT" && splitDetails
+      ? `SPLIT (Cash: ₹${splitDetails.cash || 0}, UPI: ₹${splitDetails.upi || 0}, Card: ₹${splitDetails.card || 0})`
+      : paymentMethod;
+
+    // 5. INSERT SETTLED ORDER IN SUPABASE orders TABLE
     const orderRecord = {
       business_id: ctx.businessId,
       store_id: ctx.storeId || null,
@@ -181,22 +238,12 @@ export async function POST(request: Request) {
       customer_id: customerId,
       customer_name: customerName,
       customer_phone: customerPhone,
-      items: items.map((it: any) => ({
-        productId: it.productId,
-        productName: it.productName,
-        variantId: it.variantId || null,
-        variantName: it.variantName || null,
-        barcode: it.barcode || "",
-        sku: it.sku || "",
-        price: Number(it.price) || 0,
-        quantity: Number(it.quantity) || 1,
-        total: (Number(it.price) || 0) * (Number(it.quantity) || 1),
-      })),
+      items: [...mappedItems, billMetaItem],
       subtotal,
       discount,
       tax: totalTax,
       total: grandTotal,
-      payment_method: paymentMethod,
+      payment_method: finalPaymentMethod,
       payment_status: "Paid",
       status: "Completed",
       staff_name: ctx.session.staffName || ctx.session.email,
@@ -220,6 +267,7 @@ export async function POST(request: Request) {
         id: insertedOrder.id,
         billNumber,
         ...orderRecord,
+        items: mappedItems, // Clean items without _isBillMeta
         grandTotal,
         splitDetails,
       },
