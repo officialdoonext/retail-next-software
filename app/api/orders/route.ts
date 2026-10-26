@@ -14,6 +14,9 @@ export async function GET(request: Request) {
     const fetchAll = searchParams.get("all") === "true";
     const startDate = searchParams.get("startDate");
     const endDate = searchParams.get("endDate");
+    const customerId = searchParams.get("customerId");
+    const customerPhone = searchParams.get("customerPhone");
+    const allStores = searchParams.get("allStores") === "true";
     const maxLimit = fetchAll ? 5000 : (limitParam ? parseInt(limitParam, 10) : 1000);
 
     let query = ctx.supabase
@@ -21,8 +24,14 @@ export async function GET(request: Request) {
       .select("*")
       .eq("business_id", ctx.businessId);
 
-    if (ctx.storeId) {
+    if (ctx.storeId && !allStores && !customerId && !customerPhone) {
       query = query.or(`store_id.eq.${ctx.storeId},store_id.is.null`);
+    }
+
+    if (customerId) {
+      query = query.eq("customer_id", customerId);
+    } else if (customerPhone) {
+      query = query.eq("customer_phone", customerPhone);
     }
 
     if (startDate) {
