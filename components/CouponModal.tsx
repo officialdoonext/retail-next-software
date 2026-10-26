@@ -425,59 +425,6 @@ export default function CouponModal({
           {/* TAB 1: BASIC INFORMATION */}
           {activeTab === "basics" && (
             <div className="space-y-4 animate-in fade-in duration-100">
-              
-              {/* Promotion Type Selector */}
-              {/* <div>
-                <label className="text-[11px] font-semibold text-slate-700 block mb-1">
-                  Coupon Manager Category *
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setType("order");
-                      if (discountType === "bogo" || discountType === "bundle") setDiscountType("percentage");
-                    }}
-                    className={`p-2.5 rounded-lg border text-left cursor-pointer transition-all ${
-                      type === "order"
-                        ? "border-[#5e2b9d] bg-purple-50/50 shadow-2xs ring-1 ring-[#5e2b9d]"
-                        : "border-slate-200 hover:bg-slate-50"
-                    }`}
-                  >
-                    <span className="font-bold text-xs text-slate-900 block">Order Coupon</span>
-                    <span className="text-[10px] text-slate-500 block">Cart-wide discount at bill checkout</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setType("product")}
-                    className={`p-2.5 rounded-lg border text-left cursor-pointer transition-all ${
-                      type === "product"
-                        ? "border-[#5e2b9d] bg-purple-50/50 shadow-2xs ring-1 ring-[#5e2b9d]"
-                        : "border-slate-200 hover:bg-slate-50"
-                    }`}
-                  >
-                    <span className="font-bold text-xs text-slate-900 block">Product Coupon</span>
-                    <span className="text-[10px] text-slate-500 block">SKU, Category, BOGO & Bundles</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setType("customer");
-                      if (discountType === "bogo" || discountType === "bundle") setDiscountType("flat");
-                    }}
-                    className={`p-2.5 rounded-lg border text-left cursor-pointer transition-all ${
-                      type === "customer"
-                        ? "border-[#5e2b9d] bg-purple-50/50 shadow-2xs ring-1 ring-[#5e2b9d]"
-                        : "border-slate-200 hover:bg-slate-50"
-                    }`}
-                  >
-                    <span className="font-bold text-xs text-slate-900 block">Customer Coupon</span>
-                    <span className="text-[10px] text-slate-500 block">VIP, Birthday & Phone vouchers</span>
-                  </button>
-                </div>
-              </div> */}
 
               {/* Coupon Code & Generate */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

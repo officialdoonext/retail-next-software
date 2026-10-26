@@ -53,7 +53,7 @@ export default function ProductCouponsPage() {
     } finally {
       setLoading(false);
     }
-  }, [searchQuery, statusFilter, toast]);
+  }, [searchQuery, statusFilter]);
 
   useEffect(() => {
     fetchCoupons();

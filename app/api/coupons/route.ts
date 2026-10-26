@@ -42,33 +42,34 @@ async function getCouponsFromSettings(ctx: any): Promise<{ coupons: CouponItem[]
 
   let existingCoupons: CouponItem[] = bSettings?.settings?.coupons;
 
-  // Initialize with authentic starter demo campaigns if first time
-  if (!Array.isArray(existingCoupons) || existingCoupons.length === 0) {
-    existingCoupons = [
-      ...INITIAL_ORDER_COUPONS,
-      ...INITIAL_PRODUCT_COUPONS,
-      ...INITIAL_CUSTOMER_COUPONS,
-    ];
+  if (!Array.isArray(existingCoupons)) {
+    existingCoupons = [];
+  } else {
+    const dummyCodes = new Set([
+      "WELCOME100", "FESTIVE20", "FLAT500", "UPI50", "WEEKEND15",
+      "DENIM30", "BOGO-SHIRT", "BUNDLE-TEE", "SILK-15", "WINTER-FLAT400",
+      "VIP-PRIVILEGE", "BDAY-OCT500", "ANNIV-GIFT", "WINBACK300", "PATRON-ANANYA"
+    ]);
 
-    // Seed into business_settings
-    const updatedSettings = {
-      ...(bSettings?.settings || {}),
-      coupons: existingCoupons,
-    };
+    const filtered = existingCoupons.filter(
+      (c) =>
+        !c.id.startsWith("ord-cp-") &&
+        !c.id.startsWith("prd-cp-") &&
+        !c.id.startsWith("cst-cp-") &&
+        !dummyCodes.has(c.code.toUpperCase())
+    );
 
-    if (bSettings?.id) {
-      await ctx.supabase
-        .from("business_settings")
-        .update({ settings: updatedSettings, updated_at: new Date().toISOString() })
-        .eq("id", bSettings.id);
-    } else {
-      await ctx.supabase.from("business_settings").insert({
-        business_id: ctx.businessId,
-        store_id: ctx.storeId || null,
-        settings: updatedSettings,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      });
+    if (filtered.length !== existingCoupons.length) {
+      existingCoupons = filtered;
+      if (bSettings?.id) {
+        await ctx.supabase
+          .from("business_settings")
+          .update({
+            settings: { ...(bSettings.settings || {}), coupons: filtered },
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", bSettings.id);
+      }
     }
   }
 
@@ -120,12 +121,7 @@ export async function GET(request: Request) {
       const data = await getCouponsFromSettings(ctx);
       coupons = data.coupons;
     } else {
-      // In-memory demo fallback if no business exists
-      coupons = [
-        ...INITIAL_ORDER_COUPONS,
-        ...INITIAL_PRODUCT_COUPONS,
-        ...INITIAL_CUSTOMER_COUPONS,
-      ];
+      coupons = [];
     }
 
     // Refresh status based on dates
