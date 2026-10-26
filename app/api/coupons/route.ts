@@ -1,14 +1,17 @@
 import { NextResponse } from "next/server";
 import { getBusinessContext } from "@/lib/supabaseDb";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { randomUUID } from "crypto";
 import {
   CouponItem,
   CouponType,
-  INITIAL_ORDER_COUPONS,
-  INITIAL_PRODUCT_COUPONS,
-  INITIAL_CUSTOMER_COUPONS,
   computeCouponStatus,
 } from "@/lib/coupons";
+
+function isValidUUID(str?: string | null): boolean {
+  if (!str) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(str);
+}
 
 async function resolveContext() {
   let ctx = await getBusinessContext();
@@ -32,6 +35,103 @@ async function resolveContext() {
   return ctx;
 }
 
+// Convert DB snake_case row to CouponItem
+function rowToCouponItem(row: any): CouponItem {
+  return {
+    id: row.id,
+    type: row.type,
+    code: row.code,
+    title: row.title,
+    description: row.description || "",
+    discountType: row.discount_type,
+    discountValue: Number(row.discount_value) || 0,
+    maxDiscountCap: row.max_discount_cap != null ? Number(row.max_discount_cap) : undefined,
+    minOrderValue: row.min_order_value != null ? Number(row.min_order_value) : 0,
+
+    targetType: row.target_type || "all",
+    targetProductIds: Array.isArray(row.target_product_ids) ? row.target_product_ids : [],
+    targetCategoryIds: Array.isArray(row.target_category_ids) ? row.target_category_ids : [],
+    bogoBuyQty: row.bogo_buy_qty != null ? Number(row.bogo_buy_qty) : undefined,
+    bogoGetQty: row.bogo_get_qty != null ? Number(row.bogo_get_qty) : undefined,
+    bogoDiscountPercent: row.bogo_discount_percent != null ? Number(row.bogo_discount_percent) : undefined,
+    bundleQty: row.bundle_qty != null ? Number(row.bundle_qty) : undefined,
+    bundlePrice: row.bundle_price != null ? Number(row.bundle_price) : undefined,
+
+    customerScope: row.customer_scope || "all",
+    targetCustomerPhones: Array.isArray(row.target_customer_phones) ? row.target_customer_phones : [],
+    targetCustomerGroup: row.target_customer_group || "",
+    milestoneType: row.milestone_type || undefined,
+    isSingleUsePerCustomer: Boolean(row.is_single_use_per_customer),
+
+    totalUsageLimit: row.total_usage_limit != null ? Number(row.total_usage_limit) : undefined,
+    usedCount: Number(row.used_count) || 0,
+    perCustomerLimit: row.per_customer_limit != null ? Number(row.per_customer_limit) : 1,
+    allowedPaymentModes: Array.isArray(row.allowed_payment_modes) ? row.allowed_payment_modes : ["All"],
+    excludeSaleItems: Boolean(row.exclude_sale_items),
+    autoApplyAtCheckout: Boolean(row.auto_apply_at_checkout),
+
+    startDate: row.start_date || "",
+    startTime: row.start_time || "",
+    endDate: row.end_date || "",
+    endTime: row.end_time || "",
+    neverExpires: Boolean(row.never_expires),
+    status: row.status || "Active",
+
+    createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
+    updatedAt: row.updated_at ? new Date(row.updated_at).getTime() : Date.now(),
+  };
+}
+
+// Convert CouponItem to DB snake_case row
+function couponItemToRow(c: Partial<CouponItem>, businessId: string, storeId?: string | null): any {
+  const row: any = {
+    id: c.id && isValidUUID(c.id) ? c.id : randomUUID(),
+    business_id: businessId,
+    store_id: storeId || null,
+    type: c.type,
+    code: c.code,
+    title: c.title,
+    description: c.description || "",
+    discount_type: c.discountType,
+    discount_value: c.discountValue ?? 0,
+    max_discount_cap: c.maxDiscountCap != null ? c.maxDiscountCap : null,
+    min_order_value: c.minOrderValue != null ? c.minOrderValue : 0,
+
+    target_type: c.targetType || "all",
+    target_product_ids: c.targetProductIds || [],
+    target_category_ids: c.targetCategoryIds || [],
+    bogo_buy_qty: c.bogoBuyQty != null ? c.bogoBuyQty : null,
+    bogo_get_qty: c.bogoGetQty != null ? c.bogoGetQty : null,
+    bogo_discount_percent: c.bogoDiscountPercent != null ? c.bogoDiscountPercent : null,
+    bundle_qty: c.bundleQty != null ? c.bundleQty : null,
+    bundle_price: c.bundlePrice != null ? c.bundlePrice : null,
+
+    customer_scope: c.customerScope || "all",
+    target_customer_phones: c.targetCustomerPhones || [],
+    target_customer_group: c.targetCustomerGroup || "",
+    milestone_type: c.milestoneType || null,
+    is_single_use_per_customer: Boolean(c.isSingleUsePerCustomer),
+
+    total_usage_limit: c.totalUsageLimit != null ? c.totalUsageLimit : null,
+    used_count: c.usedCount || 0,
+    per_customer_limit: c.perCustomerLimit != null ? c.perCustomerLimit : 1,
+    allowed_payment_modes: c.allowedPaymentModes || ["All"],
+    exclude_sale_items: Boolean(c.excludeSaleItems),
+    auto_apply_at_checkout: Boolean(c.autoApplyAtCheckout),
+
+    start_date: c.startDate || null,
+    start_time: c.startTime || null,
+    end_date: c.endDate || null,
+    end_time: c.endTime || null,
+    never_expires: Boolean(c.neverExpires),
+    status: c.status || "Active",
+    updated_at: new Date().toISOString(),
+  };
+
+  return row;
+}
+
+// Fallback helpers for business_settings (in case public.coupons table is pending execution in SQL editor)
 async function getCouponsFromSettings(ctx: any): Promise<{ coupons: CouponItem[]; rawSettingsRow: any }> {
   const { data: bSettings } = await ctx.supabase
     .from("business_settings")
@@ -41,38 +141,9 @@ async function getCouponsFromSettings(ctx: any): Promise<{ coupons: CouponItem[]
     .maybeSingle();
 
   let existingCoupons: CouponItem[] = bSettings?.settings?.coupons;
-
   if (!Array.isArray(existingCoupons)) {
     existingCoupons = [];
-  } else {
-    const dummyCodes = new Set([
-      "WELCOME100", "FESTIVE20", "FLAT500", "UPI50", "WEEKEND15",
-      "DENIM30", "BOGO-SHIRT", "BUNDLE-TEE", "SILK-15", "WINTER-FLAT400",
-      "VIP-PRIVILEGE", "BDAY-OCT500", "ANNIV-GIFT", "WINBACK300", "PATRON-ANANYA"
-    ]);
-
-    const filtered = existingCoupons.filter(
-      (c) =>
-        !c.id.startsWith("ord-cp-") &&
-        !c.id.startsWith("prd-cp-") &&
-        !c.id.startsWith("cst-cp-") &&
-        !dummyCodes.has(c.code.toUpperCase())
-    );
-
-    if (filtered.length !== existingCoupons.length) {
-      existingCoupons = filtered;
-      if (bSettings?.id) {
-        await ctx.supabase
-          .from("business_settings")
-          .update({
-            settings: { ...(bSettings.settings || {}), coupons: filtered },
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", bSettings.id);
-      }
-    }
   }
-
   return { coupons: existingCoupons, rawSettingsRow: bSettings };
 }
 
@@ -118,10 +189,19 @@ export async function GET(request: Request) {
     let coupons: CouponItem[] = [];
 
     if (ctx) {
-      const data = await getCouponsFromSettings(ctx);
-      coupons = data.coupons;
-    } else {
-      coupons = [];
+      // First attempt querying the dedicated public.coupons table
+      const { data: dbCoupons, error: dbError } = await ctx.supabase
+        .from("coupons")
+        .select("*")
+        .eq("business_id", ctx.businessId);
+
+      if (!dbError && Array.isArray(dbCoupons)) {
+        coupons = dbCoupons.map(rowToCouponItem);
+      } else {
+        // Fallback to business_settings
+        const data = await getCouponsFromSettings(ctx);
+        coupons = data.coupons;
+      }
     }
 
     // Refresh status based on dates
@@ -199,22 +279,10 @@ export async function POST(request: Request) {
     }
 
     const cleanCode = String(code).trim().toUpperCase();
-
-    const { coupons, rawSettingsRow } = await getCouponsFromSettings(ctx);
-
-    // Check duplicate code
-    const duplicate = coupons.find(
-      (c) => c.code.toUpperCase() === cleanCode
-    );
-    if (duplicate) {
-      return NextResponse.json(
-        { success: false, error: `Coupon code '${cleanCode}' already exists.` },
-        { status: 409 }
-      );
-    }
+    const couponId = body.id && isValidUUID(body.id) ? body.id : randomUUID();
 
     const newCoupon: CouponItem = {
-      id: `cpn-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      id: couponId,
       type: (type || "order") as CouponType,
       code: cleanCode,
       title: String(title).trim(),
@@ -248,10 +316,10 @@ export async function POST(request: Request) {
       excludeSaleItems: Boolean(body.excludeSaleItems),
       autoApplyAtCheckout: Boolean(body.autoApplyAtCheckout),
 
-      startDate: body.startDate || new Date().toISOString().split("T")[0],
-      startTime: body.startTime || "00:00",
-      endDate: body.endDate || "2026-12-31",
-      endTime: body.endTime || "23:59",
+      startDate: body.startDate || "",
+      startTime: body.startTime || "",
+      endDate: body.endDate || "",
+      endTime: body.endTime || "",
       neverExpires: Boolean(body.neverExpires),
       status: (body.status || "Active") as any,
 
@@ -259,14 +327,57 @@ export async function POST(request: Request) {
       updatedAt: Date.now(),
     };
 
-    coupons.unshift(newCoupon);
-    await saveCouponsToSettings(ctx, coupons, rawSettingsRow);
+    // Try inserting into public.coupons table first
+    const row = couponItemToRow(newCoupon, ctx.businessId, ctx.storeId);
+    const { data: insertedRow, error: insertError } = await ctx.supabase
+      .from("coupons")
+      .insert([row])
+      .select("*")
+      .single();
 
-    return NextResponse.json({
-      success: true,
-      coupon: newCoupon,
-      message: `Coupon ${newCoupon.code} created successfully.`,
-    });
+    if (!insertError && insertedRow) {
+      return NextResponse.json({
+        success: true,
+        coupon: rowToCouponItem(insertedRow),
+        message: `Coupon ${newCoupon.code} created successfully.`,
+      });
+    }
+
+    // Check duplicate code error from unique constraint
+    if (insertError?.code === "23505") {
+      return NextResponse.json(
+        { success: false, error: `Coupon code '${cleanCode}' already exists.` },
+        { status: 409 }
+      );
+    }
+
+    // If table doesn't exist yet (PGRST205), fallback to business_settings
+    if (insertError?.code === "PGRST205") {
+      console.warn("coupons table insert fallback:", insertError?.message);
+      const { coupons, rawSettingsRow } = await getCouponsFromSettings(ctx);
+      const duplicate = coupons.find((c) => c.code.toUpperCase() === cleanCode);
+      if (duplicate) {
+        return NextResponse.json(
+          { success: false, error: `Coupon code '${cleanCode}' already exists.` },
+          { status: 409 }
+        );
+      }
+
+      coupons.unshift(newCoupon);
+      await saveCouponsToSettings(ctx, coupons, rawSettingsRow);
+
+      return NextResponse.json({
+        success: true,
+        coupon: newCoupon,
+        message: `Coupon ${newCoupon.code} created successfully.`,
+      });
+    }
+
+    console.error("Coupons insert error:", insertError);
+    return NextResponse.json(
+      { success: false, error: insertError?.message || "Failed to create coupon." },
+      { status: 500 }
+    );
   } catch (err: any) {
     console.error("POST /api/coupons error:", err);
     return NextResponse.json(
@@ -291,6 +402,79 @@ export async function PUT(request: Request) {
       return NextResponse.json({ success: false, error: "Coupon ID is required." }, { status: 400 });
     }
 
+    const cleanCode = code ? String(code).trim().toUpperCase() : undefined;
+
+    // Try updating public.coupons table if valid UUID
+    if (isValidUUID(id)) {
+      const updateData: any = {
+        updated_at: new Date().toISOString(),
+      };
+      if (cleanCode) updateData.code = cleanCode;
+      if (body.title !== undefined) updateData.title = String(body.title).trim();
+      if (body.description !== undefined) updateData.description = body.description || "";
+      if (body.type !== undefined) updateData.type = body.type;
+      if (body.discountType !== undefined) updateData.discount_type = body.discountType;
+      if (body.discountValue !== undefined) updateData.discount_value = Math.max(0, Number(body.discountValue) || 0);
+      if (body.maxDiscountCap !== undefined) updateData.max_discount_cap = body.maxDiscountCap ? Number(body.maxDiscountCap) : null;
+      if (body.minOrderValue !== undefined) updateData.min_order_value = body.minOrderValue ? Number(body.minOrderValue) : 0;
+      if (body.targetType !== undefined) updateData.target_type = body.targetType;
+      if (body.targetProductIds !== undefined) updateData.target_product_ids = body.targetProductIds;
+      if (body.targetCategoryIds !== undefined) updateData.target_category_ids = body.targetCategoryIds;
+      if (body.bogoBuyQty !== undefined) updateData.bogo_buy_qty = body.bogoBuyQty ? Number(body.bogoBuyQty) : null;
+      if (body.bogoGetQty !== undefined) updateData.bogo_get_qty = body.bogoGetQty ? Number(body.bogoGetQty) : null;
+      if (body.bogoDiscountPercent !== undefined) updateData.bogo_discount_percent = body.bogoDiscountPercent ? Number(body.bogoDiscountPercent) : null;
+      if (body.bundleQty !== undefined) updateData.bundle_qty = body.bundleQty ? Number(body.bundleQty) : null;
+      if (body.bundlePrice !== undefined) updateData.bundle_price = body.bundlePrice ? Number(body.bundlePrice) : null;
+      if (body.customerScope !== undefined) updateData.customer_scope = body.customerScope;
+      if (body.targetCustomerPhones !== undefined) updateData.target_customer_phones = body.targetCustomerPhones;
+      if (body.targetCustomerGroup !== undefined) updateData.target_customer_group = body.targetCustomerGroup;
+      if (body.milestoneType !== undefined) updateData.milestone_type = body.milestoneType || null;
+      if (body.isSingleUsePerCustomer !== undefined) updateData.is_single_use_per_customer = Boolean(body.isSingleUsePerCustomer);
+      if (body.totalUsageLimit !== undefined) updateData.total_usage_limit = body.totalUsageLimit ? Number(body.totalUsageLimit) : null;
+      if (body.perCustomerLimit !== undefined) updateData.per_customer_limit = body.perCustomerLimit ? Number(body.perCustomerLimit) : 1;
+      if (body.allowedPaymentModes !== undefined) updateData.allowed_payment_modes = body.allowedPaymentModes;
+      if (body.excludeSaleItems !== undefined) updateData.exclude_sale_items = Boolean(body.excludeSaleItems);
+      if (body.autoApplyAtCheckout !== undefined) updateData.auto_apply_at_checkout = Boolean(body.autoApplyAtCheckout);
+      if (body.startDate !== undefined) updateData.start_date = body.startDate || null;
+      if (body.startTime !== undefined) updateData.start_time = body.startTime || null;
+      if (body.endDate !== undefined) updateData.end_date = body.endDate || null;
+      if (body.endTime !== undefined) updateData.end_time = body.endTime || null;
+      if (body.neverExpires !== undefined) updateData.never_expires = Boolean(body.neverExpires);
+      if (body.status !== undefined) updateData.status = body.status;
+
+      const { data: updatedRow, error: updateError } = await ctx.supabase
+        .from("coupons")
+        .update(updateData)
+        .eq("id", id)
+        .eq("business_id", ctx.businessId)
+        .select("*")
+        .maybeSingle();
+
+      if (!updateError && updatedRow) {
+        return NextResponse.json({
+          success: true,
+          coupon: rowToCouponItem(updatedRow),
+          message: `Coupon ${updatedRow.code} updated successfully.`,
+        });
+      }
+
+      if (updateError?.code === "23505") {
+        return NextResponse.json(
+          { success: false, error: `Coupon code '${cleanCode}' is already in use.` },
+          { status: 409 }
+        );
+      }
+
+      if (updateError && updateError.code !== "PGRST205") {
+        console.error("Coupons update error:", updateError);
+        return NextResponse.json(
+          { success: false, error: updateError.message || "Failed to update coupon in database." },
+          { status: 500 }
+        );
+      }
+    }
+
+    // Fallback to business_settings
     const { coupons, rawSettingsRow } = await getCouponsFromSettings(ctx);
     const index = coupons.findIndex((c) => c.id === id);
 
@@ -298,15 +482,13 @@ export async function PUT(request: Request) {
       return NextResponse.json({ success: false, error: "Coupon not found." }, { status: 404 });
     }
 
-    const cleanCode = code ? String(code).trim().toUpperCase() : coupons[index].code;
-
-    // Check code collision with other coupons
+    const finalCode = cleanCode || coupons[index].code;
     const conflict = coupons.find(
-      (c) => c.id !== id && c.code.toUpperCase() === cleanCode
+      (c) => c.id !== id && c.code.toUpperCase() === finalCode
     );
     if (conflict) {
       return NextResponse.json(
-        { success: false, error: `Coupon code '${cleanCode}' is already in use by another campaign.` },
+        { success: false, error: `Coupon code '${finalCode}' is already in use by another campaign.` },
         { status: 409 }
       );
     }
@@ -314,8 +496,8 @@ export async function PUT(request: Request) {
     const updated: CouponItem = {
       ...coupons[index],
       ...body,
-      id, // Preserve ID
-      code: cleanCode,
+      id,
+      code: finalCode,
       discountValue: body.discountValue !== undefined ? Math.max(0, Number(body.discountValue) || 0) : coupons[index].discountValue,
       minOrderValue: body.minOrderValue !== undefined ? Math.max(0, Number(body.minOrderValue) || 0) : coupons[index].minOrderValue,
       maxDiscountCap: body.maxDiscountCap !== undefined ? (body.maxDiscountCap ? Number(body.maxDiscountCap) : undefined) : coupons[index].maxDiscountCap,
@@ -354,18 +536,38 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ success: false, error: "Coupon ID is required." }, { status: 400 });
     }
 
+    // Try deleting from public.coupons table
+    if (isValidUUID(id)) {
+      const { data: deletedRows, error: deleteError } = await ctx.supabase
+        .from("coupons")
+        .delete()
+        .eq("id", id)
+        .eq("business_id", ctx.businessId)
+        .select("id");
+
+      if (!deleteError && deletedRows && deletedRows.length > 0) {
+        return NextResponse.json({
+          success: true,
+          message: "Coupon deleted successfully.",
+        });
+      }
+    }
+
+    // Fallback to business_settings
     const { coupons, rawSettingsRow } = await getCouponsFromSettings(ctx);
     const filtered = coupons.filter((c) => c.id !== id);
 
-    if (filtered.length === coupons.length) {
-      return NextResponse.json({ success: false, error: "Coupon not found." }, { status: 404 });
+    if (filtered.length !== coupons.length) {
+      await saveCouponsToSettings(ctx, filtered, rawSettingsRow);
+      return NextResponse.json({
+        success: true,
+        message: "Coupon deleted successfully.",
+      });
     }
-
-    await saveCouponsToSettings(ctx, filtered, rawSettingsRow);
 
     return NextResponse.json({
       success: true,
-      message: "Coupon deleted successfully.",
+      message: "Coupon removed.",
     });
   } catch (err: any) {
     console.error("DELETE /api/coupons error:", err);
@@ -391,6 +593,36 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ success: false, error: "Coupon ID is required." }, { status: 400 });
     }
 
+    // Try updating public.coupons table
+    if (isValidUUID(id)) {
+      const { data: existingRow } = await ctx.supabase
+        .from("coupons")
+        .select("status")
+        .eq("id", id)
+        .eq("business_id", ctx.businessId)
+        .maybeSingle();
+
+      if (existingRow) {
+        const nextStatus = status || (existingRow.status === "Active" ? "Inactive" : "Active");
+        const { data: updatedRow, error: updateError } = await ctx.supabase
+          .from("coupons")
+          .update({ status: nextStatus, updated_at: new Date().toISOString() })
+          .eq("id", id)
+          .eq("business_id", ctx.businessId)
+          .select("*")
+          .single();
+
+        if (!updateError && updatedRow) {
+          return NextResponse.json({
+            success: true,
+            status: nextStatus,
+            coupon: rowToCouponItem(updatedRow),
+          });
+        }
+      }
+    }
+
+    // Fallback to business_settings
     const { coupons, rawSettingsRow } = await getCouponsFromSettings(ctx);
     const index = coupons.findIndex((c) => c.id === id);
 

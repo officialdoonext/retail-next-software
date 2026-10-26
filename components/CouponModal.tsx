@@ -36,45 +36,45 @@ export default function CouponModal({
   const [products, setProducts] = useState<{ id: string; name: string; price: number }[]>([]);
   const [loadingOptions, setLoadingOptions] = useState(false);
 
-  // Form Fields
+  // Form Fields - Blank without prebuilt dummy/sample data except code
   const [type, setType] = useState<CouponType>(defaultType);
   const [code, setCode] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [discountType, setDiscountType] = useState<DiscountType>("percentage");
-  const [discountValue, setDiscountValue] = useState<number | string>(20);
-  const [maxDiscountCap, setMaxDiscountCap] = useState<number | string>(1000);
-  const [minOrderValue, setMinOrderValue] = useState<number | string>(999);
+  const [discountValue, setDiscountValue] = useState<number | string>("");
+  const [maxDiscountCap, setMaxDiscountCap] = useState<number | string>("");
+  const [minOrderValue, setMinOrderValue] = useState<number | string>("");
 
   // Product Coupons Specific
-  const [targetType, setTargetType] = useState<"all" | "products" | "categories">("categories");
+  const [targetType, setTargetType] = useState<"all" | "products" | "categories">("all");
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
-  const [bogoBuyQty, setBogoBuyQty] = useState<number | string>(2);
-  const [bogoGetQty, setBogoGetQty] = useState<number | string>(1);
-  const [bogoDiscountPercent, setBogoDiscountPercent] = useState<number | string>(100);
-  const [bundleQty, setBundleQty] = useState<number | string>(3);
-  const [bundlePrice, setBundlePrice] = useState<number | string>(999);
+  const [bogoBuyQty, setBogoBuyQty] = useState<number | string>("");
+  const [bogoGetQty, setBogoGetQty] = useState<number | string>("");
+  const [bogoDiscountPercent, setBogoDiscountPercent] = useState<number | string>("");
+  const [bundleQty, setBundleQty] = useState<number | string>("");
+  const [bundlePrice, setBundlePrice] = useState<number | string>("");
 
   // Customer Coupons Specific
-  const [customerScope, setCustomerScope] = useState<"all" | "individual" | "group" | "milestone">("group");
+  const [customerScope, setCustomerScope] = useState<"all" | "individual" | "group" | "milestone">("all");
   const [targetPhonesInput, setTargetPhonesInput] = useState("");
-  const [targetCustomerGroup, setTargetCustomerGroup] = useState("VIP");
+  const [targetCustomerGroup, setTargetCustomerGroup] = useState("");
   const [milestoneType, setMilestoneType] = useState<"birthday" | "anniversary" | "first_order" | "win_back">("birthday");
-  const [isSingleUsePerCustomer, setIsSingleUsePerCustomer] = useState(true);
+  const [isSingleUsePerCustomer, setIsSingleUsePerCustomer] = useState(false);
 
   // Usage Controls
-  const [totalUsageLimit, setTotalUsageLimit] = useState<number | string>(500);
-  const [perCustomerLimit, setPerCustomerLimit] = useState<number | string>(1);
+  const [totalUsageLimit, setTotalUsageLimit] = useState<number | string>("");
+  const [perCustomerLimit, setPerCustomerLimit] = useState<number | string>("");
   const [paymentMode, setPaymentMode] = useState<"All" | "Cash" | "UPI" | "Card">("All");
   const [excludeSaleItems, setExcludeSaleItems] = useState(false);
   const [autoApplyAtCheckout, setAutoApplyAtCheckout] = useState(false);
 
   // Validity
-  const [startDate, setStartDate] = useState(new Date().toISOString().split("T")[0]);
-  const [startTime, setStartTime] = useState("00:00");
-  const [endDate, setEndDate] = useState("2026-12-31");
-  const [endTime, setEndTime] = useState("23:59");
+  const [startDate, setStartDate] = useState("");
+  const [startTime, setStartTime] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [endTime, setEndTime] = useState("");
   const [neverExpires, setNeverExpires] = useState(false);
   const [status, setStatus] = useState<"Active" | "Inactive">("Active");
 
@@ -146,48 +146,42 @@ export default function CouponModal({
       setNeverExpires(Boolean(initialCoupon.neverExpires));
       setStatus(initialCoupon.status === "Inactive" ? "Inactive" : "Active");
     } else {
-      // Default reset
+      // Default reset: No prebuilt data except auto-generated coupon code
       setType(defaultType);
       const prefix = defaultType === "order" ? "ORD" : defaultType === "product" ? "PRD" : "VIP";
       setCode(generateRandomCouponCode(prefix));
-      setTitle(
-        defaultType === "order"
-          ? "Special Order Discount"
-          : defaultType === "product"
-          ? "Featured Product Deal"
-          : "Exclusive Customer Voucher"
-      );
+      setTitle("");
       setDescription("");
-      setDiscountType(defaultType === "product" ? "percentage" : "percentage");
-      setDiscountValue(defaultType === "order" ? 20 : defaultType === "product" ? 25 : 500);
-      setMaxDiscountCap(defaultType === "order" ? 1000 : 1500);
-      setMinOrderValue(defaultType === "order" ? 1499 : 999);
+      setDiscountType("percentage");
+      setDiscountValue("");
+      setMaxDiscountCap("");
+      setMinOrderValue("");
 
-      setTargetType("categories");
+      setTargetType("all");
       setSelectedCategoryIds([]);
       setSelectedProductIds([]);
-      setBogoBuyQty(2);
-      setBogoGetQty(1);
-      setBogoDiscountPercent(100);
-      setBundleQty(3);
-      setBundlePrice(999);
+      setBogoBuyQty("");
+      setBogoGetQty("");
+      setBogoDiscountPercent("");
+      setBundleQty("");
+      setBundlePrice("");
 
-      setCustomerScope("group");
+      setCustomerScope("all");
       setTargetPhonesInput("");
-      setTargetCustomerGroup("VIP");
+      setTargetCustomerGroup("");
       setMilestoneType("birthday");
-      setIsSingleUsePerCustomer(true);
+      setIsSingleUsePerCustomer(false);
 
-      setTotalUsageLimit(500);
-      setPerCustomerLimit(1);
+      setTotalUsageLimit("");
+      setPerCustomerLimit("");
       setPaymentMode("All");
       setExcludeSaleItems(false);
       setAutoApplyAtCheckout(false);
 
-      setStartDate(new Date().toISOString().split("T")[0]);
-      setStartTime("00:00");
-      setEndDate("2026-12-31");
-      setEndTime("23:59");
+      setStartDate("");
+      setStartTime("");
+      setEndDate("");
+      setEndTime("");
       setNeverExpires(false);
       setStatus("Active");
     }
@@ -199,6 +193,39 @@ export default function CouponModal({
   const handleGenerateCode = () => {
     const prefix = type === "order" ? "ORD" : type === "product" ? "PRD" : "VIP";
     setCode(generateRandomCouponCode(prefix));
+  };
+
+  const handleNext = () => {
+    if (activeTab === "basics") {
+      if (!code.trim()) {
+        toast.error("Please enter or generate a coupon code.");
+        return;
+      }
+      if (!title.trim()) {
+        toast.error("Please enter a campaign title.");
+        return;
+      }
+      setActiveTab("rules");
+    } else if (activeTab === "rules") {
+      setActiveTab("limits");
+    } else if (activeTab === "limits") {
+      setActiveTab("schedule");
+    }
+  };
+
+  const handlePrev = () => {
+    if (activeTab === "rules") setActiveTab("basics");
+    else if (activeTab === "limits") setActiveTab("rules");
+    else if (activeTab === "schedule") setActiveTab("limits");
+  };
+
+  const handleSubmitForm = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (activeTab !== "schedule") {
+      handleNext();
+      return;
+    }
+    handleSave(e);
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -420,7 +447,7 @@ export default function CouponModal({
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSave} className="p-5 overflow-y-auto space-y-4 text-xs flex-1">
+        <form onSubmit={handleSubmitForm} className="p-5 overflow-y-auto space-y-4 text-xs flex-1">
           
           {/* TAB 1: BASIC INFORMATION */}
           {activeTab === "basics" && (
@@ -1046,64 +1073,75 @@ export default function CouponModal({
 
           {/* Modal Footer Actions */}
           <div className="pt-4 border-t border-slate-200 flex items-center justify-between shrink-0">
-            <div className="flex items-center gap-1.5">
-              {activeTab !== "basics" && (
+            <div>
+              {activeTab === "basics" ? (
                 <button
                   type="button"
-                  onClick={() => {
-                    if (activeTab === "rules") setActiveTab("basics");
-                    else if (activeTab === "limits") setActiveTab("rules");
-                    else if (activeTab === "schedule") setActiveTab("limits");
-                  }}
-                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold cursor-pointer transition-colors"
+                  onClick={onClose}
+                  disabled={isSubmitting}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
                 >
-                  ← Back
+                  Cancel
                 </button>
-              )}
-              {activeTab !== "schedule" && (
+              ) : (
                 <button
                   type="button"
-                  onClick={() => {
-                    if (activeTab === "basics") setActiveTab("rules");
-                    else if (activeTab === "rules") setActiveTab("limits");
-                    else if (activeTab === "limits") setActiveTab("schedule");
-                  }}
-                  className="px-3 py-1.5 bg-purple-50 hover:bg-purple-100 text-[#5e2b9d] rounded-lg text-xs font-semibold cursor-pointer transition-colors"
+                  onClick={handlePrev}
+                  disabled={isSubmitting}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold cursor-pointer transition-colors flex items-center gap-1.5"
                 >
-                  Next Step →
+                  <svg className="w-3.5 h-3.5 stroke-[2.5]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                  </svg>
+                  <span>Previous</span>
                 </button>
               )}
             </div>
 
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={onClose}
-                disabled={isSubmitting}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
-              >
-                Cancel
-              </button>
+              {activeTab !== "basics" && (
+                <button
+                  type="button"
+                  onClick={onClose}
+                  disabled={isSubmitting}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+              )}
 
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="px-5 py-2 bg-gradient-to-r from-[#5e2b9d] to-purple-700 hover:from-purple-700 hover:to-[#5e2b9d] text-white rounded-lg text-xs font-semibold shadow-xs transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
-              >
-                {isSubmitting ? (
-                  <>
-                    <Spinner className="w-3.5 h-3.5 text-white" />
-                    <span>Saving Coupon...</span>
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-4 h-4 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                    </svg>
-                    <span>{initialCoupon ? "Update Campaign" : "Save & Launch Coupon"}</span>
-                  </>
-                )}
-              </button>
+              {activeTab !== "schedule" ? (
+                <button
+                  type="button"
+                  onClick={handleNext}
+                  className="px-5 py-2 bg-gradient-to-r from-[#5e2b9d] to-purple-700 hover:from-purple-700 hover:to-[#5e2b9d] text-white rounded-lg text-xs font-semibold shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <span>Next Step</span>
+                  <svg className="w-3.5 h-3.5 stroke-[2.5]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="px-5 py-2 bg-gradient-to-r from-[#5e2b9d] to-purple-700 hover:from-purple-700 hover:to-[#5e2b9d] text-white rounded-lg text-xs font-semibold shadow-xs transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  {isSubmitting ? (
+                    <>
+                      <Spinner className="w-3.5 h-3.5 text-white" />
+                      <span>Saving Coupon...</span>
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                      <span>{initialCoupon ? "Update Campaign" : "Save Coupon"}</span>
+                    </>
+                  )}
+                </button>
+              )}
             </div>
           </div>
 

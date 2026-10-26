@@ -430,6 +430,77 @@ CREATE POLICY "Users can create their own businesses"
   WITH CHECK (auth.uid() = owner_id OR email = auth.jwt() ->> 'email');
 
 -- ==============================================================================
+-- 18. COUPONS & DISCOUNTS TABLE
+-- Supports Order Coupons, Product/BOGO Deals, and Customer/VIP Vouchers
+-- ==============================================================================
+CREATE TABLE IF NOT EXISTS public.coupons (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  business_id UUID NOT NULL REFERENCES public.businesses(id) ON DELETE CASCADE,
+  store_id UUID REFERENCES public.stores(id) ON DELETE CASCADE,
+  type TEXT NOT NULL CHECK (type IN ('order', 'product', 'customer')),
+  code TEXT NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT,
+  discount_type TEXT NOT NULL CHECK (discount_type IN ('percentage', 'flat', 'bogo', 'bundle')),
+  discount_value NUMERIC NOT NULL DEFAULT 0,
+  max_discount_cap NUMERIC,
+  min_order_value NUMERIC DEFAULT 0,
+  
+  -- Product coupon rules
+  target_type TEXT DEFAULT 'all',
+  target_product_ids JSONB DEFAULT '[]'::jsonb,
+  target_category_ids JSONB DEFAULT '[]'::jsonb,
+  bogo_buy_qty INTEGER,
+  bogo_get_qty INTEGER,
+  bogo_discount_percent NUMERIC DEFAULT 100,
+  bundle_qty INTEGER,
+  bundle_price NUMERIC,
+
+  -- Customer coupon rules
+  customer_scope TEXT DEFAULT 'all',
+  target_customer_phones JSONB DEFAULT '[]'::jsonb,
+  target_customer_group TEXT,
+  milestone_type TEXT,
+  is_single_use_per_customer BOOLEAN DEFAULT true,
+
+  -- Limits & Payments
+  total_usage_limit INTEGER,
+  used_count INTEGER NOT NULL DEFAULT 0,
+  per_customer_limit INTEGER DEFAULT 1,
+  allowed_payment_modes JSONB DEFAULT '["All"]'::jsonb,
+  exclude_sale_items BOOLEAN DEFAULT false,
+  auto_apply_at_checkout BOOLEAN DEFAULT false,
+
+  -- Dates & Status
+  start_date DATE,
+  start_time TEXT,
+  end_date DATE,
+  end_time TEXT,
+  never_expires BOOLEAN DEFAULT false,
+  status TEXT NOT NULL DEFAULT 'Active' CHECK (status IN ('Active', 'Inactive', 'Scheduled', 'Expired')),
+
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  CONSTRAINT unique_business_coupon_code UNIQUE (business_id, code)
+);
+
+CREATE INDEX IF NOT EXISTS idx_coupons_business ON public.coupons(business_id);
+CREATE INDEX IF NOT EXISTS idx_coupons_store ON public.coupons(store_id);
+CREATE INDEX IF NOT EXISTS idx_coupons_type ON public.coupons(type);
+CREATE INDEX IF NOT EXISTS idx_coupons_code ON public.coupons(code);
+CREATE INDEX IF NOT EXISTS idx_coupons_status ON public.coupons(status);
+
+-- Enable RLS
+ALTER TABLE public.coupons ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow authenticated access to coupons"
+  ON public.coupons FOR ALL
+  TO authenticated
+  USING (true)
+  WITH CHECK (true);
+
+-- ==============================================================================
 -- HELPER FUNCTION FOR MANUAL BUSINESS ACTIVATION BY SUPERADMIN
 -- To activate a business and set expiry date:
 -- SELECT activate_business('<business-uuid>', '2027-12-31 23:59:59+00', 'Active');
@@ -454,3 +525,88 @@ BEGIN
   WHERE business_id = target_business_id;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ==============================================================================
+-- 18. COUPONS TABLE (Order, Product, Customer Promotions)
+-- ==============================================================================
+
+CREATE TABLE IF NOT EXISTS public.coupons (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  business_id UUID NOT NULL REFERENCES public.businesses(id) ON DELETE CASCADE,
+  store_id UUID REFERENCES public.stores(id) ON DELETE SET NULL,
+  
+  -- Type: 'order' | 'product' | 'customer'
+  type TEXT NOT NULL CHECK (type IN ('order', 'product', 'customer')),
+  
+  -- Code & Info
+  code TEXT NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT DEFAULT '',
+  
+  -- Discount Rules
+  discount_type TEXT NOT NULL CHECK (discount_type IN ('percentage', 'flat', 'free_shipping', 'bogo', 'bundle')),
+  discount_value NUMERIC(10,2) NOT NULL DEFAULT 0,
+  max_discount_cap NUMERIC(10,2),
+  min_order_value NUMERIC(10,2) DEFAULT 0,
+  
+  -- Product Targeting (For Product Coupons)
+  target_type TEXT DEFAULT 'all' CHECK (target_type IN ('all', 'products', 'categories')),
+  target_product_ids JSONB DEFAULT '[]'::jsonb,
+  target_category_ids JSONB DEFAULT '[]'::jsonb,
+  bogo_buy_qty INTEGER,
+  bogo_get_qty INTEGER,
+  bogo_discount_percent NUMERIC(5,2),
+  bundle_qty INTEGER,
+  bundle_price NUMERIC(10,2),
+  
+  -- Customer Scope (For Customer Coupons)
+  customer_scope TEXT DEFAULT 'all' CHECK (customer_scope IN ('all', 'individual', 'group', 'milestone')),
+  target_customer_phones JSONB DEFAULT '[]'::jsonb,
+  target_customer_group TEXT DEFAULT '',
+  milestone_type TEXT,
+  is_single_use_per_customer BOOLEAN DEFAULT FALSE,
+  
+  -- Usage Limits & Controls
+  total_usage_limit INTEGER,
+  used_count INTEGER NOT NULL DEFAULT 0,
+  per_customer_limit INTEGER DEFAULT 1,
+  allowed_payment_modes JSONB DEFAULT '["All"]'::jsonb,
+  exclude_sale_items BOOLEAN DEFAULT FALSE,
+  auto_apply_at_checkout BOOLEAN DEFAULT FALSE,
+  
+  -- Validity & Schedule
+  start_date TEXT,
+  start_time TEXT,
+  end_date TEXT,
+  end_time TEXT,
+  never_expires BOOLEAN DEFAULT FALSE,
+  status TEXT NOT NULL DEFAULT 'Active' CHECK (status IN ('Active', 'Inactive', 'Expired', 'Scheduled')),
+  
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  
+  -- Constraint: unique coupon code per business
+  CONSTRAINT unique_business_coupon_code UNIQUE (business_id, code)
+);
+
+-- Indexes for lightning fast lookups
+CREATE INDEX IF NOT EXISTS idx_coupons_business_type ON public.coupons(business_id, type);
+CREATE INDEX IF NOT EXISTS idx_coupons_business_code ON public.coupons(business_id, code);
+CREATE INDEX IF NOT EXISTS idx_coupons_status ON public.coupons(status);
+
+-- Enable RLS
+ALTER TABLE public.coupons ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can manage coupons for their business"
+  ON public.coupons
+  FOR ALL
+  TO authenticated
+  USING (
+    business_id = ((auth.jwt() -> 'app_metadata' ->> 'business_id')::uuid)
+  )
+  WITH CHECK (
+    business_id = ((auth.jwt() -> 'app_metadata' ->> 'business_id')::uuid)
+  );
+
+
+
