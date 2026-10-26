@@ -766,7 +766,7 @@ export default function PosBillingPage() {
 
   return (
     <SoftwareLayout>
-      <div className="flex flex-col h-[calc(100vh-64px)] bg-[#f8fafc] text-slate-800 overflow-hidden font-sans">
+      <div className="w-full flex flex-col h-[calc(100vh-64px)] bg-[#f8fafc] text-slate-800 overflow-hidden font-sans">
         
         {/* ==================================================================== */}
         {/* TOP BAR: BARCODE SCANNER, DRAFT BILLS, TERMINAL STATUS               */}

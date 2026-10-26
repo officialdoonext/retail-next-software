@@ -448,7 +448,7 @@ export default function BarcodeGeneratorPage() {
 
   return (
     <SoftwareLayout>
-      <div className="space-y-4 pb-12">
+      <div className="w-full space-y-4 pb-12">
         {/* Toast Alert */}
         {toastMsg && (
           <div className="fixed bottom-6 right-6 z-50 bg-[#1e1b4b] text-white px-4 py-3 rounded-[6px] shadow-lg flex items-center gap-2.5 text-xs font-medium border border-purple-800 animate-in fade-in slide-in-from-bottom-2 duration-200">

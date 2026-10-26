@@ -192,7 +192,7 @@ export default function CustomersPage() {
 
   return (
     <SoftwareLayout>
-      <div className="space-y-4 max-w-7xl mx-auto pb-12">
+      <div className="w-full space-y-4 pb-12">
         
         {/* Top Header & Metrics Banner */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">

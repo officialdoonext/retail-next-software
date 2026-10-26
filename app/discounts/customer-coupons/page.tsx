@@ -165,7 +165,7 @@ export default function CustomerCouponsPage() {
 
   return (
     <SoftwareLayout>
-      <div className="space-y-4 max-w-7xl mx-auto pb-12">
+      <div className="w-full space-y-4 pb-12">
         
         {/* Top Header & Sub-Nav */}
         <DiscountSubNav />

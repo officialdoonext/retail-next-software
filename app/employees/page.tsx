@@ -184,7 +184,7 @@ export default function EmployeesPage() {
 
   return (
     <SoftwareLayout>
-      <div className="space-y-4 max-w-7xl mx-auto pb-12">
+      <div className="w-full space-y-4 pb-12">
         
         {/* Navigation Tabs Bar for Employee Module */}
         <EmployeeSubNav />

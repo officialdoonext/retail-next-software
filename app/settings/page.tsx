@@ -225,8 +225,8 @@ export default function SettingsPage() {
         {/* ==================================================================== */}
         {/* PAGE HEADER BAR                                                      */}
         {/* ==================================================================== */}
-        <div className="bg-white border-b border-slate-200 px-6 py-4 shadow-2xs sticky top-0 z-20">
-          <div className="max-w-6xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="bg-white border-b border-slate-200 px-4 sm:px-6 py-4 shadow-2xs sticky top-0 z-20">
+          <div className="w-full flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-purple-50 text-[#5e2b9d] flex items-center justify-center font-bold shadow-inner">
@@ -270,7 +270,7 @@ export default function SettingsPage() {
           {/* ==================================================================== */}
           {/* TAB NAVIGATION BAR                                                   */}
           {/* ==================================================================== */}
-          <div className="max-w-6xl mx-auto mt-4 -mb-4 flex items-center gap-2 border-b border-slate-200 overflow-x-auto">
+          <div className="w-full mt-4 -mb-4 flex items-center gap-2 border-b border-slate-200 overflow-x-auto">
             <button
               type="button"
               onClick={() => setActiveTab("profile")}
@@ -328,7 +328,7 @@ export default function SettingsPage() {
         {/* ==================================================================== */}
         {/* MAIN SETTINGS CONTENT CONTAINER                                      */}
         {/* ==================================================================== */}
-        <div className="max-w-6xl w-full mx-auto p-6 flex-1">
+        <div className="w-full p-4 sm:p-6 flex-1">
           {loading ? (
             <div className="py-24 flex flex-col items-center justify-center gap-3">
               <Spinner className="w-8 h-8 text-[#5e2b9d]" />
