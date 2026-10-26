@@ -50,6 +50,8 @@ function toProductViewModel(d: any) {
       listPrice: Number(v.listPrice || v.mrp || v.price) || 0,
       salesPrice: Number(v.salesPrice || v.price) || 0,
       price: Number(v.salesPrice || v.price) || 0,
+      taxRate: v.taxRate !== undefined ? Number(v.taxRate) : (Number(d.tax_rate) || Number(extra.taxRate) || 0),
+      isTaxInclusive: v.isTaxInclusive !== undefined ? Boolean(v.isTaxInclusive) : (extra.isTaxInclusive !== undefined ? Boolean(extra.isTaxInclusive) : true),
       stock: Number(v.stock) || 0,
       locationStocks: v.locationStocks || { stores: [], warehouses: [] },
     })),
@@ -130,7 +132,11 @@ export async function GET(request: Request) {
               return NextResponse.json({
                 success: true,
                 product: toProductViewModel(item),
-                variant: v,
+                variant: {
+                  ...v,
+                  taxRate: v.taxRate !== undefined ? Number(v.taxRate) : (Number(item.tax_rate) || Number(extra.taxRate) || 0),
+                  isTaxInclusive: v.isTaxInclusive !== undefined ? Boolean(v.isTaxInclusive) : (extra.isTaxInclusive !== undefined ? Boolean(extra.isTaxInclusive) : true),
+                },
               });
             }
           }
@@ -283,6 +289,8 @@ export async function POST(request: Request) {
         const vListPrice = Number(v.listPrice || v.mrp) || 0;
         const vSalesPrice = Number(v.salesPrice || v.price) || 0;
         const vStock = Number(v.stock) || 0;
+        const vTaxRate = Number(v.taxRate !== undefined ? v.taxRate : (body.taxRate || 18));
+        const vIsTaxInclusive = v.isTaxInclusive !== undefined ? Boolean(v.isTaxInclusive) : (body.isTaxInclusive !== undefined ? Boolean(body.isTaxInclusive) : true);
 
         return {
           id: v.id || `var_${Date.now()}_${index}`,
@@ -295,6 +303,8 @@ export async function POST(request: Request) {
           salesPrice: vSalesPrice,
           price: vSalesPrice,
           mrp: vListPrice,
+          taxRate: vTaxRate,
+          isTaxInclusive: vIsTaxInclusive,
           stock: vStock,
           locationStocks: v.locationStocks || { stores: [], warehouses: [] },
         };
@@ -429,6 +439,8 @@ export async function PUT(request: Request) {
         const vListPrice = Number(v.listPrice || v.mrp) || 0;
         const vSalesPrice = Number(v.salesPrice || v.price) || 0;
         const vStock = Number(v.stock) || 0;
+        const vTaxRate = Number(v.taxRate !== undefined ? v.taxRate : (body.taxRate || 18));
+        const vIsTaxInclusive = v.isTaxInclusive !== undefined ? Boolean(v.isTaxInclusive) : (body.isTaxInclusive !== undefined ? Boolean(body.isTaxInclusive) : true);
 
         return {
           id: v.id || `var_${Date.now()}_${index}`,
@@ -441,6 +453,8 @@ export async function PUT(request: Request) {
           salesPrice: vSalesPrice,
           price: vSalesPrice,
           mrp: vListPrice,
+          taxRate: vTaxRate,
+          isTaxInclusive: vIsTaxInclusive,
           stock: vStock,
           locationStocks: v.locationStocks || { stores: [], warehouses: [] },
         };

@@ -43,6 +43,8 @@ interface VariantItem {
   barcode: string; // Strictly numeric only
   listPrice: number;
   salesPrice: number;
+  taxRate?: number; // GST rate percentage (e.g. 0, 5, 12, 18, 28)
+  isTaxInclusive?: boolean; // true = GST Inclusive, false = GST Exclusive
   stock: number;
   locationStocks: LocationStock;
 }
@@ -62,6 +64,8 @@ interface ProductItem {
   salesPrice: number;
   price: number;
   mrp: number;
+  taxRate?: number;
+  isTaxInclusive?: boolean;
   stock: number;
   minStock?: number;
   locationStocks?: LocationStock;
@@ -114,10 +118,12 @@ export default function ProductsPage() {
   // Simple vs Variation Toggle
   const [hasVariations, setHasVariations] = useState(false);
 
-  // Simple Product Pricing & Barcode
+  // Simple Product Pricing, Barcode & GST
   const [simpleListPrice, setSimpleListPrice] = useState<number | "">("");
   const [simpleSalesPrice, setSimpleSalesPrice] = useState<number | "">("");
   const [simpleBarcode, setSimpleBarcode] = useState("");
+  const [simpleTaxRate, setSimpleTaxRate] = useState<number>(18);
+  const [simpleIsTaxInclusive, setSimpleIsTaxInclusive] = useState<boolean>(true);
 
   // Simple Product Multi-Location Stocks
   const [simpleStoreStocks, setSimpleStoreStocks] = useState<Record<string, number>>({});
@@ -258,6 +264,8 @@ export default function ProductsPage() {
     setSimpleListPrice("");
     setSimpleSalesPrice("");
     setSimpleBarcode(generateNumericBarcode());
+    setSimpleTaxRate(18);
+    setSimpleIsTaxInclusive(true);
     setSimpleStoreStocks({});
     setSimpleWarehouseStocks({});
 
@@ -283,8 +291,18 @@ export default function ProductsPage() {
     setCategoryId(p.categoryId || "");
     setHasVariations(p.hasVariations);
 
+    const defaultTaxRate = p.taxRate !== undefined ? Number(p.taxRate) : 18;
+    const defaultIsTaxInclusive = p.isTaxInclusive !== undefined ? Boolean(p.isTaxInclusive) : true;
+    setSimpleTaxRate(defaultTaxRate);
+    setSimpleIsTaxInclusive(defaultIsTaxInclusive);
+
     if (p.hasVariations) {
-      setVariants(p.variants || []);
+      const mappedVariants = (p.variants || []).map((v) => ({
+        ...v,
+        taxRate: v.taxRate !== undefined ? Number(v.taxRate) : defaultTaxRate,
+        isTaxInclusive: v.isTaxInclusive !== undefined ? Boolean(v.isTaxInclusive) : defaultIsTaxInclusive,
+      }));
+      setVariants(mappedVariants);
       const varNames = new Set<string>();
       (p.variants || []).forEach((v) => {
         Object.keys(v.attributes || {}).forEach((k) => varNames.add(k));
@@ -343,10 +361,26 @@ export default function ProductsPage() {
       barcode: generateNumericBarcode(),
       listPrice: Number(simpleListPrice) || 0,
       salesPrice: Number(simpleSalesPrice) || 0,
+      taxRate: simpleTaxRate || 18,
+      isTaxInclusive: simpleIsTaxInclusive !== undefined ? simpleIsTaxInclusive : true,
       stock: 0,
       locationStocks: { stores: [], warehouses: [] },
     };
     setVariants([...variants, newVar]);
+  };
+
+  // Bulk Apply Tax Rate to all variants
+  const handleApplyTaxRateToAllVariants = (rate: number) => {
+    setVariants((prev) => prev.map((v) => ({ ...v, taxRate: rate })));
+    setToastMsg(`Applied ${rate}% GST to all variants.`);
+    setTimeout(() => setToastMsg(""), 2500);
+  };
+
+  // Bulk Apply Tax Mode (Inclusive vs Exclusive) to all variants
+  const handleApplyTaxModeToAllVariants = (isInclusive: boolean) => {
+    setVariants((prev) => prev.map((v) => ({ ...v, isTaxInclusive: isInclusive })));
+    setToastMsg(`Applied ${isInclusive ? "GST Inclusive" : "GST Exclusive"} to all variants.`);
+    setTimeout(() => setToastMsg(""), 2500);
   };
 
   // Remove a variant row
@@ -508,10 +542,14 @@ export default function ProductsPage() {
         payload.price = payload.salesPrice;
         payload.mrp = payload.listPrice;
         payload.barcode = simpleBarcode.replace(/\D/g, "");
+        payload.taxRate = Number(simpleTaxRate) || 0;
+        payload.isTaxInclusive = Boolean(simpleIsTaxInclusive);
         payload.locationStocks = simpleLocationStocks;
         payload.stock = simpleTotalStock;
       } else {
         payload.variationTypes = selectedVariationNames;
+        payload.taxRate = Number(variants[0]?.taxRate ?? 18);
+        payload.isTaxInclusive = variants[0]?.isTaxInclusive !== undefined ? Boolean(variants[0]?.isTaxInclusive) : true;
         payload.variants = variants.map((v) => ({
           id: v.id,
           name: v.name,
@@ -523,6 +561,8 @@ export default function ProductsPage() {
           salesPrice: Number(v.salesPrice) || 0,
           price: Number(v.salesPrice) || 0,
           mrp: Number(v.listPrice) || 0,
+          taxRate: v.taxRate !== undefined ? Number(v.taxRate) : 18,
+          isTaxInclusive: v.isTaxInclusive !== undefined ? Boolean(v.isTaxInclusive) : true,
           stock: Number(v.stock) || 0,
           locationStocks: v.locationStocks,
         }));
@@ -1349,76 +1389,130 @@ export default function ProductsPage() {
                       <span>3. Pricing, Numeric Barcode & Stock Availability</span>
                     </h3>
 
-                    {/* Pricing & Numeric Barcode */}
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-4 bg-slate-50/80 rounded-[8px] border border-slate-200">
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1">
-                          List Price (MRP) ₹
-                        </label>
-                        <input
-                          type="number"
-                          min="0"
-                          step="any"
-                          placeholder="e.g. 999"
-                          value={simpleListPrice}
-                          onChange={(e) =>
-                            setSimpleListPrice(e.target.value === "" ? "" : Number(e.target.value))
-                          }
-                          className="w-full h-[36px] px-3 rounded-[6px] border border-slate-200 bg-white text-xs font-mono font-bold text-slate-800 focus:outline-none focus:border-[#5e2b9d]"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1">
-                          Sales Price ₹ <span className="text-rose-500">*</span>
-                        </label>
-                        <input
-                          type="number"
-                          required
-                          min="0"
-                          step="any"
-                          placeholder="e.g. 799"
-                          value={simpleSalesPrice}
-                          onChange={(e) =>
-                            setSimpleSalesPrice(e.target.value === "" ? "" : Number(e.target.value))
-                          }
-                          className="w-full h-[36px] px-3 rounded-[6px] border border-slate-200 bg-white text-xs font-mono font-bold text-emerald-700 focus:outline-none focus:border-[#5e2b9d]"
-                        />
-                      </div>
-
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="text-xs font-semibold text-slate-700">
-                            Barcode <span className="text-slate-400 font-normal">(Numeric only)</span> <span className="text-rose-500">*</span>
+                    {/* Pricing, Tax & Numeric Barcode */}
+                    <div className="p-4 bg-slate-50/80 rounded-[8px] border border-slate-200 space-y-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            List Price (MRP) ₹
                           </label>
-                          <button
-                            type="button"
-                            onClick={() => setSimpleBarcode(generateNumericBarcode())}
-                            className="text-[10px] text-[#5e2b9d] hover:underline font-semibold cursor-pointer"
-                          >
-                            Auto Generate
-                          </button>
-                        </div>
-                        <div className="relative">
                           <input
-                            type="text"
-                            required
-                            placeholder="e.g. 8901234567890"
-                            value={simpleBarcode}
-                            onChange={(e) => {
-                              const numeric = e.target.value.replace(/\D/g, "");
-                              setSimpleBarcode(numeric);
-                            }}
-                            className="w-full h-[36px] pl-3 pr-8 rounded-[6px] border border-slate-200 bg-white text-xs font-mono font-bold text-slate-800 tracking-wider focus:outline-none focus:border-[#5e2b9d]"
+                            type="number"
+                            min="0"
+                            step="any"
+                            placeholder="e.g. 999"
+                            value={simpleListPrice}
+                            onChange={(e) =>
+                              setSimpleListPrice(e.target.value === "" ? "" : Number(e.target.value))
+                            }
+                            className="w-full h-[36px] px-3 rounded-[6px] border border-slate-200 bg-white text-xs font-mono font-bold text-slate-800 focus:outline-none focus:border-[#5e2b9d]"
                           />
-                          <button
-                            type="button"
-                            title="Generate numeric barcode"
-                            onClick={() => setSimpleBarcode(generateNumericBarcode())}
-                            className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-[#5e2b9d] text-xs cursor-pointer"
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            Sales Price ₹ <span className="text-rose-500">*</span>
+                          </label>
+                          <input
+                            type="number"
+                            required
+                            min="0"
+                            step="any"
+                            placeholder="e.g. 799"
+                            value={simpleSalesPrice}
+                            onChange={(e) =>
+                              setSimpleSalesPrice(e.target.value === "" ? "" : Number(e.target.value))
+                            }
+                            className="w-full h-[36px] px-3 rounded-[6px] border border-slate-200 bg-white text-xs font-mono font-bold text-emerald-700 focus:outline-none focus:border-[#5e2b9d]"
+                          />
+                        </div>
+
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="text-xs font-semibold text-slate-700">
+                              Barcode <span className="text-slate-400 font-normal">(Numeric only)</span> <span className="text-rose-500">*</span>
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => setSimpleBarcode(generateNumericBarcode())}
+                              className="text-[10px] text-[#5e2b9d] hover:underline font-semibold cursor-pointer"
+                            >
+                              Auto Generate
+                            </button>
+                          </div>
+                          <div className="relative">
+                            <input
+                              type="text"
+                              required
+                              placeholder="e.g. 8901234567890"
+                              value={simpleBarcode}
+                              onChange={(e) => {
+                                const numeric = e.target.value.replace(/\D/g, "");
+                                setSimpleBarcode(numeric);
+                              }}
+                              className="w-full h-[36px] pl-3 pr-8 rounded-[6px] border border-slate-200 bg-white text-xs font-mono font-bold text-slate-800 tracking-wider focus:outline-none focus:border-[#5e2b9d]"
+                            />
+                            <button
+                              type="button"
+                              title="Generate numeric barcode"
+                              onClick={() => setSimpleBarcode(generateNumericBarcode())}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-[#5e2b9d] text-xs cursor-pointer"
+                            >
+                              ↻
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* GST Tax Rate & Inclusive / Exclusive Selection */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2.5 border-t border-slate-200/80">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            GST Percentage (%)
+                          </label>
+                          <select
+                            value={simpleTaxRate}
+                            onChange={(e) => setSimpleTaxRate(Number(e.target.value))}
+                            className="w-full h-[36px] px-3 rounded-[6px] border border-slate-200 bg-white text-xs font-semibold text-slate-800 focus:outline-none focus:border-[#5e2b9d]"
                           >
-                            ↻
-                          </button>
+                            <option value={0}>0% (Tax Exempt)</option>
+                            <option value={3}>3% (Gold & Precious Metals)</option>
+                            <option value={5}>5% (Apparel & Essentials)</option>
+                            <option value={12}>12% (Standard 12%)</option>
+                            <option value={18}>18% (Standard 18%)</option>
+                            <option value={28}>28% (Luxury / De-merit 28%)</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            GST Tax Calculation Mode
+                          </label>
+                          <div className="grid grid-cols-2 gap-2 h-[36px]">
+                            <button
+                              type="button"
+                              onClick={() => setSimpleIsTaxInclusive(true)}
+                              className={`rounded-[6px] text-xs font-bold border transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
+                                simpleIsTaxInclusive
+                                  ? "bg-purple-100 border-[#5e2b9d] text-[#5e2b9d]"
+                                  : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                              }`}
+                            >
+                              <span>{simpleIsTaxInclusive ? "✓" : ""}</span>
+                              <span>GST Inclusive</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setSimpleIsTaxInclusive(false)}
+                              className={`rounded-[6px] text-xs font-bold border transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
+                                !simpleIsTaxInclusive
+                                  ? "bg-purple-100 border-[#5e2b9d] text-[#5e2b9d]"
+                                  : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                              }`}
+                            >
+                              <span>{!simpleIsTaxInclusive ? "✓" : ""}</span>
+                              <span>GST Exclusive</span>
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -1595,6 +1689,43 @@ export default function ProductsPage() {
                       </div>
                     </div>
 
+                    {/* Quick Bulk GST actions */}
+                    {variants.length > 0 && (
+                      <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 bg-slate-50/80 border border-slate-200 rounded-[6px] text-xs">
+                        <span className="font-semibold text-slate-700 flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#5e2b9d]" />
+                          <span>Quick Set GST for All Variants:</span>
+                        </span>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {[0, 3, 5, 12, 18, 28].map((rate) => (
+                            <button
+                              key={rate}
+                              type="button"
+                              onClick={() => handleApplyTaxRateToAllVariants(rate)}
+                              className="px-2 py-0.5 rounded-[4px] bg-white border border-slate-200 text-slate-700 hover:border-[#5e2b9d] hover:text-[#5e2b9d] font-bold text-[11px] transition-colors cursor-pointer"
+                            >
+                              {rate}%
+                            </button>
+                          ))}
+                          <span className="text-slate-300 mx-1">|</span>
+                          <button
+                            type="button"
+                            onClick={() => handleApplyTaxModeToAllVariants(true)}
+                            className="px-2.5 py-0.5 rounded-[4px] bg-white border border-slate-200 text-slate-700 hover:border-[#5e2b9d] hover:text-[#5e2b9d] font-bold text-[11px] transition-colors cursor-pointer"
+                          >
+                            All Incl.
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleApplyTaxModeToAllVariants(false)}
+                            className="px-2.5 py-0.5 rounded-[4px] bg-white border border-slate-200 text-slate-700 hover:border-[#5e2b9d] hover:text-[#5e2b9d] font-bold text-[11px] transition-colors cursor-pointer"
+                          >
+                            All Excl.
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Variants List Table */}
                     <div className="border border-slate-200 rounded-[8px] overflow-hidden bg-white shadow-2xs">
                       <div className="overflow-x-auto">
@@ -1608,6 +1739,8 @@ export default function ProductsPage() {
                               <th className="py-2.5 px-3 min-w-[170px]">Barcode (Numeric)</th>
                               <th className="py-2.5 px-3 min-w-[100px]">List (₹)</th>
                               <th className="py-2.5 px-3 min-w-[100px]">Sale (₹)*</th>
+                              <th className="py-2.5 px-3 min-w-[95px]">GST %</th>
+                              <th className="py-2.5 px-3 min-w-[115px]">Tax Mode</th>
                               <th className="py-2.5 px-3 min-w-[130px]">Stock Distribution</th>
                               <th className="py-2.5 px-2 w-8 text-center"></th>
                             </tr>
@@ -1753,6 +1886,42 @@ export default function ProductsPage() {
                                     }
                                     className="h-7 px-2 rounded-[4px] border border-slate-200 bg-white text-xs font-mono font-bold text-emerald-700 w-full focus:outline-none focus:border-[#5e2b9d]"
                                   />
+                                </td>
+
+                                {/* GST % */}
+                                <td className="py-2 px-3">
+                                  <select
+                                    value={v.taxRate !== undefined ? v.taxRate : 18}
+                                    onChange={(e) =>
+                                      handleUpdateVariantField(idx, "taxRate", Number(e.target.value))
+                                    }
+                                    className="h-7 px-1.5 rounded-[4px] border border-slate-200 bg-white text-xs font-semibold text-slate-800 w-full focus:outline-none focus:border-[#5e2b9d]"
+                                  >
+                                    <option value={0}>0%</option>
+                                    <option value={3}>3%</option>
+                                    <option value={5}>5%</option>
+                                    <option value={12}>12%</option>
+                                    <option value={18}>18%</option>
+                                    <option value={28}>28%</option>
+                                  </select>
+                                </td>
+
+                                {/* Tax Mode (Inclusive / Exclusive) */}
+                                <td className="py-2 px-3">
+                                  <select
+                                    value={v.isTaxInclusive !== false ? "inclusive" : "exclusive"}
+                                    onChange={(e) =>
+                                      handleUpdateVariantField(idx, "isTaxInclusive", e.target.value === "inclusive")
+                                    }
+                                    className={`h-7 px-1 rounded-[4px] border text-xs font-semibold w-full focus:outline-none focus:border-[#5e2b9d] ${
+                                      v.isTaxInclusive !== false
+                                        ? "bg-purple-50/70 border-purple-200 text-[#5e2b9d]"
+                                        : "bg-amber-50/70 border-amber-200 text-amber-800"
+                                    }`}
+                                  >
+                                    <option value="inclusive">GST Incl.</option>
+                                    <option value="exclusive">GST Excl.</option>
+                                  </select>
                                 </td>
 
                                 {/* Stock Distribution Button */}
