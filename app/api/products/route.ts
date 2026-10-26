@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getBusinessContext } from "@/lib/supabaseDb";
 
+export const dynamic = "force-dynamic";
+
 // Generate numeric-only unique barcode (e.g. 13-digit EAN style)
 function generateNumericBarcode(): string {
   const prefix = "890";
@@ -405,15 +407,41 @@ export async function PUT(request: Request) {
       return NextResponse.json({ success: false, error: "Product ID is required." }, { status: 400 });
     }
 
+    // 1. Fetch existing product to verify access and retain existing fields like images
+    const { data: existingProduct, error: fetchErr } = await ctx.supabase
+      .from("products")
+      .select("id, business_id, store_id, images, variation_options")
+      .eq("id", productId)
+      .single();
+
+    if (fetchErr || !existingProduct) {
+      console.error("PUT product not found:", fetchErr);
+      return NextResponse.json({ success: false, error: "Product not found or has been deleted." }, { status: 404 });
+    }
+
+    // Verify tenant ownership (must match active business or user must own that business)
+    if (existingProduct.business_id !== ctx.businessId) {
+      const { data: userBiz } = await ctx.supabase
+        .from("businesses")
+        .select("id")
+        .eq("id", existingProduct.business_id)
+        .or(`email.eq.${ctx.email.toLowerCase()}${ctx.userId ? `,owner_id.eq.${ctx.userId}` : ""}`)
+        .limit(1);
+
+      if (!userBiz || userBiz.length === 0) {
+        return NextResponse.json({ success: false, error: "Access denied to update this product." }, { status: 403 });
+      }
+    }
+
     const name = String(body.name || "").trim();
     if (!name) {
       return NextResponse.json({ success: false, error: "Product name is required." }, { status: 400 });
     }
 
     const hasVariations = Boolean(body.hasVariations);
-    const description = String(body.description || "").trim();
-    const shortCode = String(body.shortCode || "").trim();
-    let sku = String(body.sku || "").trim();
+    const description = String(body.description !== undefined ? body.description : (existingProduct.variation_options?.description || "")).trim();
+    const shortCode = String(body.shortCode !== undefined ? body.shortCode : (existingProduct.variation_options?.shortCode || "")).trim();
+    let sku = String(body.sku || existingProduct.variation_options?.sku || "").trim();
     if (!sku) {
       sku = `SKU-${Date.now().toString().slice(-6)}`;
     }
@@ -425,22 +453,25 @@ export async function PUT(request: Request) {
     const variationOptions: any = {
       description,
       shortCode,
-      imageUrl: body.imageUrl || "",
+      imageUrl: body.imageUrl || existingProduct.images?.[0] || "",
     };
 
     if (hasVariations) {
       const rawVariants = Array.isArray(body.variants) ? body.variants : [];
       variationOptions.variationTypes = Array.isArray(body.variationTypes) ? body.variationTypes : [];
+      variationOptions.taxRate = Number(body.taxRate !== undefined ? body.taxRate : 18);
+      variationOptions.isTaxInclusive = body.isTaxInclusive !== undefined ? Boolean(body.isTaxInclusive) : true;
+
       variationOptions.variants = rawVariants.map((v: any, index: number) => {
         let varBarcode = String(v.barcode || "").replace(/\D/g, "");
         if (!varBarcode) {
           varBarcode = generateNumericBarcode();
         }
-        const vListPrice = Number(v.listPrice || v.mrp) || 0;
-        const vSalesPrice = Number(v.salesPrice || v.price) || 0;
-        const vStock = Number(v.stock) || 0;
-        const vTaxRate = Number(v.taxRate !== undefined ? v.taxRate : (body.taxRate || 18));
-        const vIsTaxInclusive = v.isTaxInclusive !== undefined ? Boolean(v.isTaxInclusive) : (body.isTaxInclusive !== undefined ? Boolean(body.isTaxInclusive) : true);
+        const vListPrice = Number(v.listPrice !== undefined ? v.listPrice : (v.mrp || v.price || 0));
+        const vSalesPrice = Number(v.salesPrice !== undefined ? v.salesPrice : (v.price || 0));
+        const vStock = Number(v.stock !== undefined ? v.stock : 0);
+        const vTaxRate = Number(v.taxRate !== undefined ? v.taxRate : variationOptions.taxRate);
+        const vIsTaxInclusive = v.isTaxInclusive !== undefined ? Boolean(v.isTaxInclusive) : variationOptions.isTaxInclusive;
 
         return {
           id: v.id || `var_${Date.now()}_${index}`,
@@ -464,19 +495,20 @@ export async function PUT(request: Request) {
         (acc: number, curr: any) => acc + (Number(curr.stock) || 0),
         0
       );
-      const salesPrices = variationOptions.variants.map((v: any) => v.salesPrice);
-      const listPrices = variationOptions.variants.map((v: any) => v.listPrice);
-      variationOptions.minPrice = Math.min(...salesPrices);
-      variationOptions.maxPrice = Math.max(...salesPrices);
+      const salesPrices = variationOptions.variants.map((v: any) => Number(v.salesPrice) || 0);
+      const listPrices = variationOptions.variants.map((v: any) => Number(v.listPrice) || 0);
 
-      price = variationOptions.minPrice;
-      mrp = Math.min(...listPrices);
+      variationOptions.minPrice = salesPrices.length > 0 ? Math.min(...salesPrices) : 0;
+      variationOptions.maxPrice = salesPrices.length > 0 ? Math.max(...salesPrices) : 0;
+
+      price = isFinite(variationOptions.minPrice) ? variationOptions.minPrice : 0;
+      mrp = listPrices.length > 0 && isFinite(Math.min(...listPrices)) ? Math.min(...listPrices) : price;
       stock = variationOptions.totalStock;
       barcode = variationOptions.variants[0]?.barcode || generateNumericBarcode();
     } else {
-      mrp = Number(body.listPrice || body.mrp) || 0;
-      price = Number(body.salesPrice || body.price) || 0;
-      stock = Number(body.stock) || 0;
+      mrp = Number(body.listPrice !== undefined ? body.listPrice : (body.mrp || body.price || 0));
+      price = Number(body.salesPrice !== undefined ? body.salesPrice : (body.price || 0));
+      stock = Number(body.stock !== undefined ? body.stock : 0);
 
       barcode = String(body.barcode || "").replace(/\D/g, "");
       if (!barcode) {
@@ -491,8 +523,25 @@ export async function PUT(request: Request) {
       variationOptions.totalStock = stock;
       variationOptions.barcode = barcode;
       variationOptions.sku = sku;
+      variationOptions.taxRate = Number(body.taxRate !== undefined ? body.taxRate : 0);
+      variationOptions.isTaxInclusive = body.isTaxInclusive !== undefined ? Boolean(body.isTaxInclusive) : true;
       variationOptions.locationStocks = body.locationStocks || { stores: [], warehouses: [] };
     }
+
+    const finalTaxRate = Number(
+      body.taxRate !== undefined
+        ? body.taxRate
+        : hasVariations && variationOptions.variants[0]?.taxRate !== undefined
+        ? variationOptions.variants[0].taxRate
+        : 0
+    );
+
+    // Images: If new imageUrl provided, use it; otherwise retain existing product images
+    const imagesToSave = body.imageUrl
+      ? [body.imageUrl]
+      : Array.isArray(existingProduct.images) && existingProduct.images.length > 0
+      ? existingProduct.images
+      : [];
 
     const updatePayload: any = {
       name,
@@ -503,8 +552,9 @@ export async function PUT(request: Request) {
       price,
       mrp,
       stock,
+      tax_rate: finalTaxRate,
       has_variations: hasVariations,
-      images: body.imageUrl ? [body.imageUrl] : [],
+      images: imagesToSave,
       variation_options: variationOptions,
       updated_at: new Date().toISOString(),
     };
@@ -513,12 +563,15 @@ export async function PUT(request: Request) {
       .from("products")
       .update(updatePayload)
       .eq("id", productId)
-      .eq("business_id", ctx.businessId)
       .select()
       .single();
 
     if (error || !updatedProduct) {
-      return NextResponse.json({ success: false, error: "Failed to update product or access denied." }, { status: 403 });
+      console.error("PUT product update error from Supabase:", error);
+      return NextResponse.json({
+        success: false,
+        error: error?.message || "Failed to update product in database."
+      }, { status: 500 });
     }
 
     return NextResponse.json({
@@ -527,7 +580,10 @@ export async function PUT(request: Request) {
     });
   } catch (error: any) {
     console.error("Error updating product:", error);
-    return NextResponse.json({ success: false, error: "Failed to update product." }, { status: 500 });
+    return NextResponse.json({
+      success: false,
+      error: error?.message || "Failed to update product."
+    }, { status: 500 });
   }
 }
 

@@ -196,7 +196,9 @@ export default function ProductsPage() {
         if (search) params.set("search", search);
         if (catId && catId !== "ALL") params.set("categoryId", catId);
 
-        const res = await fetch(`/api/products?${params.toString()}`);
+        const res = await fetch(`/api/products?${params.toString()}&_t=${Date.now()}`, {
+          cache: "no-store",
+        });
         if (res.ok) {
           const data = await res.json();
           if (data.success && Array.isArray(data.products)) {
@@ -309,8 +311,8 @@ export default function ProductsPage() {
       });
       setSelectedVariationNames(Array.from(varNames));
     } else {
-      setSimpleListPrice(p.listPrice || p.mrp || "");
-      setSimpleSalesPrice(p.salesPrice || p.price || "");
+      setSimpleListPrice(p.listPrice !== undefined && p.listPrice !== null ? p.listPrice : (p.mrp ?? ""));
+      setSimpleSalesPrice(p.salesPrice !== undefined && p.salesPrice !== null ? p.salesPrice : (p.price ?? ""));
       setSimpleBarcode(p.barcode || generateNumericBarcode());
 
       const stMap: Record<string, number> = {};
@@ -321,6 +323,9 @@ export default function ProductsPage() {
       (p.locationStocks?.warehouses || []).forEach((w) => {
         whMap[w.warehouseId] = w.stock;
       });
+      if (Object.keys(stMap).length === 0 && Object.keys(whMap).length === 0 && p.stock > 0 && stores[0]?.id) {
+        stMap[stores[0].id] = p.stock;
+      }
       setSimpleStoreStocks(stMap);
       setSimpleWarehouseStocks(whMap);
     }
@@ -591,6 +596,13 @@ export default function ProductsPage() {
             : `Product "${trimmedName}" added successfully!`
         );
         setTimeout(() => setToastMsg(""), 3500);
+
+        // Optimistically update products state immediately so the table updates without any stale-cache delay
+        if (isEdit && data.product) {
+          setProducts((prev) =>
+            prev.map((item) => (item.id === data.product.id ? data.product : item))
+          );
+        }
 
         if (!isEdit) {
           setCurrentPage(1);

@@ -92,19 +92,8 @@ export default function PosBillingPage() {
     card: "",
   });
 
-  // Drafts / Parked Bills (Lazy initialized so drafts are never wiped on reload)
-  const [draftBills, setDraftBills] = useState<DraftBillItem[]>(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const savedLocal = localStorage.getItem("pos_draft_bills");
-        if (savedLocal) {
-          const parsed = JSON.parse(savedLocal);
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-        }
-      } catch {}
-    }
-    return [];
-  });
+  // Drafts / Parked Bills
+  const [draftBills, setDraftBills] = useState<DraftBillItem[]>([]);
   const isDraftsLoadedRef = useRef(false);
   const isScanningRef = useRef(false);
   const [isDraftsModalOpen, setIsDraftsModalOpen] = useState(false);
@@ -867,6 +856,7 @@ export default function PosBillingPage() {
             <button
               type="button"
               onClick={() => setIsDraftsModalOpen(true)}
+              suppressHydrationWarning
               className="relative px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold cursor-pointer transition-colors flex items-center gap-1.5"
             >
               <svg className="w-4 h-4 stroke-[1.8]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -874,7 +864,7 @@ export default function PosBillingPage() {
               </svg>
               <span>Draft Bills</span>
               {draftBills.length > 0 && (
-                <span className="ml-1 px-1.5 py-0.2 rounded-full bg-[#5e2b9d] text-white font-mono text-[10px] font-bold">
+                <span suppressHydrationWarning className="ml-1 px-1.5 py-0.2 rounded-full bg-[#5e2b9d] text-white font-mono text-[10px] font-bold">
                   {draftBills.length}
                 </span>
               )}
