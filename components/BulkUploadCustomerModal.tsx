@@ -4,6 +4,7 @@ import React, { useState, useRef } from "react";
 import * as XLSX from "xlsx";
 import { useToast } from "@/components/ToastProvider";
 import { SAMPLE_80_CUSTOMERS } from "@/lib/sampleCustomers";
+import { Spinner } from "@/components/ui/spinner";
 
 interface BulkUploadCustomerModalProps {
   isOpen: boolean;
@@ -314,7 +315,7 @@ export default function BulkUploadCustomerModal({
           {/* Step 3: Parsed Preview */}
           {isParsing ? (
             <div className="p-8 text-center bg-slate-50 rounded-lg border border-slate-200">
-              <div className="w-6 h-6 border-2 border-[#5e2b9d] border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+              <Spinner className="w-6 h-6 text-[#5e2b9d] mx-auto mb-2" />
               <p className="text-xs text-slate-500">Reading and validating customer rows...</p>
             </div>
           ) : parsedCustomers.length > 0 ? (
@@ -436,7 +437,7 @@ export default function BulkUploadCustomerModal({
             >
               {isUploading ? (
                 <>
-                  <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <Spinner className="w-3.5 h-3.5 text-white" />
                   <span>Uploading {parsedCustomers.length} Customers...</span>
                 </>
               ) : (

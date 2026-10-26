@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { Spinner } from "@/components/ui/spinner";
 
 interface ConfirmModalProps {
   isOpen: boolean;
@@ -86,7 +87,7 @@ export default function ConfirmModal({
           >
             {loading ? (
               <>
-                <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                <Spinner className="w-3.5 h-3.5 text-white" />
                 <span>Processing...</span>
               </>
             ) : (

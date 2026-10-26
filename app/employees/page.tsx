@@ -7,6 +7,7 @@ import EmployeeSubNav from "@/components/EmployeeSubNav";
 import EmployeeModal, { EmployeeFormData } from "@/components/EmployeeModal";
 import BulkUploadEmployeeModal from "@/components/BulkUploadEmployeeModal";
 import { useToast } from "@/components/ToastProvider";
+import { Spinner } from "@/components/ui/spinner";
 
 interface EmployeeItem extends EmployeeFormData {
   id: string;
@@ -215,9 +216,13 @@ export default function EmployeesPage() {
               className="h-9 px-3 text-xs font-medium text-slate-600 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
               title="Refresh employee list"
             >
-              <svg className={`w-3.5 h-3.5 ${loading ? "animate-spin text-[#5e2b9d]" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
+              {loading ? (
+                <Spinner className="w-3.5 h-3.5 text-[#5e2b9d]" />
+              ) : (
+                <svg className="w-3.5 h-3.5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+              )}
               <span>Refresh</span>
             </button>
 
@@ -372,11 +377,8 @@ export default function EmployeesPage() {
                   <tr>
                     <td colSpan={8} className="py-16 text-center text-slate-400">
                       <div className="flex flex-col items-center justify-center gap-2">
-                        <svg className="animate-spin w-6 h-6 text-[#5e2b9d]" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                        </svg>
-                        <span className="text-xs font-medium">Loading latest 24 employees...</span>
+                        <Spinner className="w-6 h-6 text-[#5e2b9d]" />
+                        <span className="text-xs font-medium text-slate-500">Loading latest 24 employees...</span>
                       </div>
                     </td>
                   </tr>

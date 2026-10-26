@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { Spinner } from "@/components/ui/spinner";
 import {
   CouponItem,
   CouponType,
@@ -426,7 +427,7 @@ export default function CouponModal({
             <div className="space-y-4 animate-in fade-in duration-100">
               
               {/* Promotion Type Selector */}
-              <div>
+              {/* <div>
                 <label className="text-[11px] font-semibold text-slate-700 block mb-1">
                   Coupon Manager Category *
                 </label>
@@ -476,7 +477,7 @@ export default function CouponModal({
                     <span className="text-[10px] text-slate-500 block">VIP, Birthday & Phone vouchers</span>
                   </button>
                 </div>
-              </div>
+              </div> */}
 
               {/* Coupon Code & Generate */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1144,7 +1145,7 @@ export default function CouponModal({
               >
                 {isSubmitting ? (
                   <>
-                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <Spinner className="w-3.5 h-3.5 text-white" />
                     <span>Saving Coupon...</span>
                   </>
                 ) : (

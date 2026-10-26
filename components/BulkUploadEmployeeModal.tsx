@@ -4,6 +4,7 @@ import React, { useState, useRef } from "react";
 import * as XLSX from "xlsx";
 import { useToast } from "@/components/ToastProvider";
 import { SAMPLE_80_EMPLOYEES } from "@/lib/sampleEmployees";
+import { Spinner } from "@/components/ui/spinner";
 
 interface BulkUploadEmployeeModalProps {
   isOpen: boolean;
@@ -310,7 +311,7 @@ export default function BulkUploadEmployeeModal({
           {/* Step 3: Parsed Preview */}
           {isParsing ? (
             <div className="p-8 text-center bg-slate-50 rounded-[8px] border border-slate-200">
-              <div className="w-6 h-6 border-2 border-[#5e2b9d] border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+              <Spinner className="w-6 h-6 text-[#5e2b9d] mx-auto mb-2" />
               <p className="text-xs text-slate-500">Reading and validating employee rows...</p>
             </div>
           ) : parsedEmployees.length > 0 ? (
@@ -410,7 +411,7 @@ export default function BulkUploadEmployeeModal({
           >
             {isUploading ? (
               <>
-                <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                <Spinner className="w-3.5 h-3.5 text-white" />
                 <span>Importing Employees ({parsedEmployees.length})...</span>
               </>
             ) : (

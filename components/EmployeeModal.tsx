@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import { useToast } from "@/components/ToastProvider";
+import { Spinner } from "@/components/ui/spinner";
 
 export interface EmployeeFormData {
   id?: string;
@@ -559,10 +560,7 @@ export default function EmployeeModal({
                   >
                     {fetchingGps ? (
                       <>
-                        <svg className="animate-spin h-3 w-3 text-[#5e2b9d]" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                        </svg>
+                        <Spinner className="w-3 h-3 text-[#5e2b9d]" />
                         <span>Detecting...</span>
                       </>
                     ) : (
@@ -795,10 +793,7 @@ export default function EmployeeModal({
             >
               {submitting ? (
                 <>
-                  <svg className="animate-spin h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                  </svg>
+                  <Spinner className="w-3.5 h-3.5 text-white" />
                   <span>Saving & Uploading...</span>
                 </>
               ) : (

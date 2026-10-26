@@ -13,6 +13,8 @@ interface SidebarContextType {
   setAllAccordions: (open: boolean) => void;
   areAllOpen: boolean;
   hasInteracted: boolean;
+  sidebarScrollTop: number;
+  setSidebarScrollTop: (pos: number) => void;
 }
 
 const SidebarContext = createContext<SidebarContextType | undefined>(undefined);
@@ -20,6 +22,7 @@ const SidebarContext = createContext<SidebarContextType | undefined>(undefined);
 export const SidebarProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isCollapsed, setIsCollapsed] = useState<boolean>(false);
   const [hasInteracted, setHasInteracted] = useState<boolean>(false);
+  const [sidebarScrollTop, setSidebarScrollTopState] = useState<number>(0);
 
   // Default all managers to expanded
   const [openAccordions, setOpenAccordions] = useState<Record<string, boolean>>(() => {
@@ -32,13 +35,27 @@ export const SidebarProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return initial;
   });
 
-  // Restore saved collapse state safely on client mount without hydration mismatch
+  // Restore saved collapse & scroll state safely on client mount without hydration mismatch
   useEffect(() => {
     try {
-      const saved = localStorage.getItem("sidebar_collapsed");
-      if (saved === "true") {
+      const savedCollapse = localStorage.getItem("sidebar_collapsed");
+      if (savedCollapse === "true") {
         setIsCollapsed(true);
       }
+      const savedScroll = sessionStorage.getItem("sidebar_scroll_top");
+      if (savedScroll) {
+        const top = parseInt(savedScroll, 10);
+        if (!isNaN(top)) {
+          setSidebarScrollTopState(top);
+        }
+      }
+    } catch {}
+  }, []);
+
+  const setSidebarScrollTop = useCallback((pos: number) => {
+    setSidebarScrollTopState(pos);
+    try {
+      sessionStorage.setItem("sidebar_scroll_top", String(pos));
     } catch {}
   }, []);
 
@@ -93,6 +110,8 @@ export const SidebarProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setAllAccordions,
         areAllOpen,
         hasInteracted,
+        sidebarScrollTop,
+        setSidebarScrollTop,
       }}
     >
       {children}

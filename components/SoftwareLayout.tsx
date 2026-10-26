@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -51,7 +51,50 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
     setAllAccordions,
     areAllOpen,
     hasInteracted,
+    sidebarScrollTop,
+    setSidebarScrollTop,
   } = useSidebar();
+
+  const navScrollRef = useRef<HTMLElement | null>(null);
+  const isRestoringScroll = useRef(false);
+
+  // Restore sidebar scroll position across page navigations
+  useEffect(() => {
+    const restoreScroll = () => {
+      if (navScrollRef.current) {
+        let target = sidebarScrollTop;
+        if (!target && typeof window !== "undefined") {
+          const saved = sessionStorage.getItem("sidebar_scroll_top");
+          if (saved) target = parseInt(saved, 10);
+        }
+        if (target && !isNaN(target) && target > 0) {
+          isRestoringScroll.current = true;
+          navScrollRef.current.scrollTop = target;
+          setTimeout(() => {
+            isRestoringScroll.current = false;
+          }, 60);
+        }
+      }
+    };
+
+    restoreScroll();
+    const raf = requestAnimationFrame(restoreScroll);
+    const timer = setTimeout(restoreScroll, 120);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(timer);
+    };
+  }, [pathname, sidebarScrollTop]);
+
+  const handleNavClick = () => {
+    if (navScrollRef.current) {
+      const top = navScrollRef.current.scrollTop;
+      setSidebarScrollTop(top);
+      try {
+        sessionStorage.setItem("sidebar_scroll_top", String(top));
+      } catch {}
+    }
+  };
 
   const { isConnected: printerConnected, printerType, printerName } = usePrinter();
   const [isPrinterModalOpen, setIsPrinterModalOpen] = useState(false);
@@ -560,6 +603,13 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
 
           {/* Navigation Accordion List with Sleek Scrollbar */}
           <nav
+            ref={navScrollRef}
+            onScroll={(e) => {
+              if (!isRestoringScroll.current) {
+                const top = e.currentTarget.scrollTop;
+                setSidebarScrollTop(top);
+              }
+            }}
             suppressHydrationWarning
             className={`flex-1 ${
               isSidebarCollapsed ? "overflow-visible px-2.5" : "overflow-y-auto px-2.5 custom-sidebar-scroll"
@@ -581,6 +631,7 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
                     <div key={group.id} className="relative group flex justify-center py-0.5">
                       <Link
                         href={group.href}
+                        onClick={handleNavClick}
                         className={`w-10 h-10 rounded-[8px] flex items-center justify-center transition-all ${
                           isActive
                             ? "bg-[#5e2b9d] text-white shadow-xs"
@@ -671,6 +722,7 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
                               <Link
                                 key={child.id}
                                 href={child.href}
+                                onClick={handleNavClick}
                                 className={`h-8 px-2.5 rounded-[6px] flex items-center gap-2.5 text-xs font-medium transition-colors ${
                                   isChildActive
                                     ? "bg-[#5e2b9d] text-white shadow-2xs font-semibold"
@@ -702,6 +754,7 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
                   <Link
                     key={group.id}
                     href={group.href}
+                    onClick={handleNavClick}
                     className={`h-[34px] max-h-[34px] px-3 rounded-[6px] flex items-center gap-2.5 text-[13px] font-medium transition-all duration-150 ${
                       isActive
                         ? "bg-[#5e2b9d] text-white shadow-xs"
@@ -775,6 +828,7 @@ export default function SoftwareLayout({ children }: SoftwareLayoutProps) {
                           <Link
                             key={child.id}
                             href={child.href}
+                            onClick={handleNavClick}
                             className={`h-[32px] max-h-[34px] px-2.5 rounded-[6px] flex items-center gap-2.5 text-[12.5px] font-medium transition-colors truncate ${
                               isChildActive
                                 ? "bg-[#5e2b9d] text-white shadow-2xs font-semibold"
