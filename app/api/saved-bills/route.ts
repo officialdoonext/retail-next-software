@@ -24,16 +24,36 @@ export async function GET() {
       return NextResponse.json({ success: false, error: error.message }, { status: 500 });
     }
 
-    const savedBills = (rawBills || []).map((d: any) => ({
-      id: d.id,
-      draftNumber: d.bill_name,
-      storeId: d.store_id,
-      businessId: d.business_id,
-      customer: d.customer_info,
-      items: Array.isArray(d.items) ? d.items : [],
-      totalItemsCount: Array.isArray(d.items) ? d.items.reduce((s: number, i: any) => s + (Number(i.quantity) || 1), 0) : 0,
-      createdAt: d.created_at ? new Date(d.created_at).getTime() : Date.now(),
-    }));
+    const savedBills = (rawBills || []).map((d: any) => {
+      const items = Array.isArray(d.items) ? d.items : [];
+      const info = d.customer_info || {};
+      const calculatedSubtotal = items.reduce(
+        (s: number, i: any) => s + (Number(i.salePrice || i.price || 0) * (Number(i.quantity) || 1)),
+        0
+      );
+
+      return {
+        id: d.id,
+        draftNumber: d.bill_name,
+        storeId: d.store_id,
+        businessId: d.business_id,
+        customer: (info.name || info.phone) ? {
+          id: info.id,
+          name: info.name,
+          phone: info.phone,
+          discountPercent: info.discountPercent,
+        } : undefined,
+        items,
+        totalItemsCount: items.reduce((s: number, i: any) => s + (Number(i.quantity) || 1), 0),
+        subtotal: Number(info.subtotal) || calculatedSubtotal,
+        discount: Number(info.discount) || 0,
+        tax: Number(info.tax) || 0,
+        grandTotal: Number(info.grandTotal) || calculatedSubtotal,
+        couponCode: info.couponCode || undefined,
+        appliedCoupon: info.appliedCoupon || undefined,
+        createdAt: d.created_at ? new Date(d.created_at).getTime() : Date.now(),
+      };
+    });
 
     return NextResponse.json({ success: true, savedBills });
   } catch (error: any) {
@@ -57,14 +77,24 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: "Cannot save an empty bill." }, { status: 400 });
     }
 
-    const draftNumber = `HOLD-${Date.now().toString().slice(-6)}`;
+    const draftNumber = body.draftNumber || `HOLD-${Date.now().toString().slice(-6)}`;
+
+    const customerInfo = {
+      ...(body.customer || {}),
+      subtotal: body.subtotal || 0,
+      discount: body.discount || 0,
+      tax: body.tax || 0,
+      grandTotal: body.grandTotal || 0,
+      couponCode: body.couponCode || null,
+      appliedCoupon: body.appliedCoupon || null,
+    };
 
     const savedBillData = {
       business_id: ctx.businessId,
       store_id: ctx.storeId || null,
       bill_name: draftNumber,
       items,
-      customer_info: body.customer || {},
+      customer_info: customerInfo,
       created_at: new Date().toISOString(),
     };
 

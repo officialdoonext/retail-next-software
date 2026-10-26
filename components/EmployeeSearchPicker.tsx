@@ -9,6 +9,7 @@ export interface EmployeeSummary {
   name: string;
   mobile: string;
   city?: string;
+  role?: string;
   avatarUrl?: string;
   salaryType?: "monthly" | "daily";
   salaryAmount?: number;

@@ -92,8 +92,21 @@ export default function PosBillingPage() {
     card: "",
   });
 
-  // Drafts / Parked Bills
-  const [draftBills, setDraftBills] = useState<DraftBillItem[]>([]);
+  // Drafts / Parked Bills (Lazy initialized so drafts are never wiped on reload)
+  const [draftBills, setDraftBills] = useState<DraftBillItem[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const savedLocal = localStorage.getItem("pos_draft_bills");
+        if (savedLocal) {
+          const parsed = JSON.parse(savedLocal);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      } catch {}
+    }
+    return [];
+  });
+  const isDraftsLoadedRef = useRef(false);
+  const isScanningRef = useRef(false);
   const [isDraftsModalOpen, setIsDraftsModalOpen] = useState(false);
   const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
 
@@ -102,8 +115,22 @@ export default function PosBillingPage() {
   const [settledReceipt, setSettledReceipt] = useState<ReceiptData | null>(null);
   const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
 
-  // 1. Initial Load: Employees, Coupons, Local Drafts
+  // 1. Initial Load: Employees, Coupons, Local Drafts & Server Drafts
   useEffect(() => {
+    // 1. Read Local Drafts first
+    if (typeof window !== "undefined") {
+      try {
+        const savedLocal = localStorage.getItem("pos_draft_bills");
+        if (savedLocal) {
+          const parsed = JSON.parse(savedLocal);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setDraftBills(parsed);
+          }
+        }
+      } catch {}
+    }
+    isDraftsLoadedRef.current = true;
+
     // Load Employees
     async function loadEmployees() {
       try {
@@ -134,26 +161,41 @@ export default function PosBillingPage() {
       }
     }
 
-    // Load Local Drafts
-    if (typeof window !== "undefined") {
+    // Load Server Drafts & merge with local drafts
+    async function loadServerDrafts() {
       try {
-        const savedLocal = localStorage.getItem("pos_draft_bills");
-        if (savedLocal) {
-          const parsed = JSON.parse(savedLocal);
-          if (Array.isArray(parsed)) setDraftBills(parsed);
+        const res = await fetch("/api/saved-bills");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && Array.isArray(data.savedBills) && data.savedBills.length > 0) {
+            setDraftBills((prev) => {
+              const existingIds = new Set(prev.map((d) => d.id));
+              const merged = [...prev];
+              for (const serverDraft of data.savedBills) {
+                if (!existingIds.has(serverDraft.id)) {
+                  merged.push(serverDraft);
+                }
+              }
+              return merged;
+            });
+          }
         }
-      } catch {}
+      } catch (err) {
+        console.error("Failed loading server drafts:", err);
+      }
     }
 
     loadEmployees();
     loadCoupons();
+    loadServerDrafts();
 
     // Auto focus barcode scanner on mount
     barcodeInputRef.current?.focus();
   }, []);
 
-  // Save drafts to localStorage whenever draftBills state changes
+  // Save drafts to localStorage whenever draftBills state changes (guarded to avoid wiping on initial render)
   useEffect(() => {
+    if (!isDraftsLoadedRef.current) return;
     if (typeof window !== "undefined") {
       try {
         localStorage.setItem("pos_draft_bills", JSON.stringify(draftBills));
@@ -254,9 +296,10 @@ export default function PosBillingPage() {
       );
 
       if (existingIdx !== -1) {
-        const updated = [...prev];
-        updated[existingIdx].quantity += 1;
-        return updated;
+        // Pure immutable update: strictly increment quantity by 1 without mutating state in-place
+        return prev.map((item, idx) =>
+          idx === existingIdx ? { ...item, quantity: item.quantity + 1 } : item
+        );
       }
 
       const newItem: PosCartItem = {
@@ -289,6 +332,9 @@ export default function PosBillingPage() {
     const code = barcodeInput.trim();
     if (!code) return;
 
+    if (isScanningRef.current) return;
+    isScanningRef.current = true;
+
     try {
       setIsSearchingProducts(true);
       // First exact barcode lookup
@@ -318,6 +364,9 @@ export default function PosBillingPage() {
       toast.error("Network error while looking up item.");
     } finally {
       setIsSearchingProducts(false);
+      setTimeout(() => {
+        isScanningRef.current = false;
+      }, 250);
     }
   };
 
@@ -352,6 +401,34 @@ export default function PosBillingPage() {
     setActiveEmployeePickerRowId(null);
     setEmployeeSearchQuery("");
   };
+
+  // Bulk assign employee to all items in cart
+  const handleAssignEmployeeToAll = (emp: EmployeeSummary | null) => {
+    setCartItems((prev) =>
+      prev.map((it) => ({ ...it, employee: emp }))
+    );
+    setActiveEmployeePickerRowId(null);
+    setEmployeeSearchQuery("");
+    if (emp) {
+      toast.success(`Assigned ${emp.name} to all items in cart.`);
+    } else {
+      toast.info("Cleared employee assignment from all items.");
+    }
+  };
+
+  // Filtered employees for staff selector
+  const filteredEmployees = useMemo(() => {
+    const q = employeeSearchQuery.trim().toLowerCase();
+    if (!q) return employees;
+    return employees.filter((emp) => {
+      return (
+        (emp.name || "").toLowerCase().includes(q) ||
+        String(emp.employeeId || "").toLowerCase().includes(q) ||
+        String(emp.mobile || "").toLowerCase().includes(q) ||
+        String(emp.role || "").toLowerCase().includes(q)
+      );
+    });
+  }, [employees, employeeSearchQuery]);
 
   // 6. Real-time Calculation of Cart Totals & Tax Breakdowns
   const calculatedItems = useMemo(() => {
@@ -826,12 +903,15 @@ export default function PosBillingPage() {
           <div className="flex-1 flex flex-col bg-white border-r border-slate-200 overflow-hidden">
             
             {/* Table Header Bar */}
-            <div className="bg-slate-100/90 border-b border-slate-200 px-4 py-2.5 grid grid-cols-12 text-[11px] font-bold text-slate-600 uppercase tracking-wider shrink-0">
-              <div className="col-span-4">Item & Barcode</div>
+            <div className="bg-slate-100/95 border-b border-slate-200 px-4 py-2.5 grid grid-cols-12 text-[11px] font-bold text-slate-700 uppercase tracking-wider shrink-0 items-center">
+              <div className="col-span-3">Item & Barcode</div>
               <div className="col-span-1 text-right">MRP</div>
-              <div className="col-span-1 text-right">Sale Price</div>
+              <div className="col-span-1 text-right">Price</div>
               <div className="col-span-2 text-center">Qty</div>
-              <div className="col-span-2 text-center">GST Breakdown</div>
+              <div className="col-span-1 text-center">Tax</div>
+              <div className="col-span-2 text-center text-[#5e2b9d] flex items-center justify-center gap-1">
+                <span>👤 Sales Rep</span>
+              </div>
               <div className="col-span-1 text-right">Subtotal</div>
               <div className="col-span-1 text-center">Action</div>
             </div>
@@ -856,11 +936,11 @@ export default function PosBillingPage() {
                     key={item.cartId}
                     className="px-4 py-3 hover:bg-slate-50/70 transition-colors flex flex-col gap-2"
                   >
-                    {/* Primary Row Grid */}
-                    <div className="grid grid-cols-12 items-center text-xs">
+                    {/* Primary Row Grid: 12 Columns */}
+                    <div className="grid grid-cols-12 items-center text-xs gap-1">
                       
-                      {/* 1. Item Name, Variant & Barcode */}
-                      <div className="col-span-4 min-w-0 pr-2">
+                      {/* 1. Item Name, Variant & Barcode (3 cols) */}
+                      <div className="col-span-3 min-w-0 pr-2">
                         <div className="flex items-center gap-2">
                           <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center font-bold text-[10px] shrink-0">
                             {idx + 1}
@@ -869,7 +949,7 @@ export default function PosBillingPage() {
                             {item.productName}
                           </span>
                         </div>
-                        <div className="text-[10px] text-slate-400 pl-7 flex items-center gap-2 mt-0.5">
+                        <div className="text-[10px] text-slate-400 pl-7 flex items-center gap-1.5 mt-0.5 flex-wrap">
                           {item.variantName && (
                             <span className="bg-purple-50 text-purple-700 px-1.5 py-0.2 rounded font-medium border border-purple-200/60">
                               {item.variantName}
@@ -880,18 +960,18 @@ export default function PosBillingPage() {
                         </div>
                       </div>
 
-                      {/* 2. List Price (MRP) */}
+                      {/* 2. List Price (MRP) (1 col) */}
                       <div className="col-span-1 text-right text-slate-400 line-through font-mono text-[11px]">
                         ₹{item.listPrice || item.salePrice}
                       </div>
 
-                      {/* 3. Sale Price */}
+                      {/* 3. Sale Price (1 col) */}
                       <div className="col-span-1 text-right font-bold text-slate-800 font-mono">
                         ₹{item.salePrice}
                       </div>
 
-                      {/* 4. Quantity Stepper */}
-                      <div className="col-span-2 flex items-center justify-center gap-1.5">
+                      {/* 4. Quantity Stepper (2 cols) */}
+                      <div className="col-span-2 flex items-center justify-center gap-1">
                         <button
                           type="button"
                           onClick={() => handleUpdateQuantity(item.cartId, item.quantity - 1)}
@@ -917,33 +997,92 @@ export default function PosBillingPage() {
                         </button>
                       </div>
 
-                      {/* 5. GST Breakdown & Inclusive/Exclusive Toggle */}
-                      <div className="col-span-2 px-1 text-center">
-                        <div className="flex items-center justify-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => handleToggleTaxMode(item.cartId)}
-                            title="Click to toggle Inclusive / Exclusive tax"
-                            className={`px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer transition-colors ${
-                              item.isTaxInclusive
-                                ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                                : "bg-blue-50 text-blue-700 border border-blue-200"
-                            }`}
-                          >
-                            {item.isTaxInclusive ? "GST Incl." : "+ GST Excl."} ({item.taxRate}%)
-                          </button>
-                        </div>
-                        <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-                          Base: ₹{item.taxableAmount.toFixed(1)} | GST: ₹{item.taxAmount.toFixed(1)}
-                        </div>
+                      {/* 5. Tax (1 col) */}
+                      <div className="col-span-1 px-0.5 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleTaxMode(item.cartId)}
+                          title="Click to toggle Inclusive / Exclusive tax"
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer transition-colors ${
+                            item.isTaxInclusive
+                              ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                              : "bg-blue-50 text-blue-700 border border-blue-200"
+                          }`}
+                        >
+                          {item.taxRate}% {item.isTaxInclusive ? "Incl." : "Excl."}
+                        </button>
                       </div>
 
-                      {/* 6. Subtotal */}
+                      {/* 6. PROMINENT SALES REP / STAFF SELECTION (2 cols) */}
+                      <div className="col-span-2 px-1 text-center">
+                        {item.employee ? (
+                          <div className="flex items-center justify-between gap-1 px-2 py-1 bg-purple-50/90 border border-purple-200 rounded-lg text-slate-800 shadow-2xs">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveEmployeePickerRowId(item.cartId);
+                                setEmployeeSearchQuery("");
+                              }}
+                              className="flex items-center gap-1.5 min-w-0 text-left hover:opacity-85 transition-opacity cursor-pointer"
+                              title="Click to change assigned staff"
+                            >
+                              {item.employee.avatarUrl ? (
+                                <img
+                                  src={item.employee.avatarUrl}
+                                  alt={item.employee.name}
+                                  className="w-5 h-5 rounded-full object-cover shrink-0 border border-purple-300"
+                                />
+                              ) : (
+                                <div
+                                  className={`w-5 h-5 rounded-full flex items-center justify-center font-bold text-[9px] shrink-0 border ${getFirstLetterColor(
+                                    getFirstLetter(item.employee.name)
+                                  )}`}
+                                >
+                                  {getFirstLetter(item.employee.name)}
+                                </div>
+                              )}
+                              <div className="truncate">
+                                <div className="font-bold text-[11px] text-[#5e2b9d] truncate">
+                                  {item.employee.name}
+                                </div>
+                                {item.employee.employeeId && (
+                                  <div className="text-[9px] font-mono text-slate-500 font-semibold leading-none">
+                                    #{item.employee.employeeId}
+                                  </div>
+                                )}
+                              </div>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleAssignEmployee(item.cartId, null)}
+                              className="text-slate-400 hover:text-rose-600 font-bold text-xs p-1 rounded hover:bg-white cursor-pointer transition-colors"
+                              title="Remove staff assignment"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveEmployeePickerRowId(item.cartId);
+                              setEmployeeSearchQuery("");
+                            }}
+                            className="w-full h-8 px-2 rounded-lg border-2 border-dashed border-[#5e2b9d]/50 hover:border-[#5e2b9d] bg-purple-50/70 hover:bg-purple-100 text-[#5e2b9d] font-bold text-xs flex items-center justify-center gap-1.5 shadow-2xs hover:shadow-xs transition-all cursor-pointer group"
+                            title="Assign salesperson for commission and sales credit"
+                          >
+                            <span className="text-sm">👤</span>
+                            <span className="font-bold text-[11px] group-hover:underline">+ Staff</span>
+                          </button>
+                        )}
+                      </div>
+
+                      {/* 7. Subtotal (1 col) */}
                       <div className="col-span-1 text-right font-extrabold text-slate-900 font-mono">
                         ₹{item.subtotal.toFixed(2)}
                       </div>
 
-                      {/* 7. Delete Item */}
+                      {/* 8. Delete Item (1 col) */}
                       <div className="col-span-1 text-center">
                         <button
                           type="button"
@@ -957,116 +1096,24 @@ export default function PosBillingPage() {
 
                     </div>
 
-                    {/* Secondary Row: Employee Selection for this specific item */}
-                    <div className="pl-7 pr-2 flex items-center justify-between text-[11px] pt-1 border-t border-slate-100">
-                      <div className="flex items-center gap-2">
-                        <span className="text-slate-500 font-medium text-[10.5px]">Attributed Salesperson:</span>
-
-                        {item.employee ? (
-                          <div className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-purple-50 text-[#5e2b9d] border border-purple-200/80 rounded-lg">
-                            <span className="font-semibold text-xs">{item.employee.name}</span>
-                            {item.employee.employeeId && (
-                              <span className="text-[10px] font-mono text-purple-600 font-bold">
-                                #{item.employee.employeeId}
-                              </span>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => handleAssignEmployee(item.cartId, null)}
-                              className="text-purple-400 hover:text-rose-600 font-bold ml-1 cursor-pointer"
-                              title="Clear employee"
-                            >
-                              ✕
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="relative">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setActiveEmployeePickerRowId(
-                                  activeEmployeePickerRowId === item.cartId ? null : item.cartId
-                                );
-                                setEmployeeSearchQuery("");
-                              }}
-                              className="text-[#5e2b9d] hover:underline font-semibold text-[11px] cursor-pointer flex items-center gap-1"
-                            >
-                              <span>+ Select Employee</span>
-                              <span className="text-[9.5px] text-slate-400">(optional)</span>
-                            </button>
-
-                            {/* Floating Employee Search Dropdown */}
-                            {activeEmployeePickerRowId === item.cartId && (
-                              <div className="absolute z-40 left-0 mt-1 w-72 bg-white rounded-xl shadow-xl border border-slate-200 p-2 text-left">
-                                <div className="mb-2">
-                                  <input
-                                    type="text"
-                                    autoFocus
-                                    value={employeeSearchQuery}
-                                    onChange={(e) => setEmployeeSearchQuery(e.target.value)}
-                                    placeholder="Search by ID, Name, Mobile..."
-                                    className="w-full h-8 px-2.5 rounded-lg border border-slate-200 text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-[#5e2b9d]"
-                                  />
-                                </div>
-                                <div className="max-h-48 overflow-y-auto divide-y divide-slate-100">
-                                  {employees
-                                    .filter((emp) => {
-                                      const q = employeeSearchQuery.trim().toLowerCase();
-                                      if (!q) return true;
-                                      return (
-                                        (emp.name || "").toLowerCase().includes(q) ||
-                                        String(emp.employeeId || "").includes(q) ||
-                                        String(emp.mobile || "").includes(q)
-                                      );
-                                    })
-                                    .slice(0, 10)
-                                    .map((emp) => (
-                                      <button
-                                        key={emp.id}
-                                        type="button"
-                                        onClick={() => handleAssignEmployee(item.cartId, emp)}
-                                        className="w-full text-left p-2 hover:bg-purple-50/60 rounded-lg flex items-center justify-between cursor-pointer transition-colors"
-                                      >
-                                        <div className="flex items-center gap-2 min-w-0">
-                                          {emp.avatarUrl ? (
-                                            <img
-                                              src={emp.avatarUrl}
-                                              alt={emp.name}
-                                              className="w-6 h-6 rounded-full object-cover shrink-0"
-                                            />
-                                          ) : (
-                                            <div
-                                              className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-[9px] shrink-0 border ${getFirstLetterColor(
-                                                getFirstLetter(emp.name)
-                                              )}`}
-                                            >
-                                              {getFirstLetter(emp.name)}
-                                            </div>
-                                          )}
-                                          <div className="truncate">
-                                            <div className="font-semibold text-xs text-slate-900 truncate">
-                                              {emp.name}
-                                            </div>
-                                            <div className="text-[10px] text-slate-400">📱 {emp.mobile}</div>
-                                          </div>
-                                        </div>
-                                        {emp.employeeId && (
-                                          <span className="font-mono text-[10px] font-bold text-[#5e2b9d] bg-purple-50 px-1 rounded shrink-0">
-                                            #{emp.employeeId}
-                                          </span>
-                                        )}
-                                      </button>
-                                    ))}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        )}
+                    {/* Secondary Row: Full GST Breakdown & Staff attribution summary */}
+                    <div className="pl-7 pr-2 flex items-center justify-between text-[11px] pt-1.5 border-t border-slate-100 text-slate-500">
+                      <div className="flex items-center gap-3">
+                        <span>Base: <b className="font-mono text-slate-700">₹{item.taxableAmount.toFixed(2)}</b></span>
+                        <span>•</span>
+                        <span>CGST ({(item.taxRate / 2).toFixed(1)}%): <b className="font-mono text-slate-700">₹{item.cgst.toFixed(2)}</b></span>
+                        <span>•</span>
+                        <span>SGST ({(item.taxRate / 2).toFixed(1)}%): <b className="font-mono text-slate-700">₹{item.sgst.toFixed(2)}</b></span>
+                        <span>•</span>
+                        <span>Total GST: <b className="font-mono text-slate-700">₹{item.taxAmount.toFixed(2)}</b></span>
                       </div>
-
-                      <div className="text-[10.5px] text-slate-400">
-                        CGST: ₹{item.cgst.toFixed(1)} | SGST: ₹{item.sgst.toFixed(1)}
-                      </div>
+                      {item.employee && (
+                        <div className="text-[10.5px] text-[#5e2b9d] font-semibold flex items-center gap-1">
+                          <span>Credited to:</span>
+                          <span className="font-bold underline">{item.employee.name}</span>
+                          {item.employee.employeeId && <span className="font-mono">({item.employee.employeeId})</span>}
+                        </div>
+                      )}
                     </div>
 
                   </div>
@@ -1547,6 +1594,169 @@ export default function PosBillingPage() {
                   </div>
                 </button>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Assign Sales Staff per line item or to entire cart */}
+      {activeEmployeePickerRowId && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-[2px] flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[85vh]">
+            {/* Modal Header */}
+            <div className="bg-[#5e2b9d] text-white px-5 py-3.5 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center text-lg">
+                  👤
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold tracking-tight">Assign Sales Staff</h3>
+                  <p className="text-[11px] text-purple-200">
+                    Credit commission and attribute sales performance
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveEmployeePickerRowId(null);
+                  setEmployeeSearchQuery("");
+                }}
+                className="w-8 h-8 rounded-lg hover:bg-white/10 text-white/80 hover:text-white flex items-center justify-center transition-colors cursor-pointer text-sm font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-4 flex flex-col flex-1 overflow-hidden bg-slate-50 gap-3">
+              {/* Search Bar */}
+              <div className="relative shrink-0">
+                <input
+                  type="text"
+                  autoFocus
+                  value={employeeSearchQuery}
+                  onChange={(e) => setEmployeeSearchQuery(e.target.value)}
+                  placeholder="Search staff by ID, Name, Role or Mobile..."
+                  className="w-full h-10 pl-10 pr-3 rounded-xl border border-slate-200 text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-[#5e2b9d] focus:ring-2 focus:ring-[#5e2b9d]/20 bg-white shadow-2xs font-medium"
+                />
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                  <svg className="w-4 h-4 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                </div>
+              </div>
+
+              {/* Quick Status / Clear action */}
+              <div className="flex items-center justify-between text-xs text-slate-500 px-1 shrink-0">
+                <span>{filteredEmployees.length} staff available</span>
+                {cartItems.find((it) => it.cartId === activeEmployeePickerRowId)?.employee && (
+                  <button
+                    type="button"
+                    onClick={() => handleAssignEmployee(activeEmployeePickerRowId, null)}
+                    className="text-rose-600 hover:underline font-semibold cursor-pointer text-xs"
+                  >
+                    Clear assignment for this item
+                  </button>
+                )}
+              </div>
+
+              {/* Staff List */}
+              <div className="flex-1 overflow-y-auto divide-y divide-slate-100 bg-white rounded-xl border border-slate-200 p-1">
+                {filteredEmployees.length === 0 ? (
+                  <div className="py-10 text-center text-xs text-slate-400">
+                    No staff members found matching &quot;{employeeSearchQuery}&quot;
+                  </div>
+                ) : (
+                  filteredEmployees.map((emp) => {
+                    const currentItem = cartItems.find((it) => it.cartId === activeEmployeePickerRowId);
+                    const isSelected = currentItem?.employee?.id === emp.id;
+
+                    return (
+                      <div
+                        key={emp.id}
+                        className={`p-2.5 rounded-lg flex items-center justify-between gap-2.5 transition-colors ${
+                          isSelected ? "bg-purple-50/80 border border-purple-200" : "hover:bg-slate-50"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          {emp.avatarUrl ? (
+                            <img
+                              src={emp.avatarUrl}
+                              alt={emp.name}
+                              className="w-8 h-8 rounded-full object-cover shrink-0 border border-purple-200"
+                            />
+                          ) : (
+                            <div
+                              className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shrink-0 border ${getFirstLetterColor(
+                                getFirstLetter(emp.name)
+                              )}`}
+                            >
+                              {getFirstLetter(emp.name)}
+                            </div>
+                          )}
+                          <div className="truncate">
+                            <div className="font-bold text-xs text-slate-900 truncate flex items-center gap-1.5">
+                              <span>{emp.name}</span>
+                              {emp.employeeId && (
+                                <span className="font-mono text-[10px] text-[#5e2b9d] bg-purple-50 px-1.5 py-0.2 rounded font-bold border border-purple-200">
+                                  #{emp.employeeId}
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[11px] text-slate-400 flex items-center gap-2 mt-0.5">
+                              {emp.mobile && <span>📱 {emp.mobile}</span>}
+                              {emp.role && <span>• {emp.role}</span>}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleAssignEmployee(activeEmployeePickerRowId, emp)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-colors shadow-2xs ${
+                              isSelected
+                                ? "bg-[#5e2b9d] text-white"
+                                : "bg-purple-50 hover:bg-[#5e2b9d] text-[#5e2b9d] hover:text-white border border-purple-200/80"
+                            }`}
+                          >
+                            {isSelected ? "Selected" : "Select"}
+                          </button>
+
+                          {cartItems.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => handleAssignEmployeeToAll(emp)}
+                              className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer transition-colors"
+                              title="Assign this employee to all items in current cart"
+                            >
+                              All Items
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="bg-white border-t border-slate-200 px-5 py-3 flex items-center justify-between shrink-0">
+              <p className="text-[11px] text-slate-400">
+                Assigned sales will appear in the Employee Sales Leaderboard.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveEmployeePickerRowId(null);
+                  setEmployeeSearchQuery("");
+                }}
+                className="px-4 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold cursor-pointer transition-colors"
+              >
+                Done
+              </button>
             </div>
           </div>
         </div>
