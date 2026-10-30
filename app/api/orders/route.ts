@@ -72,6 +72,7 @@ export async function GET(request: Request) {
         grandTotal: Number(o.total) || 0,
         total: Number(o.total) || 0,
         paymentMethod: o.payment_method || "CASH",
+        paymentStatus: o.payment_status || "Paid",
         splitDetails: billMeta.splitDetails || null,
         couponCode: billMeta.couponCode || null,
         couponDiscount: billMeta.couponDiscount || 0,
@@ -284,5 +285,152 @@ export async function POST(request: Request) {
   } catch (error: any) {
     console.error("Error settling bill:", error);
     return NextResponse.json({ success: false, error: "Failed to settle bill." }, { status: 500 });
+  }
+}
+
+// PUT: Update an existing sale / order
+export async function PUT(request: Request) {
+  try {
+    const ctx = await getBusinessContext();
+    if (!ctx) {
+      return NextResponse.json({ success: false, error: "Unauthorized access blocked." }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const orderId = body.orderId || body.id;
+
+    if (!orderId) {
+      return NextResponse.json({ success: false, error: "Order ID is required for update." }, { status: 400 });
+    }
+
+    // 1. Verify existing order belongs to this business
+    const { data: existingOrder, error: fetchErr } = await ctx.supabase
+      .from("orders")
+      .select("*")
+      .eq("id", orderId)
+      .eq("business_id", ctx.businessId)
+      .single();
+
+    if (fetchErr || !existingOrder) {
+      return NextResponse.json({ success: false, error: "Order not found or permission denied." }, { status: 404 });
+    }
+
+    // 2. Extract existing items and meta
+    const rawExistingItems = Array.isArray(existingOrder.items) ? existingOrder.items : [];
+    const billMeta = rawExistingItems.find((it: any) => it._isBillMeta) || {};
+
+    // 3. Process new or updated items
+    let updatedItems = body.items !== undefined ? body.items : rawExistingItems.filter((it: any) => !it._isBillMeta);
+
+    if (Array.isArray(body.items)) {
+      const cleanItems = body.items.filter((it: any) => !it._isBillMeta && !it._isReturnMeta);
+
+      const mappedUpdatedItems = cleanItems.map((it: any) => ({
+        productId: it.productId,
+        productName: it.productName || it.name,
+        variantId: it.variantId || null,
+        variantName: it.variantName || null,
+        barcode: it.barcode || "",
+        sku: it.sku || "",
+        listPrice: Number(it.listPrice || it.price) || 0,
+        salePrice: Number(it.salePrice || it.price) || 0,
+        price: Number(it.salePrice || it.price) || 0,
+        quantity: Math.max(1, Number(it.quantity) || 1),
+        taxRate: Number(it.taxRate) || 0,
+        isTaxInclusive: it.isTaxInclusive !== undefined ? Boolean(it.isTaxInclusive) : true,
+        taxableAmount: Number(it.taxableAmount) || 0,
+        taxAmount: Number(it.taxAmount) || 0,
+        subtotal: Number(it.subtotal) || (Number(it.salePrice || it.price) || 0) * (Number(it.quantity) || 1),
+        total: Number(it.total) || (Number(it.salePrice || it.price) || 0) * (Number(it.quantity) || 1),
+        employeeId: it.employeeId || null,
+        employeeName: it.employeeName || null,
+        employeeNumericId: it.employeeNumericId || null,
+        employeeMobile: it.employeeMobile || null,
+      }));
+
+      const updatedBillMeta = {
+        ...billMeta,
+        splitDetails: body.splitDetails !== undefined ? body.splitDetails : billMeta.splitDetails,
+        customerDiscount: body.customerDiscount !== undefined ? Number(body.customerDiscount) : billMeta.customerDiscount,
+        couponDiscount: body.couponDiscount !== undefined ? Number(body.couponDiscount) : billMeta.couponDiscount,
+      };
+
+      updatedItems = [...mappedUpdatedItems, updatedBillMeta];
+    }
+
+    // 4. Calculate or read subtotal, discount, tax, total
+    const subtotal = body.subtotal !== undefined ? Number(body.subtotal) : Number(existingOrder.subtotal);
+    const discount = body.discount !== undefined ? Number(body.discount) : Number(existingOrder.discount);
+    const tax = body.tax !== undefined ? Number(body.tax) : Number(existingOrder.tax);
+    const total =
+      body.total !== undefined
+        ? Number(body.total)
+        : body.grandTotal !== undefined
+        ? Number(body.grandTotal)
+        : Number(existingOrder.total);
+
+    const updatePayload: Record<string, any> = {
+      subtotal,
+      discount,
+      tax,
+      total,
+      items: updatedItems,
+    };
+
+    if (body.customerName !== undefined) updatePayload.customer_name = body.customerName;
+    if (body.customerPhone !== undefined) updatePayload.customer_phone = body.customerPhone;
+    if (body.customerId !== undefined) updatePayload.customer_id = body.customerId;
+    if (body.paymentMethod !== undefined) updatePayload.payment_method = body.paymentMethod;
+    if (body.paymentStatus !== undefined) updatePayload.payment_status = body.paymentStatus;
+    if (body.status !== undefined) updatePayload.status = body.status;
+    if (body.staffName !== undefined) updatePayload.staff_name = body.staffName;
+
+    // 5. Execute Supabase update
+    const { data: updatedRecord, error: updateErr } = await ctx.supabase
+      .from("orders")
+      .update(updatePayload)
+      .eq("id", orderId)
+      .eq("business_id", ctx.businessId)
+      .select()
+      .single();
+
+    if (updateErr) {
+      console.error("Error updating order:", updateErr);
+      return NextResponse.json({ success: false, error: updateErr.message }, { status: 500 });
+    }
+
+    const cleanItems = (Array.isArray(updatedRecord.items) ? updatedRecord.items : []).filter(
+      (it: any) => !it._isBillMeta
+    );
+
+    return NextResponse.json({
+      success: true,
+      message: "Sale updated successfully!",
+      order: {
+        id: updatedRecord.id,
+        billNumber: updatedRecord.order_number,
+        storeId: updatedRecord.store_id,
+        businessId: updatedRecord.business_id,
+        status: updatedRecord.status,
+        customer: {
+          id: updatedRecord.customer_id || "",
+          name: updatedRecord.customer_name || "Walk-in Customer",
+          phone: updatedRecord.customer_phone || "",
+        },
+        items: cleanItems,
+        subtotal: Number(updatedRecord.subtotal) || 0,
+        discount: Number(updatedRecord.discount) || 0,
+        tax: Number(updatedRecord.tax) || 0,
+        grandTotal: Number(updatedRecord.total) || 0,
+        total: Number(updatedRecord.total) || 0,
+        paymentMethod: updatedRecord.payment_method,
+        paymentStatus: updatedRecord.payment_status,
+        settledBy: updatedRecord.staff_name || "",
+        createdAt: new Date(updatedRecord.created_at).getTime(),
+      },
+    });
+  } catch (error: any) {
+    console.error("Error updating order:", error);
+    return NextResponse.json({ success: false, error: "Failed to update order." }, { status: 500 });
   }
 }

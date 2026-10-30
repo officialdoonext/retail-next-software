@@ -25,6 +25,7 @@ interface SettledOrder {
   grandTotal: number;
   total: number;
   paymentMethod: string;
+  paymentStatus?: string;
   splitDetails?: any;
   couponCode?: string;
   couponDiscount?: number;
@@ -52,6 +53,42 @@ export default function SalesPage() {
   const [selectedOrder, setSelectedOrder] = useState<SettledOrder | null>(null);
   const [receiptToPrint, setReceiptToPrint] = useState<ReceiptData | null>(null);
   const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
+
+  // Edit Sale Modal State
+  const [editingOrder, setEditingOrder] = useState<SettledOrder | null>(null);
+  const [editCustomerName, setEditCustomerName] = useState("");
+  const [editCustomerPhone, setEditCustomerPhone] = useState("");
+  const [editPaymentMethod, setEditPaymentMethod] = useState("CASH");
+  const [editPaymentStatus, setEditPaymentStatus] = useState("Paid");
+  const [editStatus, setEditStatus] = useState("Completed");
+  const [editStaffName, setEditStaffName] = useState("");
+  const [editDiscount, setEditDiscount] = useState<number>(0);
+  const [editItems, setEditItems] = useState<any[]>([]);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [staffList, setStaffList] = useState<{ id: string; name: string }[]>([]);
+
+  // Fetch employees list for attribution
+  useEffect(() => {
+    async function loadEmployees() {
+      try {
+        const res = await fetch("/api/employees?all=true");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && Array.isArray(data.employees)) {
+            setStaffList(
+              data.employees.map((e: any) => ({
+                id: e.id,
+                name: e.name || e.staffName || "Staff",
+              }))
+            );
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+    loadEmployees();
+  }, []);
 
   // Fetch orders from API
   const fetchOrders = useCallback(async () => {
@@ -160,6 +197,170 @@ export default function SalesPage() {
 
     setReceiptToPrint(receiptData);
     setIsReceiptModalOpen(true);
+  };
+
+  // Action: Open Edit Sale Modal
+  const handleOpenEdit = (order: SettledOrder) => {
+    setEditingOrder(order);
+    setEditCustomerName(order.customer?.name || "");
+    setEditCustomerPhone(order.customer?.phone || "");
+    setEditPaymentMethod(order.paymentMethod?.startsWith("SPLIT") ? "SPLIT" : order.paymentMethod || "CASH");
+    setEditPaymentStatus(order.paymentStatus || "Paid");
+    setEditStatus(order.status || "Completed");
+    setEditStaffName(order.settledBy || "");
+    setEditDiscount(Number(order.discount) || 0);
+
+    const cleanItems = (order.items || [])
+      .filter((it: any) => !it._isBillMeta)
+      .map((it: any) => ({
+        productId: it.productId,
+        productName: it.productName || it.name || "Product",
+        variantId: it.variantId || null,
+        variantName: it.variantName || null,
+        barcode: it.barcode || "",
+        sku: it.sku || "",
+        salePrice: Number(it.salePrice || it.price) || 0,
+        price: Number(it.salePrice || it.price) || 0,
+        quantity: Math.max(1, Number(it.quantity) || 1),
+        taxRate: Number(it.taxRate) || 0,
+        isTaxInclusive: it.isTaxInclusive !== false,
+        taxAmount: Number(it.taxAmount) || 0,
+        subtotal: Number(it.subtotal) || (Number(it.salePrice || it.price) || 0) * (Number(it.quantity) || 1),
+        total: Number(it.total) || (Number(it.salePrice || it.price) || 0) * (Number(it.quantity) || 1),
+        employeeId: it.employeeId || null,
+        employeeName: it.employeeName || null,
+      }));
+
+    setEditItems(cleanItems);
+  };
+
+  // Update item quantity
+  const handleUpdateItemQty = (index: number, newQty: number) => {
+    if (newQty < 1) return;
+    setEditItems((prev) => {
+      const next = [...prev];
+      const item = { ...next[index], quantity: newQty };
+      const lineBase = item.price * newQty;
+      item.subtotal = lineBase;
+      item.total = lineBase;
+      next[index] = item;
+      return next;
+    });
+  };
+
+  // Update item price
+  const handleUpdateItemPrice = (index: number, newPrice: number) => {
+    if (newPrice < 0) return;
+    setEditItems((prev) => {
+      const next = [...prev];
+      const item = { ...next[index], price: newPrice, salePrice: newPrice };
+      const lineBase = newPrice * item.quantity;
+      item.subtotal = lineBase;
+      item.total = lineBase;
+      next[index] = item;
+      return next;
+    });
+  };
+
+  // Remove item from sale
+  const handleRemoveItem = (index: number) => {
+    if (editItems.length <= 1) {
+      toast.error("A sale must contain at least one item.");
+      return;
+    }
+    setEditItems((prev) => prev.filter((_, idx) => idx !== index));
+  };
+
+  // Reassign item employee attribution
+  const handleUpdateItemEmployee = (index: number, empName: string) => {
+    const matched = staffList.find((s) => s.name === empName);
+    setEditItems((prev) => {
+      const next = [...prev];
+      next[index] = {
+        ...next[index],
+        employeeName: empName || null,
+        employeeId: matched?.id || null,
+      };
+      return next;
+    });
+  };
+
+  // Live bill calculations for edit modal
+  const editCalculations = useMemo(() => {
+    const rawSubtotal = editItems.reduce(
+      (acc, it) => acc + (Number(it.price || it.salePrice) || 0) * (Number(it.quantity) || 1),
+      0
+    );
+
+    const totalTax = editItems.reduce((acc, it) => {
+      const rate = Number(it.taxRate) || 0;
+      if (rate <= 0) return acc;
+      const lineTotal = (Number(it.price || it.salePrice) || 0) * (Number(it.quantity) || 1);
+      if (it.isTaxInclusive !== false) {
+        const taxable = (lineTotal * 100) / (100 + rate);
+        return acc + (lineTotal - taxable);
+      } else {
+        return acc + (lineTotal * rate) / 100;
+      }
+    }, 0);
+
+    const discountVal = Math.max(0, Number(editDiscount) || 0);
+    const grandTotal = Math.max(0, Math.round((rawSubtotal - discountVal) * 100) / 100);
+
+    return {
+      subtotal: Math.round(rawSubtotal * 100) / 100,
+      tax: Math.round(totalTax * 100) / 100,
+      discount: discountVal,
+      grandTotal,
+    };
+  }, [editItems, editDiscount]);
+
+  // Submit sale edit
+  const handleSaveEditSale = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingOrder) return;
+
+    if (editItems.length === 0) {
+      toast.error("Sale must have at least one product item.");
+      return;
+    }
+
+    setIsSavingEdit(true);
+    try {
+      const res = await fetch("/api/orders", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderId: editingOrder.id,
+          customerName: editCustomerName.trim() || "Walk-in Customer",
+          customerPhone: editCustomerPhone.trim(),
+          paymentMethod: editPaymentMethod,
+          paymentStatus: editPaymentStatus,
+          status: editStatus,
+          staffName: editStaffName.trim(),
+          items: editItems,
+          subtotal: editCalculations.subtotal,
+          discount: editCalculations.discount,
+          tax: editCalculations.tax,
+          grandTotal: editCalculations.grandTotal,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        toast.error(data.error || "Failed to update sale.");
+      } else {
+        toast.success(`Sale #${editingOrder.billNumber} updated successfully!`);
+        setOrders((prev) =>
+          prev.map((o) => (o.id === editingOrder.id ? { ...o, ...data.order } : o))
+        );
+        setEditingOrder(null);
+      }
+    } catch {
+      toast.error("Network error while updating sale.");
+    } finally {
+      setIsSavingEdit(false);
+    }
   };
 
   const DATE_FILTER_BUTTONS: { type: DateFilterType; label: string }[] = [
@@ -483,6 +684,17 @@ export default function SalesPage() {
                             </button>
                             <button
                               type="button"
+                              onClick={() => handleOpenEdit(order)}
+                              className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200/90 rounded-lg text-[11px] font-semibold cursor-pointer transition-colors flex items-center gap-1"
+                              title="Edit Sale / Invoice"
+                            >
+                              <svg className="w-3 h-3 stroke-[2.2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                              </svg>
+                              <span>Edit</span>
+                            </button>
+                            <button
+                              type="button"
                               onClick={() => handleOpenReceipt(order)}
                               className="px-2.5 py-1 bg-[#5e2b9d] hover:bg-purple-800 text-white rounded-lg text-[11px] font-semibold shadow-2xs cursor-pointer transition-colors"
                               title="Reprint thermal receipt"
@@ -638,6 +850,339 @@ export default function SalesPage() {
                   <span>Print Receipt</span>
                 </button>
               </div>
+
+            </div>
+          </div>
+        )}
+
+        {/* ==================================================================== */}
+        {/* EDIT SALE MODAL                                                      */}
+        {/* ==================================================================== */}
+        {editingOrder && (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-[2px] flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-in fade-in duration-150">
+            <div className="w-full max-w-3xl bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden my-auto flex flex-col max-h-[92vh]">
+              
+              {/* Header */}
+              <div className="bg-[#5e2b9d] text-white px-5 py-3.5 flex items-center justify-between shrink-0">
+                <div>
+                  <h3 className="text-sm font-bold tracking-tight flex items-center gap-2">
+                    <span>Edit Sale / Invoice</span>
+                    <span className="font-mono text-purple-200 text-xs">#{editingOrder.billNumber}</span>
+                  </h3>
+                  <p className="text-[11px] text-purple-200">
+                    Modify customer details, payment tender, line item quantities, and salesperson attribution.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEditingOrder(null)}
+                  className="w-8 h-8 rounded-lg hover:bg-white/10 text-white/80 hover:text-white flex items-center justify-center font-bold text-sm cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveEditSale} className="flex flex-col flex-1 overflow-hidden">
+                <div className="p-5 overflow-y-auto space-y-4 text-xs flex-1">
+                  
+                  {/* Section 1: Customer Information */}
+                  <div className="bg-slate-50/80 rounded-xl p-3.5 border border-slate-200/90 space-y-3">
+                    <span className="text-[11px] uppercase tracking-wider font-bold text-slate-500 block">
+                      1. Customer Information
+                    </span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[11px] font-semibold text-slate-700 block mb-1">
+                          Customer Name
+                        </label>
+                        <input
+                          type="text"
+                          value={editCustomerName}
+                          onChange={(e) => setEditCustomerName(e.target.value)}
+                          placeholder="e.g. Ramesh Kumar or Walk-in Customer"
+                          className="w-full h-8 px-2.5 rounded-[6px] border border-slate-200 bg-white text-xs font-medium text-slate-800 focus:outline-none focus:border-[#5e2b9d]"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-semibold text-slate-700 block mb-1">
+                          Customer Mobile Number
+                        </label>
+                        <input
+                          type="text"
+                          value={editCustomerPhone}
+                          onChange={(e) => setEditCustomerPhone(e.target.value)}
+                          placeholder="e.g. 9876543210"
+                          className="w-full h-8 px-2.5 rounded-[6px] border border-slate-200 bg-white text-xs font-medium text-slate-800 focus:outline-none focus:border-[#5e2b9d]"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Section 2: Payment, Status & Cashier */}
+                  <div className="bg-slate-50/80 rounded-xl p-3.5 border border-slate-200/90 space-y-3">
+                    <span className="text-[11px] uppercase tracking-wider font-bold text-slate-500 block">
+                      2. Payment & Order Status
+                    </span>
+                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                      <div>
+                        <label className="text-[11px] font-semibold text-slate-700 block mb-1">
+                          Payment Method
+                        </label>
+                        <select
+                          value={editPaymentMethod}
+                          onChange={(e) => setEditPaymentMethod(e.target.value)}
+                          className="w-full h-8 px-2 rounded-[6px] border border-slate-200 bg-white text-xs font-medium text-slate-800 focus:outline-none focus:border-[#5e2b9d]"
+                        >
+                          <option value="CASH">CASH</option>
+                          <option value="UPI">UPI</option>
+                          <option value="CARD">CARD</option>
+                          <option value="SPLIT">SPLIT</option>
+                          <option value="CREDIT">STORE CREDIT</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-semibold text-slate-700 block mb-1">
+                          Payment Status
+                        </label>
+                        <select
+                          value={editPaymentStatus}
+                          onChange={(e) => setEditPaymentStatus(e.target.value)}
+                          className="w-full h-8 px-2 rounded-[6px] border border-slate-200 bg-white text-xs font-medium text-slate-800 focus:outline-none focus:border-[#5e2b9d]"
+                        >
+                          <option value="Paid">Paid</option>
+                          <option value="Pending">Pending</option>
+                          <option value="Partial">Partial</option>
+                          <option value="Refunded">Refunded</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-semibold text-slate-700 block mb-1">
+                          Order Status
+                        </label>
+                        <select
+                          value={editStatus}
+                          onChange={(e) => setEditStatus(e.target.value)}
+                          className="w-full h-8 px-2 rounded-[6px] border border-slate-200 bg-white text-xs font-medium text-slate-800 focus:outline-none focus:border-[#5e2b9d]"
+                        >
+                          <option value="Completed">Completed</option>
+                          <option value="Returned">Returned</option>
+                          <option value="Exchanged">Exchanged</option>
+                          <option value="Cancelled">Cancelled</option>
+                          <option value="Pending">Pending</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-semibold text-slate-700 block mb-1">
+                          Billed By / Cashier
+                        </label>
+                        <input
+                          type="text"
+                          value={editStaffName}
+                          onChange={(e) => setEditStaffName(e.target.value)}
+                          placeholder="Cashier name"
+                          className="w-full h-8 px-2.5 rounded-[6px] border border-slate-200 bg-white text-xs font-medium text-slate-800 focus:outline-none focus:border-[#5e2b9d]"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Section 3: Line Items, Quantities & Attribution */}
+                  <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
+                    <div className="bg-slate-50 px-3.5 py-2.5 font-bold text-slate-700 text-[11px] uppercase tracking-wider border-b border-slate-200 flex items-center justify-between">
+                      <span>3. Billed Products ({editItems.length})</span>
+                      <span className="text-[10px] text-slate-400 font-normal">Adjust quantity, price or staff attribution</span>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse text-xs">
+                        <thead>
+                          <tr className="bg-slate-50/60 text-slate-500 font-semibold text-[10px] uppercase border-b border-slate-200">
+                            <th className="py-2 px-3">Product</th>
+                            <th className="py-2 px-3 text-right">Price (₹)</th>
+                            <th className="py-2 px-3 text-center">Quantity</th>
+                            <th className="py-2 px-3">Salesperson</th>
+                            <th className="py-2 px-3 text-right">Line Total</th>
+                            <th className="py-2 px-2 text-center">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {editItems.map((item, idx) => {
+                            const lineTotal = (Number(item.price || item.salePrice) || 0) * (Number(item.quantity) || 1);
+                            return (
+                              <tr key={idx} className="hover:bg-slate-50/50">
+                                <td className="py-2.5 px-3 max-w-[200px]">
+                                  <span className="font-semibold text-slate-900 block truncate">
+                                    {item.productName || item.sku || "Product"}
+                                  </span>
+                                  {item.variantName && (
+                                    <span className="text-[10px] text-[#5e2b9d] font-medium block">
+                                      {item.variantName}
+                                    </span>
+                                  )}
+                                  {item.barcode && (
+                                    <span className="text-[9px] font-mono text-slate-400 block">
+                                      {item.barcode}
+                                    </span>
+                                  )}
+                                </td>
+
+                                <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    value={item.price}
+                                    onChange={(e) => handleUpdateItemPrice(idx, parseFloat(e.target.value) || 0)}
+                                    className="w-20 h-7 px-1.5 text-right font-mono text-xs border border-slate-200 rounded bg-white text-slate-800 focus:outline-none focus:border-[#5e2b9d]"
+                                  />
+                                </td>
+
+                                <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                                  <div className="inline-flex items-center gap-1 border border-slate-200 rounded bg-white p-0.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleUpdateItemQty(idx, item.quantity - 1)}
+                                      disabled={item.quantity <= 1}
+                                      className="w-5 h-5 rounded hover:bg-slate-100 text-slate-600 disabled:opacity-30 flex items-center justify-center font-bold cursor-pointer"
+                                    >
+                                      -
+                                    </button>
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      value={item.quantity}
+                                      onChange={(e) => handleUpdateItemQty(idx, parseInt(e.target.value, 10) || 1)}
+                                      className="w-10 text-center font-bold text-xs bg-transparent focus:outline-none"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => handleUpdateItemQty(idx, item.quantity + 1)}
+                                      className="w-5 h-5 rounded hover:bg-slate-100 text-slate-600 flex items-center justify-center font-bold cursor-pointer"
+                                    >
+                                      +
+                                    </button>
+                                  </div>
+                                </td>
+
+                                <td className="py-2.5 px-3 whitespace-nowrap">
+                                  <select
+                                    value={item.employeeName || ""}
+                                    onChange={(e) => handleUpdateItemEmployee(idx, e.target.value)}
+                                    className="h-7 px-2 border border-slate-200 rounded bg-white text-[11px] text-slate-700 focus:outline-none focus:border-[#5e2b9d]"
+                                  >
+                                    <option value="">No Staff Attributed</option>
+                                    {staffList.map((st) => (
+                                      <option key={st.id} value={st.name}>
+                                        {st.name}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </td>
+
+                                <td className="py-2.5 px-3 text-right font-bold text-slate-900 whitespace-nowrap font-mono">
+                                  ₹{lineTotal.toFixed(2)}
+                                </td>
+
+                                <td className="py-2.5 px-2 text-center whitespace-nowrap">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveItem(idx)}
+                                    disabled={editItems.length <= 1}
+                                    className="w-6 h-6 rounded hover:bg-rose-50 text-slate-400 hover:text-rose-600 flex items-center justify-center transition-colors cursor-pointer disabled:opacity-20"
+                                    title="Remove item from sale"
+                                  >
+                                    ✕
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Section 4: Discount & Live Recalculated Summary */}
+                  <div className="bg-slate-50/80 rounded-xl p-3.5 border border-slate-200/90 space-y-2">
+                    <span className="text-[11px] uppercase tracking-wider font-bold text-slate-500 block">
+                      4. Discount & Bill Totals
+                    </span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center">
+                      <div>
+                        <label className="text-[11px] font-semibold text-slate-700 block mb-1">
+                          Bill Discount Amount (₹)
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={editDiscount}
+                          onChange={(e) => setEditDiscount(parseFloat(e.target.value) || 0)}
+                          className="w-full h-8 px-2.5 rounded-[6px] border border-slate-200 bg-white text-xs font-mono font-semibold text-rose-600 focus:outline-none focus:border-[#5e2b9d]"
+                        />
+                      </div>
+
+                      <div className="space-y-1 bg-white p-3 rounded-lg border border-slate-200 font-mono text-xs">
+                        <div className="flex justify-between text-slate-600">
+                          <span>Gross Subtotal:</span>
+                          <span>₹{editCalculations.subtotal.toFixed(2)}</span>
+                        </div>
+                        {editCalculations.discount > 0 && (
+                          <div className="flex justify-between text-rose-600 font-medium">
+                            <span>Discount:</span>
+                            <span>-₹{editCalculations.discount.toFixed(2)}</span>
+                          </div>
+                        )}
+                        {editCalculations.tax > 0 && (
+                          <div className="flex justify-between text-slate-600">
+                            <span>GST Tax:</span>
+                            <span>₹{editCalculations.tax.toFixed(2)}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between text-sm font-bold text-emerald-700 pt-1 border-t border-slate-200">
+                          <span>Recalculated Grand Total:</span>
+                          <span>₹{editCalculations.grandTotal.toFixed(2)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+
+                {/* Modal Footer */}
+                <div className="bg-slate-50 border-t border-slate-200 px-5 py-3 flex items-center justify-between shrink-0">
+                  <span className="text-xs text-slate-500">
+                    Total: <b className="text-slate-900 font-mono">₹{editCalculations.grandTotal.toFixed(2)}</b>
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setEditingOrder(null)}
+                      className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold cursor-pointer transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isSavingEdit}
+                      className="px-4 py-2 bg-[#5e2b9d] hover:bg-purple-800 text-white rounded-xl text-xs font-semibold shadow-xs cursor-pointer flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                    >
+                      {isSavingEdit ? (
+                        <>
+                          <Spinner className="w-3.5 h-3.5" />
+                          <span>Saving Changes...</span>
+                        </>
+                      ) : (
+                        <span>Save Sale Changes</span>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </form>
 
             </div>
           </div>
