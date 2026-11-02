@@ -418,15 +418,31 @@ ALTER TABLE public.saved_bills ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.business_settings ENABLE ROW LEVEL SECURITY;
 
 -- Allow service role full bypass (used by Next.js backend server)
--- Allow authenticated users to view & insert their own business records
+DROP POLICY IF EXISTS "Service role full access on businesses" ON public.businesses;
+CREATE POLICY "Service role full access on businesses"
+  ON public.businesses FOR ALL
+  TO service_role
+  USING (true)
+  WITH CHECK (true);
+
+-- Allow authenticated users to view, insert & update their own business records
 DROP POLICY IF EXISTS "Users can view their own businesses" ON public.businesses;
 CREATE POLICY "Users can view their own businesses"
   ON public.businesses FOR SELECT
+  TO authenticated
   USING (auth.uid() = owner_id OR email = auth.jwt() ->> 'email');
 
 DROP POLICY IF EXISTS "Users can create their own businesses" ON public.businesses;
 CREATE POLICY "Users can create their own businesses"
   ON public.businesses FOR INSERT
+  TO authenticated
+  WITH CHECK (auth.uid() = owner_id OR email = auth.jwt() ->> 'email');
+
+DROP POLICY IF EXISTS "Users can update their own businesses" ON public.businesses;
+CREATE POLICY "Users can update their own businesses"
+  ON public.businesses FOR UPDATE
+  TO authenticated
+  USING (auth.uid() = owner_id OR email = auth.jwt() ->> 'email')
   WITH CHECK (auth.uid() = owner_id OR email = auth.jwt() ->> 'email');
 
 -- ==============================================================================
@@ -527,86 +543,37 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- ==============================================================================
--- 18. COUPONS TABLE (Order, Product, Customer Promotions)
+-- DATABASE PERMISSIONS & ROLE GRANTS (CRITICAL FOR SUPABASE)
+-- PostgREST connects via the 'authenticator' role and assumes 'anon',
+-- 'authenticated', or 'service_role'. They must have USAGE on schema public
+-- and privileges on all tables and sequences to prevent "permission denied" errors.
 -- ==============================================================================
+GRANT USAGE ON SCHEMA public TO postgres, anon, authenticated, service_role;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO postgres, anon, authenticated, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO postgres, anon, authenticated, service_role;
+GRANT ALL ON ALL ROUTINES IN SCHEMA public TO postgres, anon, authenticated, service_role;
 
-CREATE TABLE IF NOT EXISTS public.coupons (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  business_id UUID NOT NULL REFERENCES public.businesses(id) ON DELETE CASCADE,
-  store_id UUID REFERENCES public.stores(id) ON DELETE SET NULL,
-  
-  -- Type: 'order' | 'product' | 'customer'
-  type TEXT NOT NULL CHECK (type IN ('order', 'product', 'customer')),
-  
-  -- Code & Info
-  code TEXT NOT NULL,
-  title TEXT NOT NULL,
-  description TEXT DEFAULT '',
-  
-  -- Discount Rules
-  discount_type TEXT NOT NULL CHECK (discount_type IN ('percentage', 'flat', 'free_shipping', 'bogo', 'bundle')),
-  discount_value NUMERIC(10,2) NOT NULL DEFAULT 0,
-  max_discount_cap NUMERIC(10,2),
-  min_order_value NUMERIC(10,2) DEFAULT 0,
-  
-  -- Product Targeting (For Product Coupons)
-  target_type TEXT DEFAULT 'all' CHECK (target_type IN ('all', 'products', 'categories')),
-  target_product_ids JSONB DEFAULT '[]'::jsonb,
-  target_category_ids JSONB DEFAULT '[]'::jsonb,
-  bogo_buy_qty INTEGER,
-  bogo_get_qty INTEGER,
-  bogo_discount_percent NUMERIC(5,2),
-  bundle_qty INTEGER,
-  bundle_price NUMERIC(10,2),
-  
-  -- Customer Scope (For Customer Coupons)
-  customer_scope TEXT DEFAULT 'all' CHECK (customer_scope IN ('all', 'individual', 'group', 'milestone')),
-  target_customer_phones JSONB DEFAULT '[]'::jsonb,
-  target_customer_group TEXT DEFAULT '',
-  milestone_type TEXT,
-  is_single_use_per_customer BOOLEAN DEFAULT FALSE,
-  
-  -- Usage Limits & Controls
-  total_usage_limit INTEGER,
-  used_count INTEGER NOT NULL DEFAULT 0,
-  per_customer_limit INTEGER DEFAULT 1,
-  allowed_payment_modes JSONB DEFAULT '["All"]'::jsonb,
-  exclude_sale_items BOOLEAN DEFAULT FALSE,
-  auto_apply_at_checkout BOOLEAN DEFAULT FALSE,
-  
-  -- Validity & Schedule
-  start_date TEXT,
-  start_time TEXT,
-  end_date TEXT,
-  end_time TEXT,
-  never_expires BOOLEAN DEFAULT FALSE,
-  status TEXT NOT NULL DEFAULT 'Active' CHECK (status IN ('Active', 'Inactive', 'Expired', 'Scheduled')),
-  
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  
-  -- Constraint: unique coupon code per business
-  CONSTRAINT unique_business_coupon_code UNIQUE (business_id, code)
-);
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO postgres, anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO postgres, anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON ROUTINES TO postgres, anon, authenticated, service_role;
 
--- Indexes for lightning fast lookups
-CREATE INDEX IF NOT EXISTS idx_coupons_business_type ON public.coupons(business_id, type);
-CREATE INDEX IF NOT EXISTS idx_coupons_business_code ON public.coupons(business_id, code);
-CREATE INDEX IF NOT EXISTS idx_coupons_status ON public.coupons(status);
+-- Ensure service_role and authenticated users have full access across all tables under RLS
+DO $$
+DECLARE
+  tbl text;
+BEGIN
+  FOR tbl IN
+    SELECT table_name
+    FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+  LOOP
+    EXECUTE format('DROP POLICY IF EXISTS "Service role bypass %I" ON public.%I', tbl, tbl);
+    EXECUTE format('CREATE POLICY "Service role bypass %I" ON public.%I FOR ALL TO service_role USING (true) WITH CHECK (true)', tbl, tbl);
+    EXECUTE format('DROP POLICY IF EXISTS "Allow authenticated full access %I" ON public.%I', tbl, tbl);
+    EXECUTE format('CREATE POLICY "Allow authenticated full access %I" ON public.%I FOR ALL TO authenticated USING (true) WITH CHECK (true)', tbl, tbl);
+  END LOOP;
+END $$;
 
--- Enable RLS
-ALTER TABLE public.coupons ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Users can manage coupons for their business"
-  ON public.coupons
-  FOR ALL
-  TO authenticated
-  USING (
-    business_id = ((auth.jwt() -> 'app_metadata' ->> 'business_id')::uuid)
-  )
-  WITH CHECK (
-    business_id = ((auth.jwt() -> 'app_metadata' ->> 'business_id')::uuid)
-  );
 
 
 

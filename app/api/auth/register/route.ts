@@ -61,17 +61,57 @@ export async function POST(request: Request) {
     });
 
     if (signUpError) {
-      // If user already exists, check if we can authenticate with credentials
-      if (signUpError.message?.toLowerCase().includes("already registered") || signUpError.message?.toLowerCase().includes("already exists")) {
-        return NextResponse.json(
-          { success: false, error: "An account with this email address already exists. Please sign in instead." },
-          { status: 409 }
-        );
-      }
-      return NextResponse.json({ success: false, error: signUpError.message }, { status: 400 });
-    }
+      // If user already exists, check if user exists without a business (orphaned from previous failed attempt)
+      if (
+        signUpError.message?.toLowerCase().includes("already registered") ||
+        signUpError.message?.toLowerCase().includes("already exists")
+      ) {
+        try {
+          const { data: userList } = await supabaseAdmin.auth.admin.listUsers();
+          const existingUser = userList?.users?.find((u) => u.email?.toLowerCase() === email);
 
-    authUserId = signUpData.user?.id || null;
+          if (existingUser) {
+            // Check if this user already has a business in DB
+            const { data: existingBusinesses } = await supabaseAdmin
+              .from("businesses")
+              .select("id")
+              .or(`email.eq.${email},owner_id.eq.${existingUser.id}`);
+
+            if (!existingBusinesses || existingBusinesses.length === 0) {
+              // User was orphaned from a previous failed registration attempt - update password & reuse ID
+              await supabaseAdmin.auth.admin.updateUserById(existingUser.id, {
+                password,
+                user_metadata: {
+                  business_name: businessName,
+                  mobile: mobileNumber,
+                },
+              });
+              authUserId = existingUser.id;
+            } else {
+              return NextResponse.json(
+                { success: false, error: "An account with this email address already exists. Please sign in instead." },
+                { status: 409 }
+              );
+            }
+          } else {
+            return NextResponse.json(
+              { success: false, error: "An account with this email address already exists. Please sign in instead." },
+              { status: 409 }
+            );
+          }
+        } catch (lookupErr) {
+          console.error("Error checking existing user businesses:", lookupErr);
+          return NextResponse.json(
+            { success: false, error: "An account with this email address already exists. Please sign in instead." },
+            { status: 409 }
+          );
+        }
+      } else {
+        return NextResponse.json({ success: false, error: signUpError.message }, { status: 400 });
+      }
+    } else {
+      authUserId = signUpData.user?.id || null;
+    }
 
     // 3. Create Business record in Supabase:
     // STRICT REQUIREMENT: expiry_date MUST BE NULL, status MUST BE "Inactive"
@@ -96,10 +136,13 @@ export async function POST(request: Request) {
 
     if (busError) {
       console.error("Error creating business record in Supabase:", busError);
+      const isPermissionDenied = busError.message?.toLowerCase().includes("permission denied");
       return NextResponse.json(
         {
           success: false,
-          error: `Account created, but failed to save business details: ${busError.message}. Please ensure the 'businesses' table exists in Supabase.`,
+          error: isPermissionDenied
+            ? `Account created, but database access was denied: ${busError.message}. Please run the SQL permission grant commands in your Supabase SQL Editor.`
+            : `Account created, but failed to save business details: ${busError.message}. Please verify the 'businesses' table exists in Supabase.`,
         },
         { status: 500 }
       );
