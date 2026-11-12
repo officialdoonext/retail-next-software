@@ -275,8 +275,93 @@ export default function DashboardPage() {
 
     return Array.from(prodMap.values())
       .sort((a, b) => b.unitsSold - a.unitsSold)
+      .slice(0, 10);
+  }, [filteredOrders]);
+
+  const topProductsData = useMemo(() => {
+    return topSellingProducts.map((p) => ({
+      name: p.name,
+      quantity: p.unitsSold,
+      revenue: p.revenue,
+    }));
+  }, [topSellingProducts]);
+
+  const categoryColors = ["#5e2b9d", "#0ea5e9", "#10b981", "#f59e0b", "#ec4899", "#8b5cf6"];
+  const categoryData = useMemo(() => {
+    const totalCatRev = categoryPerformance.reduce((sum, c) => sum + (c.revenue || 0), 0) || 1;
+    return categoryPerformance.map((c, i) => ({
+      name: c.name,
+      value: c.revenue,
+      color: categoryColors[i % categoryColors.length],
+      percent: Math.round(((c.revenue || 0) / totalCatRev) * 100),
+    }));
+  }, [categoryPerformance]);
+
+  const weekdayData = useMemo(() => {
+    const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const map = days.map((d) => ({ day: d, revenue: 0, orders: 0 }));
+
+    filteredOrders.forEach((o) => {
+      const dayIdx = new Date(o.createdAt).getDay();
+      if (dayIdx >= 0 && dayIdx < 7) {
+        map[dayIdx].revenue += Number(o.grandTotal || o.total || 0);
+        map[dayIdx].orders += 1;
+      }
+    });
+
+    // Mon to Sun order
+    return [map[1], map[2], map[3], map[4], map[5], map[6], map[0]];
+  }, [filteredOrders]);
+
+  const staffData = useMemo(() => {
+    const staffMap = new Map<string, { name: string; revenue: number; orders: number }>();
+
+    filteredOrders.forEach((o) => {
+      const staffName = o.settledBy || o.cashierName || (o.items && o.items[0]?.employeeName) || "Store Cashier";
+      const existing = staffMap.get(staffName) || { name: staffName, revenue: 0, orders: 0 };
+      existing.revenue += Number(o.grandTotal || o.total || 0);
+      existing.orders += 1;
+      staffMap.set(staffName, existing);
+    });
+
+    return Array.from(staffMap.values())
+      .sort((a, b) => b.revenue - a.revenue)
       .slice(0, 5);
   }, [filteredOrders]);
+
+  const taxDiscountData = useMemo(() => {
+    const dateMap = new Map<string, { period: string; subtotal: number; tax: number; discount: number }>();
+
+    filteredOrders.forEach((o) => {
+      const pKey = new Date(o.createdAt).toLocaleDateString("en-IN", { month: "short", day: "numeric" });
+      const cur = dateMap.get(pKey) || { period: pKey, subtotal: 0, tax: 0, discount: 0 };
+      cur.subtotal += Number(o.subtotal || o.total || 0);
+      cur.tax += Number(o.tax || o.sgst || 0) + Number(o.cgst || 0);
+      cur.discount += Number(o.discount || 0);
+      dateMap.set(pKey, cur);
+    });
+
+    return Array.from(dateMap.values()).slice(-7);
+  }, [filteredOrders]);
+
+  const stockHealthData = useMemo(() => {
+    let inStock = 0;
+    let lowStock = 0;
+    let outOfStock = 0;
+
+    allProducts.forEach((p) => {
+      const qty = Number(p.stock) || 0;
+      if (qty <= 0) outOfStock++;
+      else if (qty <= 5) lowStock++;
+      else inStock++;
+    });
+
+    return [
+      { name: "Healthy Stock", value: inStock, color: "#10b981" },
+      { name: "Low Stock (<=5)", value: lowStock, color: "#f59e0b" },
+      { name: "Out of Stock", value: outOfStock, color: "#ef4444" },
+    ].filter((s) => s.value > 0);
+  }, [allProducts]);
 
   const lowStockProducts = useMemo(() => {
     return allProducts.filter((p) => Number(p.stock) <= 5).slice(0, 10);
@@ -361,8 +446,12 @@ export default function DashboardPage() {
           trendData={trendData}
           paymentData={paymentData}
           hourlyData={hourlyData}
-          categoryPerformance={categoryPerformance}
-          topSellingProducts={topSellingProducts}
+          categoryData={categoryData}
+          topProductsData={topProductsData}
+          weekdayData={weekdayData}
+          staffData={staffData}
+          taxDiscountData={taxDiscountData}
+          stockHealthData={stockHealthData}
           stats={stats}
         />
 

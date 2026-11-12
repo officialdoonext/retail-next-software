@@ -33,71 +33,109 @@ import {
 import { DashboardStats } from "./types";
 
 interface ChartDataProps {
-  trendData: Array<{
+  trendData?: Array<{
     date: string;
     revenue: number;
     orders: number;
     aov: number;
   }>;
-  paymentData: Array<{
+  paymentData?: Array<{
     name: string;
     value: number;
     color: string;
     percent: number;
   }>;
-  hourlyData: Array<{
+  hourlyData?: Array<{
     hour: string;
     revenue: number;
     orders: number;
     isPeak?: boolean;
   }>;
-  topProductsData: Array<{
+  topProductsData?: Array<{
     name: string;
     quantity: number;
     revenue: number;
   }>;
-  categoryData: Array<{
+  topSellingProducts?: Array<{
+    name: string;
+    unitsSold?: number;
+    quantity?: number;
+    revenue: number;
+  }>;
+  categoryData?: Array<{
     name: string;
     value: number;
     color: string;
     percent: number;
   }>;
-  weekdayData: Array<{
+  categoryPerformance?: Array<{
+    name: string;
+    revenue: number;
+    unitsSold?: number;
+  }>;
+  weekdayData?: Array<{
     day: string;
     revenue: number;
     orders: number;
   }>;
-  staffData: Array<{
+  staffData?: Array<{
     name: string;
     revenue: number;
     orders: number;
   }>;
-  taxDiscountData: Array<{
+  taxDiscountData?: Array<{
     period: string;
     subtotal: number;
     tax: number;
     discount: number;
   }>;
-  stockHealthData: Array<{
+  stockHealthData?: Array<{
     name: string;
     value: number;
     color: string;
   }>;
-  stats: DashboardStats;
+  stats?: DashboardStats;
 }
 
-export default function DashboardCharts({
-  trendData,
-  paymentData,
-  hourlyData,
-  topProductsData,
-  categoryData,
-  weekdayData,
-  staffData,
-  taxDiscountData,
-  stockHealthData,
-  stats,
-}: ChartDataProps) {
+export default function DashboardCharts(props: ChartDataProps) {
+  const trendData = props.trendData || [];
+  const paymentData = props.paymentData || [];
+  const hourlyData = props.hourlyData || [];
+  const weekdayData = props.weekdayData || [];
+  const staffData = props.staffData || [];
+  const taxDiscountData = props.taxDiscountData || [];
+  const stockHealthData = props.stockHealthData || [];
+  const stats = props.stats;
+
+  // Resolve top products with fallback from topSellingProducts
+  const topProductsData =
+    props.topProductsData && Array.isArray(props.topProductsData) && props.topProductsData.length > 0
+      ? props.topProductsData
+      : Array.isArray(props.topSellingProducts)
+      ? props.topSellingProducts.map((p) => ({
+          name: p.name,
+          quantity: p.unitsSold ?? p.quantity ?? 0,
+          revenue: p.revenue ?? 0,
+        }))
+      : [];
+
+  // Resolve category data with fallback from categoryPerformance
+  const categoryColors = ["#5e2b9d", "#0ea5e9", "#10b981", "#f59e0b", "#ec4899", "#8b5cf6"];
+  const categoryData =
+    props.categoryData && Array.isArray(props.categoryData) && props.categoryData.length > 0
+      ? props.categoryData
+      : Array.isArray(props.categoryPerformance)
+      ? (() => {
+          const raw = props.categoryPerformance;
+          const totalCatRev = raw.reduce((sum, c) => sum + (c.revenue || 0), 0) || 1;
+          return raw.map((c, i) => ({
+            name: c.name,
+            value: c.revenue,
+            color: categoryColors[i % categoryColors.length],
+            percent: Math.round(((c.revenue || 0) / totalCatRev) * 100),
+          }));
+        })()
+      : [];
   const [trendMetric, setTrendMetric] = useState<"revenue" | "orders">("revenue");
 
   const formatCurrency = (val: number) => {

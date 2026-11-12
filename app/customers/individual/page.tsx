@@ -136,8 +136,8 @@ function IndividualCustomerContent() {
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerData | null>(null);
   const [loadingCustomer, setLoadingCustomer] = useState(false);
 
-  // Active Tab: 'profile' | 'orders' | 'returns'
-  const [activeTab, setActiveTab] = useState<"profile" | "orders" | "returns">("profile");
+  // Active Tab: 'profile' | 'orders' | 'returns' | 'exchanges'
+  const [activeTab, setActiveTab] = useState<"profile" | "orders" | "returns" | "exchanges">("profile");
 
   // Orders State
   const [orders, setOrders] = useState<OrderData[]>([]);
@@ -146,11 +146,15 @@ function IndividualCustomerContent() {
   const [ordersPage, setOrdersPage] = useState(1);
   const [selectedOrderModal, setSelectedOrderModal] = useState<OrderData | null>(null);
 
-  // Returns / Exchange State
+  // Returns State (Returns Only)
   const [returns, setReturns] = useState<ReturnRecord[]>([]);
   const [loadingReturns, setLoadingReturns] = useState(false);
-  const [returnTypeFilter, setReturnTypeFilter] = useState<"ALL" | "RETURN" | "EXCHANGE">("ALL");
+  const [returnSearch, setReturnSearch] = useState("");
   const [returnsPage, setReturnsPage] = useState(1);
+
+  // Exchanges State (Exchanges Only)
+  const [exchangeSearch, setExchangeSearch] = useState("");
+  const [exchangesPage, setExchangesPage] = useState(1);
   const [selectedReturnModal, setSelectedReturnModal] = useState<ReturnRecord | null>(null);
   const PAGE_SIZE = 24;
 
@@ -201,11 +205,16 @@ function IndividualCustomerContent() {
     loadRecentCustomers();
   }, []);
 
-  // Check URL params on mount (e.g. ?id=xxx or ?phone=xxx)
+  // Check URL params on mount (e.g. ?id=xxx or ?phone=xxx or ?tab=exchanges)
   useEffect(() => {
     const paramId = searchParams.get("id");
     const paramPhone = searchParams.get("phone");
     const paramSearch = searchParams.get("search");
+    const paramTab = searchParams.get("tab");
+
+    if (paramTab === "profile" || paramTab === "orders" || paramTab === "returns" || paramTab === "exchanges") {
+      setActiveTab(paramTab);
+    }
 
     if (paramId || paramPhone || paramSearch) {
       const term = paramId || paramPhone || paramSearch || "";
@@ -405,12 +414,6 @@ function IndividualCustomerContent() {
     );
   }, [orders, orderSearch]);
 
-  // Filtered returns
-  const filteredReturns = useMemo(() => {
-    if (returnTypeFilter === "ALL") return returns;
-    return returns.filter((r) => r.type === returnTypeFilter);
-  }, [returns, returnTypeFilter]);
-
   // Paginated Orders (24 items per page)
   const totalOrderPages = Math.ceil(filteredOrders.length / PAGE_SIZE) || 1;
   const paginatedOrders = useMemo(() => {
@@ -418,20 +421,82 @@ function IndividualCustomerContent() {
     return filteredOrders.slice(start, start + PAGE_SIZE);
   }, [filteredOrders, ordersPage]);
 
-  // Paginated Returns (24 items per page)
+  // Returns filtering & pagination (24 items per page)
+  const rawReturnsList = useMemo(() => returns.filter((r) => r.type === "RETURN"), [returns]);
+  const returnsCount = rawReturnsList.length;
+  const totalReturnRefundAmount = useMemo(
+    () => rawReturnsList.reduce((acc, curr) => acc + (Number(curr.refundAmount) || 0), 0),
+    [rawReturnsList]
+  );
+  const totalReturnItemsQty = useMemo(
+    () =>
+      rawReturnsList.reduce((acc, curr) => {
+        if (Array.isArray(curr.items)) {
+          return acc + curr.items.reduce((s: number, it: any) => s + (Number(it.quantity) || 1), 0);
+        }
+        return acc + 1;
+      }, 0),
+    [rawReturnsList]
+  );
+  const filteredReturns = useMemo(() => {
+    if (!returnSearch.trim()) return rawReturnsList;
+    const q = returnSearch.toLowerCase();
+    return rawReturnsList.filter(
+      (r) =>
+        r.returnNumber?.toLowerCase().includes(q) ||
+        r.orderNumber?.toLowerCase().includes(q) ||
+        r.reason?.toLowerCase().includes(q) ||
+        r.refundMethod?.toLowerCase().includes(q) ||
+        (Array.isArray(r.items) && r.items.some((it: any) => it.productName?.toLowerCase().includes(q)))
+    );
+  }, [rawReturnsList, returnSearch]);
   const totalReturnPages = Math.ceil(filteredReturns.length / PAGE_SIZE) || 1;
   const paginatedReturns = useMemo(() => {
     const start = (returnsPage - 1) * PAGE_SIZE;
     return filteredReturns.slice(start, start + PAGE_SIZE);
   }, [filteredReturns, returnsPage]);
 
-  // Aggregate Return / Exchange Counts
-  const returnsCount = useMemo(() => returns.filter((r) => r.type === "RETURN").length, [returns]);
-  const exchangesCount = useMemo(() => returns.filter((r) => r.type === "EXCHANGE").length, [returns]);
-  const totalRefundAmount = useMemo(
-    () => returns.reduce((acc, curr) => acc + curr.refundAmount, 0),
-    [returns]
+  // Exchanges filtering & pagination (24 items per page)
+  const rawExchangesList = useMemo(() => returns.filter((r) => r.type === "EXCHANGE"), [returns]);
+  const exchangesCount = rawExchangesList.length;
+  const totalExchangeCreditIssued = useMemo(
+    () => rawExchangesList.reduce((acc, curr) => acc + (Number(curr.refundAmount) || 0), 0),
+    [rawExchangesList]
   );
+  const activeExchangeCreditAmount = useMemo(
+    () =>
+      rawExchangesList
+        .filter((r) => r.status === "ACTIVE" || !r.status || r.status === "COMPLETED")
+        .reduce((acc, curr) => acc + (Number(curr.refundAmount) || 0), 0),
+    [rawExchangesList]
+  );
+  const totalExchangeItemsQty = useMemo(
+    () =>
+      rawExchangesList.reduce((acc, curr) => {
+        if (Array.isArray(curr.items)) {
+          return acc + curr.items.reduce((s: number, it: any) => s + (Number(it.quantity) || 1), 0);
+        }
+        return acc + 1;
+      }, 0),
+    [rawExchangesList]
+  );
+  const filteredExchanges = useMemo(() => {
+    if (!exchangeSearch.trim()) return rawExchangesList;
+    const q = exchangeSearch.toLowerCase();
+    return rawExchangesList.filter(
+      (r) =>
+        r.returnNumber?.toLowerCase().includes(q) ||
+        r.orderNumber?.toLowerCase().includes(q) ||
+        r.reason?.toLowerCase().includes(q) ||
+        r.status?.toLowerCase().includes(q) ||
+        (Array.isArray(r.items) && r.items.some((it: any) => it.productName?.toLowerCase().includes(q)))
+    );
+  }, [rawExchangesList, exchangeSearch]);
+  const totalExchangePages = Math.ceil(filteredExchanges.length / PAGE_SIZE) || 1;
+  const paginatedExchanges = useMemo(() => {
+    const start = (exchangesPage - 1) * PAGE_SIZE;
+    return filteredExchanges.slice(start, start + PAGE_SIZE);
+  }, [filteredExchanges, exchangesPage]);
 
   // Total Billed Amount from actual orders
   const totalBilledAmount = useMemo(
@@ -717,8 +782,8 @@ function IndividualCustomerContent() {
                 </div>
 
                 {/* Right: Quick Stat Chips */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 shrink-0">
-                  <div className="bg-slate-50 border border-slate-200/80 rounded-[6px] p-2.5 text-center min-w-[110px]">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 shrink-0">
+                  <div className="bg-slate-50 border border-slate-200/80 rounded-[6px] p-2.5 text-center min-w-[100px]">
                     <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">
                       Total Purchases
                     </span>
@@ -727,7 +792,7 @@ function IndividualCustomerContent() {
                     </span>
                   </div>
 
-                  <div className="bg-slate-50 border border-slate-200/80 rounded-[6px] p-2.5 text-center min-w-[110px]">
+                  <div className="bg-slate-50 border border-slate-200/80 rounded-[6px] p-2.5 text-center min-w-[100px]">
                     <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">
                       Orders Count
                     </span>
@@ -736,16 +801,25 @@ function IndividualCustomerContent() {
                     </span>
                   </div>
 
-                  <div className="bg-slate-50 border border-slate-200/80 rounded-[6px] p-2.5 text-center min-w-[110px]">
+                  <div className="bg-slate-50 border border-slate-200/80 rounded-[6px] p-2.5 text-center min-w-[100px]">
                     <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">
-                      Returns / Exch
+                      Returns
                     </span>
                     <span className="text-sm font-bold text-rose-600 block mt-0.5">
-                      {loadingReturns ? "..." : `${returns.length} Records`}
+                      {loadingReturns ? "..." : `${returnsCount} Ret`}
                     </span>
                   </div>
 
-                  <div className="bg-slate-50 border border-slate-200/80 rounded-[6px] p-2.5 text-center min-w-[110px]">
+                  <div className="bg-slate-50 border border-slate-200/80 rounded-[6px] p-2.5 text-center min-w-[100px]">
+                    <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">
+                      Exchanges
+                    </span>
+                    <span className="text-sm font-bold text-[#5e2b9d] block mt-0.5">
+                      {loadingReturns ? "..." : `${exchangesCount} Exc`}
+                    </span>
+                  </div>
+
+                  <div className="bg-slate-50 border border-slate-200/80 rounded-[6px] p-2.5 text-center min-w-[100px]">
                     <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">
                       Loyalty Points
                     </span>
@@ -793,6 +867,21 @@ function IndividualCustomerContent() {
                   onClick={() => setActiveTab("returns")}
                   className={`py-3 px-4 text-xs font-semibold border-b-2 flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
                     activeTab === "returns"
+                      ? "border-rose-600 text-rose-600 bg-white shadow-2xs"
+                      : "border-transparent text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  <svg className="w-4 h-4 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                  </svg>
+                  <span>Returns ({returnsCount})</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("exchanges")}
+                  className={`py-3 px-4 text-xs font-semibold border-b-2 flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
+                    activeTab === "exchanges"
                       ? "border-[#5e2b9d] text-[#5e2b9d] bg-white shadow-2xs"
                       : "border-transparent text-slate-500 hover:text-slate-800"
                   }`}
@@ -800,7 +889,7 @@ function IndividualCustomerContent() {
                   <svg className="w-4 h-4 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
                   </svg>
-                  <span>Returns & Exchanges ({returns.length})</span>
+                  <span>Exchanges ({exchangesCount})</span>
                 </button>
               </div>
             </div>
@@ -1182,11 +1271,11 @@ function IndividualCustomerContent() {
             )}
 
             {/* ================================================================ */}
-            {/* TAB 3: RETURNS & EXCHANGES                                       */}
+            {/* TAB 3: RETURNS ONLY                                              */}
             {/* ================================================================ */}
             {activeTab === "returns" && (
               <div className="space-y-3.5 animate-in fade-in duration-100">
-                {/* Top Stat Summary of Returns / Exchange Frequency */}
+                {/* Top Stat Summary of Returns */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="bg-white rounded-[8px] border border-slate-200/90 p-3.5 shadow-2xs flex items-center justify-between">
                     <div>
@@ -1205,96 +1294,82 @@ function IndividualCustomerContent() {
                   <div className="bg-white rounded-[8px] border border-slate-200/90 p-3.5 shadow-2xs flex items-center justify-between">
                     <div>
                       <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
-                        Times Exchanged
+                        Total Refund Disbursed
                       </span>
-                      <span className="text-xl font-bold text-indigo-600 block mt-0.5">
-                        {exchangesCount} {exchangesCount === 1 ? "Time" : "Times"}
+                      <span className="text-xl font-bold text-slate-900 block mt-0.5">
+                        ₹{totalReturnRefundAmount.toLocaleString()}
                       </span>
                     </div>
-                    <div className="w-10 h-10 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-sm">
-                      ⇄
+                    <div className="w-10 h-10 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center font-bold text-sm">
+                      ₹
                     </div>
                   </div>
 
                   <div className="bg-white rounded-[8px] border border-slate-200/90 p-3.5 shadow-2xs flex items-center justify-between">
                     <div>
                       <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
-                        Total Refund / Exch Value
+                        Returned Products Count
                       </span>
                       <span className="text-xl font-bold text-slate-900 block mt-0.5">
-                        ₹{totalRefundAmount.toLocaleString()}
+                        {totalReturnItemsQty} {totalReturnItemsQty === 1 ? "Item" : "Items"}
                       </span>
                     </div>
-                    <div className="w-10 h-10 rounded-full bg-purple-50 text-[#5e2b9d] flex items-center justify-center font-bold text-sm">
-                      ₹
+                    <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center font-bold text-sm">
+                      📦
                     </div>
                   </div>
                 </div>
 
                 {/* Filter Bar & "Record Return" Action */}
                 <div className="bg-white rounded-[8px] border border-slate-200/90 p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
-                  {/* Type Filter Buttons */}
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setReturnTypeFilter("ALL");
+                  <div className="relative flex-1 max-w-md">
+                    <svg
+                      className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                    <input
+                      type="text"
+                      value={returnSearch}
+                      onChange={(e) => {
+                        setReturnSearch(e.target.value);
                         setReturnsPage(1);
                       }}
-                      className={`h-7 px-3 rounded-[4px] text-xs font-semibold transition-colors cursor-pointer ${
-                        returnTypeFilter === "ALL"
-                          ? "bg-[#5e2b9d] text-white"
-                          : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                      }`}
-                    >
-                      All ({returns.length})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setReturnTypeFilter("RETURN");
-                        setReturnsPage(1);
-                      }}
-                      className={`h-7 px-3 rounded-[4px] text-xs font-semibold transition-colors cursor-pointer ${
-                        returnTypeFilter === "RETURN"
-                          ? "bg-rose-600 text-white"
-                          : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                      }`}
-                    >
-                      Returns Only ({returnsCount})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setReturnTypeFilter("EXCHANGE");
-                        setReturnsPage(1);
-                      }}
-                      className={`h-7 px-3 rounded-[4px] text-xs font-semibold transition-colors cursor-pointer ${
-                        returnTypeFilter === "EXCHANGE"
-                          ? "bg-indigo-600 text-white"
-                          : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                      }`}
-                    >
-                      Exchanges Only ({exchangesCount})
-                    </button>
+                      placeholder="Search returns by Return ID, bill #, product, reason..."
+                      className="w-full h-8 pl-9 pr-3 rounded-[6px] border border-slate-200 text-xs focus:outline-none focus:border-rose-500 bg-white"
+                    />
                   </div>
 
-                  {/* Record Return / Exchange Trigger Button */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (orders.length > 0) {
-                        setNewReturnOrderNumber(orders[0].billNumber);
-                      }
-                      setIsRecordReturnOpen(true);
-                    }}
-                    className="h-8 px-3.5 rounded-[6px] bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer shrink-0"
-                  >
-                    <svg className="w-3.5 h-3.5 stroke-[2.5]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                    </svg>
-                    <span>Record Return / Exchange</span>
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewReturnType("RETURN");
+                        if (orders.length > 0) {
+                          setNewReturnOrderNumber(orders[0].billNumber);
+                        }
+                        setIsRecordReturnOpen(true);
+                      }}
+                      className="h-8 px-3.5 rounded-[6px] bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer shrink-0"
+                    >
+                      <svg className="w-3.5 h-3.5 stroke-[2.5]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                      </svg>
+                      <span>Record Return</span>
+                    </button>
+                    <Link
+                      href={`/returns?customerId=${selectedCustomer.id}`}
+                      className="h-8 px-3 rounded-[6px] border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-medium flex items-center gap-1.5 transition-colors"
+                    >
+                      <span>Terminal</span>
+                      <svg className="w-3 h-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
+                      </svg>
+                    </Link>
+                  </div>
                 </div>
 
                 {/* Returns Data Table */}
@@ -1304,7 +1379,6 @@ function IndividualCustomerContent() {
                       <thead>
                         <tr className="border-b border-slate-200 bg-slate-50/70 text-slate-500 font-semibold text-[11px] uppercase tracking-wider">
                           <th className="py-2.5 px-3.5">Return ID</th>
-                          <th className="py-2.5 px-3.5">Type</th>
                           <th className="py-2.5 px-3.5">Date & Time</th>
                           <th className="py-2.5 px-3.5">Original Invoice</th>
                           <th className="py-2.5 px-3.5">Returned Items</th>
@@ -1317,39 +1391,28 @@ function IndividualCustomerContent() {
                       <tbody className="divide-y divide-slate-100">
                         {loadingReturns ? (
                           <tr>
-                            <td colSpan={9} className="py-12 text-center text-slate-400">
-                              <div className="w-6 h-6 border-2 border-[#5e2b9d] border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+                            <td colSpan={8} className="py-12 text-center text-slate-400">
+                              <div className="w-6 h-6 border-2 border-rose-500 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
                               <span>Loading return history...</span>
                             </td>
                           </tr>
                         ) : filteredReturns.length === 0 ? (
                           <tr>
-                            <td colSpan={9} className="py-12 text-center text-slate-400">
+                            <td colSpan={8} className="py-12 text-center text-slate-400">
                               <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center mx-auto mb-2 text-slate-400">
                                 🛡️
                               </div>
-                              <span className="font-semibold block text-slate-700">Clean Customer Record</span>
+                              <span className="font-semibold block text-slate-700">No Return Records</span>
                               <span className="text-[11px] text-slate-400">
-                                No returns or exchanges recorded for this customer yet.
+                                This customer has never returned any product.
                               </span>
                             </td>
                           </tr>
                         ) : (
                           paginatedReturns.map((record) => (
                             <tr key={record.id} className="hover:bg-slate-50/70 transition-colors">
-                              <td className="py-2.5 px-3.5 font-mono font-semibold text-[#5e2b9d] whitespace-nowrap">
+                              <td className="py-2.5 px-3.5 font-mono font-semibold text-rose-600 whitespace-nowrap">
                                 {record.returnNumber}
-                              </td>
-                              <td className="py-2.5 px-3.5 whitespace-nowrap">
-                                <span
-                                  className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                    record.type === "RETURN"
-                                      ? "bg-rose-50 text-rose-700 border border-rose-200"
-                                      : "bg-indigo-50 text-indigo-700 border border-indigo-200"
-                                  }`}
-                                >
-                                  {record.type}
-                                </span>
                               </td>
                               <td className="py-2.5 px-3.5 whitespace-nowrap text-slate-600">
                                 {new Date(record.createdAt).toLocaleDateString("en-IN", {
@@ -1359,7 +1422,9 @@ function IndividualCustomerContent() {
                                 })}
                               </td>
                               <td className="py-2.5 px-3.5 font-mono font-medium text-slate-700 whitespace-nowrap">
-                                {record.orderNumber || "—"}
+                                <span className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200">
+                                  #{record.orderNumber || "—"}
+                                </span>
                               </td>
                               <td className="py-2.5 px-3.5 max-w-xs text-slate-800 font-medium">
                                 {Array.isArray(record.items) && record.items.length > 0
@@ -1367,13 +1432,13 @@ function IndividualCustomerContent() {
                                   : "Returned products"}
                               </td>
                               <td className="py-2.5 px-3.5 text-slate-600 italic">
-                                {record.reason || "Customer request"}
+                                {record.reason || "Customer return request"}
                               </td>
                               <td className="py-2.5 px-3.5 text-right font-bold text-rose-600 whitespace-nowrap">
                                 ₹{record.refundAmount.toLocaleString()}
                               </td>
                               <td className="py-2.5 px-3.5 whitespace-nowrap">
-                                <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                                <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-50 text-rose-700 border border-rose-200">
                                   {record.refundMethod || "CASH"}
                                 </span>
                               </td>
@@ -1395,6 +1460,208 @@ function IndividualCustomerContent() {
                       totalItems={filteredReturns.length}
                       pageSize={PAGE_SIZE}
                       onPageChange={(page) => setReturnsPage(page)}
+                    />
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ================================================================ */}
+            {/* TAB 4: EXCHANGES ONLY                                            */}
+            {/* ================================================================ */}
+            {activeTab === "exchanges" && (
+              <div className="space-y-3.5 animate-in fade-in duration-100">
+                {/* Top Stat Summary of Exchanges */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="bg-white rounded-[8px] border border-slate-200/90 p-3.5 shadow-2xs flex items-center justify-between">
+                    <div>
+                      <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+                        Times Exchanged
+                      </span>
+                      <span className="text-xl font-bold text-[#5e2b9d] block mt-0.5">
+                        {exchangesCount} {exchangesCount === 1 ? "Time" : "Times"}
+                      </span>
+                    </div>
+                    <div className="w-10 h-10 rounded-full bg-purple-50 text-[#5e2b9d] flex items-center justify-center font-bold text-sm">
+                      ⇄
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-[8px] border border-slate-200/90 p-3.5 shadow-2xs flex items-center justify-between">
+                    <div>
+                      <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+                        Total Exchange Credit Issued
+                      </span>
+                      <span className="text-xl font-bold text-[#5e2b9d] block mt-0.5">
+                        ₹{totalExchangeCreditIssued.toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="w-10 h-10 rounded-full bg-purple-50 text-[#5e2b9d] flex items-center justify-center font-bold text-sm">
+                      🏷️
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-[8px] border border-slate-200/90 p-3.5 shadow-2xs flex items-center justify-between">
+                    <div>
+                      <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+                        Active / Redeemable Credit
+                      </span>
+                      <span className="text-xl font-bold text-emerald-600 block mt-0.5">
+                        ₹{activeExchangeCreditAmount.toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold text-sm">
+                      ✓
+                    </div>
+                  </div>
+                </div>
+
+                {/* Filter Bar & "Record Exchange" Action */}
+                <div className="bg-white rounded-[8px] border border-slate-200/90 p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+                  <div className="relative flex-1 max-w-md">
+                    <svg
+                      className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                    <input
+                      type="text"
+                      value={exchangeSearch}
+                      onChange={(e) => {
+                        setExchangeSearch(e.target.value);
+                        setExchangesPage(1);
+                      }}
+                      placeholder="Search exchanges by Voucher #, bill #, product, reason..."
+                      className="w-full h-8 pl-9 pr-3 rounded-[6px] border border-slate-200 text-xs focus:outline-none focus:border-[#5e2b9d] bg-white"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewReturnType("EXCHANGE");
+                        if (orders.length > 0) {
+                          setNewReturnOrderNumber(orders[0].billNumber);
+                        }
+                        setIsRecordReturnOpen(true);
+                      }}
+                      className="h-8 px-3.5 rounded-[6px] bg-[#5e2b9d] hover:bg-[#4e2284] text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer shrink-0"
+                    >
+                      <svg className="w-3.5 h-3.5 stroke-[2.5]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                      </svg>
+                      <span>New Exchange Voucher</span>
+                    </button>
+                    <Link
+                      href={`/returns/exchanges?customerId=${selectedCustomer.id}`}
+                      className="h-8 px-3 rounded-[6px] border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-medium flex items-center gap-1.5 transition-colors"
+                    >
+                      <span>Terminal</span>
+                      <svg className="w-3 h-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
+                      </svg>
+                    </Link>
+                  </div>
+                </div>
+
+                {/* Exchanges Data Table */}
+                <div className="bg-white rounded-[8px] border border-slate-200/90 shadow-2xs overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-200 bg-slate-50/70 text-slate-500 font-semibold text-[11px] uppercase tracking-wider">
+                          <th className="py-2.5 px-3.5">Exchange Slip / Voucher #</th>
+                          <th className="py-2.5 px-3.5">Date & Time</th>
+                          <th className="py-2.5 px-3.5">Previous Bill Ref</th>
+                          <th className="py-2.5 px-3.5">Exchanged Items</th>
+                          <th className="py-2.5 px-3.5">Exchange Reason</th>
+                          <th className="py-2.5 px-3.5 text-right">Exchange Credit (₹)</th>
+                          <th className="py-2.5 px-3.5">Voucher Status</th>
+                          <th className="py-2.5 px-3.5">Staff</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {loadingReturns ? (
+                          <tr>
+                            <td colSpan={8} className="py-12 text-center text-slate-400">
+                              <div className="w-6 h-6 border-2 border-[#5e2b9d] border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+                              <span>Loading exchange history...</span>
+                            </td>
+                          </tr>
+                        ) : filteredExchanges.length === 0 ? (
+                          <tr>
+                            <td colSpan={8} className="py-12 text-center text-slate-400">
+                              <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center mx-auto mb-2 text-slate-400">
+                                ⇄
+                              </div>
+                              <span className="font-semibold block text-slate-700">No Exchange Records</span>
+                              <span className="text-[11px] text-slate-400">
+                                No product exchange vouchers recorded for this customer.
+                              </span>
+                            </td>
+                          </tr>
+                        ) : (
+                          paginatedExchanges.map((record) => (
+                            <tr key={record.id} className="hover:bg-slate-50/70 transition-colors">
+                              <td className="py-2.5 px-3.5 font-mono font-semibold text-[#5e2b9d] whitespace-nowrap">
+                                {record.returnNumber}
+                              </td>
+                              <td className="py-2.5 px-3.5 whitespace-nowrap text-slate-600">
+                                {new Date(record.createdAt).toLocaleDateString("en-IN", {
+                                  day: "2-digit",
+                                  month: "short",
+                                  year: "numeric",
+                                })}
+                              </td>
+                              <td className="py-2.5 px-3.5 font-mono font-medium text-slate-700 whitespace-nowrap">
+                                <span className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200">
+                                  #{record.orderNumber || "—"}
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-3.5 max-w-xs text-slate-800 font-medium">
+                                {Array.isArray(record.items) && record.items.length > 0
+                                  ? record.items.map((it: any) => it.productName || it.sku || "Product").join(", ")
+                                  : "Exchanged products"}
+                              </td>
+                              <td className="py-2.5 px-3.5 text-slate-600 italic">
+                                {record.reason || "Exchange for new bill"}
+                              </td>
+                              <td className="py-2.5 px-3.5 text-right font-bold text-[#5e2b9d] whitespace-nowrap">
+                                ₹{record.refundAmount.toLocaleString()}
+                              </td>
+                              <td className="py-2.5 px-3.5 whitespace-nowrap">
+                                <span
+                                  className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                    record.status === "REDEEMED"
+                                      ? "bg-slate-100 text-slate-600 border border-slate-200"
+                                      : "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                  }`}
+                                >
+                                  {record.status === "REDEEMED" ? "REDEEMED IN BILL" : "ACTIVE CREDIT"}
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-3.5 text-slate-500 whitespace-nowrap">
+                                {record.staffName || "Staff"}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* 24-Item Exchanges Pagination Controls */}
+                  {filteredExchanges.length > 0 && (
+                    <PaginationControls
+                      currentPage={exchangesPage}
+                      totalPages={totalExchangePages}
+                      totalItems={filteredExchanges.length}
+                      pageSize={PAGE_SIZE}
+                      onPageChange={(page) => setExchangesPage(page)}
                     />
                   )}
                 </div>

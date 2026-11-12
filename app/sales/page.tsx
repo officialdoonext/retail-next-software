@@ -31,6 +31,9 @@ interface SettledOrder {
   couponCode?: string;
   couponDiscount?: number;
   customerDiscount?: number;
+  previousBillNumber?: string | null;
+  exchangeCredit?: number;
+  exchangeVoucherNumber?: string | null;
   settledBy: string;
   createdAt: number;
 }
@@ -39,6 +42,7 @@ export default function SalesPage() {
   const toast = useToast();
 
   const [orders, setOrders] = useState<SettledOrder[]>([]);
+  const [returnsData, setReturnsData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Date Filter State
@@ -95,16 +99,25 @@ export default function SalesPage() {
     loadEmployees();
   }, []);
 
-  // Fetch orders from API
+  // Fetch orders and returns from API
   const fetchOrders = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch("/api/orders?all=true");
-      const data = await res.json();
-      if (res.ok && data.success && Array.isArray(data.orders)) {
-        setOrders(data.orders);
+      const [ordersRes, returnsRes] = await Promise.all([
+        fetch("/api/orders?all=true"),
+        fetch("/api/returns?all=true"),
+      ]);
+
+      const ordersData = await ordersRes.json();
+      if (ordersRes.ok && ordersData.success && Array.isArray(ordersData.orders)) {
+        setOrders(ordersData.orders);
       } else {
-        toast.error(data.error || "Failed to load sales records.");
+        toast.error(ordersData.error || "Failed to load sales records.");
+      }
+
+      const returnsJson = await returnsRes.json();
+      if (returnsRes.ok && returnsJson.success && Array.isArray(returnsJson.returns)) {
+        setReturnsData(returnsJson.returns);
       }
     } catch (err) {
       console.error("Failed fetching sales orders:", err);
@@ -112,11 +125,56 @@ export default function SalesPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
     fetchOrders();
   }, [fetchOrders]);
+
+  // Map returns & exchanges by original bill number
+  const returnsByBillNumber = useMemo(() => {
+    const map: Record<
+      string,
+      {
+        returnedQty: number;
+        exchangedQty: number;
+        returnedItemsList: string[];
+        exchangedItemsList: string[];
+      }
+    > = {};
+
+    for (const r of returnsData) {
+      const billNum = String(r.originalBillNumber || r.orderNumber || "").trim().toUpperCase();
+      if (!billNum) continue;
+
+      if (!map[billNum]) {
+        map[billNum] = {
+          returnedQty: 0,
+          exchangedQty: 0,
+          returnedItemsList: [],
+          exchangedItemsList: [],
+        };
+      }
+
+      const items = Array.isArray(r.items)
+        ? r.items
+        : Array.isArray(r.returnedItems)
+        ? r.returnedItems
+        : [];
+      const count = items.reduce((acc: number, it: any) => acc + (Number(it.quantity) || 1), 0);
+      const itemNames = items.map((it: any) => `${it.productName || it.name || "Item"} (x${it.quantity || 1})`);
+
+      if (r.type === "EXCHANGE") {
+        map[billNum].exchangedQty += count;
+        map[billNum].exchangedItemsList.push(...itemNames);
+      } else {
+        map[billNum].returnedQty += count;
+        map[billNum].returnedItemsList.push(...itemNames);
+      }
+    }
+
+    return map;
+  }, [returnsData]);
 
   // Current Date Range
   const activeDateRange = useMemo(() => {
@@ -583,9 +641,11 @@ export default function SalesPage() {
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 uppercase tracking-wider text-[11px] font-bold">
                   <th className="py-3 px-4">Invoice No</th>
+                  <th className="py-3 px-4">Bill Type</th>
                   <th className="py-3 px-4">Date & Time</th>
                   <th className="py-3 px-4">Customer</th>
                   <th className="py-3 px-4 text-center">Items</th>
+                  <th className="py-3 px-4">Exchange & Return Details</th>
                   <th className="py-3 px-4">Payment Tender</th>
                   <th className="py-3 px-4 text-right">Tax</th>
                   <th className="py-3 px-4 text-right">Discount</th>
@@ -596,14 +656,14 @@ export default function SalesPage() {
               <tbody className="divide-y divide-slate-100 font-sans">
                 {loading ? (
                   <tr>
-                    <td colSpan={9} className="py-12 text-center text-slate-400">
+                    <td colSpan={11} className="py-12 text-center text-slate-400">
                       <Spinner className="w-6 h-6 text-[#5e2b9d] mx-auto mb-2" />
                       <span>Loading invoices ledger...</span>
                     </td>
                   </tr>
                 ) : filteredOrders.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="py-12 text-center text-slate-400">
+                    <td colSpan={11} className="py-12 text-center text-slate-400">
                       <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mx-auto mb-2 text-slate-400">
                         <svg className="w-6 h-6 stroke-[1.5]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -626,6 +686,23 @@ export default function SalesPage() {
                       0
                     );
 
+                    const retInfo = returnsByBillNumber[String(order.billNumber || "").trim().toUpperCase()] || {
+                      returnedQty: 0,
+                      exchangedQty: 0,
+                      returnedItemsList: [],
+                      exchangedItemsList: [],
+                    };
+
+                    const isReturn =
+                      order.billNumber?.startsWith("RET-") ||
+                      order.status?.toLowerCase().includes("return");
+                    const isExchangeSlip =
+                      order.billNumber?.startsWith("EXC-") ||
+                      order.status?.toLowerCase().includes("exchange");
+                    const isExchangeReplacementBill =
+                      Boolean(order.previousBillNumber) ||
+                      Boolean(order.exchangeCredit && order.exchangeCredit > 0);
+
                     return (
                       <tr key={order.id} className="hover:bg-slate-50/70 transition-colors">
                         {/* 1. Invoice Number */}
@@ -633,12 +710,40 @@ export default function SalesPage() {
                           {order.billNumber}
                         </td>
 
-                        {/* 2. Date */}
+                        {/* 2. Bill Type */}
+                        <td className="py-3 px-4 whitespace-nowrap">
+                          {isReturn ? (
+                            <span className="px-2.5 py-1 rounded-md text-[10.5px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
+                              Return Bill
+                            </span>
+                          ) : isExchangeSlip ? (
+                            <span className="px-2.5 py-1 rounded-md text-[10.5px] font-bold bg-purple-100 text-[#5e2b9d] border border-purple-200 font-mono">
+                              Exchange Slip
+                            </span>
+                          ) : isExchangeReplacementBill ? (
+                            <div className="space-y-0.5">
+                              <span className="px-2.5 py-1 rounded-md text-[10.5px] font-bold bg-purple-50 text-[#5e2b9d] border border-purple-200 block w-fit">
+                                Exchange Bill
+                              </span>
+                              {order.previousBillNumber && (
+                                <div className="text-[10px] font-mono text-purple-700 font-semibold">
+                                  Ref: #{order.previousBillNumber}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="px-2.5 py-1 rounded-md text-[10.5px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                              Walk-in Bill
+                            </span>
+                          )}
+                        </td>
+
+                        {/* 3. Date */}
                         <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
                           {formattedDate}
                         </td>
 
-                        {/* 3. Customer */}
+                        {/* 4. Customer */}
                         <td className="py-3 px-4">
                           <div className="font-semibold text-slate-900">
                             {order.customer?.name || "Walk-in Customer"}
@@ -650,12 +755,38 @@ export default function SalesPage() {
                           )}
                         </td>
 
-                        {/* 4. Items Count */}
+                        {/* 5. Items Count */}
                         <td className="py-3 px-4 text-center font-bold text-slate-700">
                           {itemsCount}
                         </td>
 
-                        {/* 5. Payment Tender */}
+                        {/* 6. Return & Exchange Details */}
+                        <td className="py-3 px-4">
+                          {retInfo.returnedQty === 0 && retInfo.exchangedQty === 0 ? (
+                            <span className="text-[11px] text-slate-400 font-medium">None (0 Ret / 0 Exc)</span>
+                          ) : (
+                            <div className="flex flex-col gap-1 text-[10.5px]">
+                              {retInfo.returnedQty > 0 && (
+                                <span
+                                  className="px-2 py-0.5 rounded bg-rose-50 text-rose-700 font-bold border border-rose-200 w-fit"
+                                  title={`Returned items: ${retInfo.returnedItemsList.join(", ")}`}
+                                >
+                                  ↩ {retInfo.returnedQty} Returned
+                                </span>
+                              )}
+                              {retInfo.exchangedQty > 0 && (
+                                <span
+                                  className="px-2 py-0.5 rounded bg-purple-50 text-[#5e2b9d] font-bold border border-purple-200 w-fit"
+                                  title={`Exchanged items: ${retInfo.exchangedItemsList.join(", ")}`}
+                                >
+                                  ⇄ {retInfo.exchangedQty} Exchanged
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </td>
+
+                        {/* 7. Payment Tender */}
                         <td className="py-3 px-4">
                           <span
                             className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
