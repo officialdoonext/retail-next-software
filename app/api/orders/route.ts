@@ -206,16 +206,19 @@ export async function POST(request: Request) {
 
     // 2. UPDATE CUSTOMER STATS IF CUSTOMER IS ATTACHED
     const customer = body.customer || null;
-    let customerId = customer?.id || null;
+    let customerId =
+      customer?.id && typeof customer.id === "string" && customer.id.trim().length > 10
+        ? customer.id.trim()
+        : null;
     let customerName = customer?.name || "Walk-in Customer";
     let customerPhone = customer?.phone || "";
 
-    if (customer && customer.id) {
+    if (customerId) {
       try {
         const { data: cust } = await ctx.supabase
           .from("customers")
           .select("total_purchases")
-          .eq("id", customer.id)
+          .eq("id", customerId)
           .single();
 
         if (cust) {
@@ -223,7 +226,7 @@ export async function POST(request: Request) {
           await ctx.supabase
             .from("customers")
             .update({ total_purchases: newTotal, updated_at: new Date().toISOString() })
-            .eq("id", customer.id);
+            .eq("id", customerId);
         }
       } catch (custErr) {
         console.error("Error updating customer stats:", custErr);
@@ -267,15 +270,19 @@ export async function POST(request: Request) {
     }));
 
     // Attach bill meta inside items array
+    const previousBillNumber = body.previousBillNumber || null;
+    const exchangeCredit = Number(body.exchangeCredit) || 0;
+    const exchangeVoucherNumber = body.exchangeVoucherNumber || null;
+
     const billMetaItem = {
       _isBillMeta: true,
       splitDetails,
       couponCode: body.couponCode || null,
       couponDiscount: Number(body.couponDiscount) || 0,
       customerDiscount: Number(body.customerDiscount) || 0,
-      previousBillNumber: body.previousBillNumber || null,
-      exchangeCredit: Number(body.exchangeCredit) || 0,
-      exchangeVoucherNumber: body.exchangeVoucherNumber || null,
+      previousBillNumber,
+      exchangeCredit,
+      exchangeVoucherNumber,
     };
 
     const finalPaymentMethod = paymentMethod === "SPLIT" && splitDetails
@@ -312,6 +319,25 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: orderErr.message }, { status: 500 });
     }
 
+    // Mark applied exchange voucher as REDEEMED so it cannot be reused
+    if (exchangeVoucherNumber) {
+      try {
+        await ctx.supabase
+          .from("orders")
+          .update({ status: "Redeemed Exchange" })
+          .eq("order_number", exchangeVoucherNumber)
+          .eq("business_id", ctx.businessId);
+
+        await ctx.supabase
+          .from("order_returns")
+          .update({ status: "REDEEMED" })
+          .eq("return_number", exchangeVoucherNumber)
+          .eq("business_id", ctx.businessId);
+      } catch (redeemErr) {
+        console.warn("Could not mark voucher as redeemed:", redeemErr);
+      }
+    }
+
     return NextResponse.json({
       success: true,
       message: "Bill settled successfully!",
@@ -326,7 +352,7 @@ export async function POST(request: Request) {
     });
   } catch (error: any) {
     console.error("Error settling bill:", error);
-    return NextResponse.json({ success: false, error: "Failed to settle bill." }, { status: 500 });
+    return NextResponse.json({ success: false, error: error?.message || "Failed to settle bill." }, { status: 500 });
   }
 }
 

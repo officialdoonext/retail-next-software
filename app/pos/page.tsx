@@ -111,6 +111,10 @@ export default function PosBillingPage() {
   const [manualCreditInput, setManualCreditInput] = useState("");
   const [exchangeModalTab, setExchangeModalTab] = useState<"search" | "manual">("search");
 
+  // Customer Auto-detected Exchange Credit
+  const [availableCustomerExchange, setAvailableCustomerExchange] = useState<any | null>(null);
+  const [dismissedExchangeVouchers, setDismissedExchangeVouchers] = useState<string[]>([]);
+
   // Settlement & Receipt Modal
   const [isSettling, setIsSettling] = useState(false);
   const [settledReceipt, setSettledReceipt] = useState<ReceiptData | null>(null);
@@ -655,6 +659,63 @@ export default function PosBillingPage() {
     toast.success(`Applied ₹${credit.toFixed(2)} Exchange Credit for Bill #${cleanBill}`);
   };
 
+  // Check available exchange credit for selected customer
+  useEffect(() => {
+    if (!selectedCustomer?.phone) {
+      setAvailableCustomerExchange(null);
+      return;
+    }
+
+    const phone = String(selectedCustomer.phone).trim();
+    if (!phone) {
+      setAvailableCustomerExchange(null);
+      return;
+    }
+
+    async function checkCustomerExchange() {
+      try {
+        const res = await fetch(
+          `/api/returns?type=EXCHANGE&customerPhone=${encodeURIComponent(phone)}&activeOnly=true&limit=5`
+        );
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && Array.isArray(data.returns) && data.returns.length > 0) {
+            const valid = data.returns.find(
+              (r: any) =>
+                Number(r.exchangeValue || r.refundAmount || 0) > 0 &&
+                r.returnNumber !== exchangeVoucherNumber &&
+                !dismissedExchangeVouchers.includes(r.returnNumber)
+            );
+            setAvailableCustomerExchange(valid || null);
+          } else {
+            setAvailableCustomerExchange(null);
+          }
+        }
+      } catch (e) {
+        console.error("Error checking customer exchange voucher:", e);
+      }
+    }
+
+    checkCustomerExchange();
+  }, [selectedCustomer?.phone, exchangeVoucherNumber, dismissedExchangeVouchers]);
+
+  // Apply customer's active exchange credit with 1-click
+  const handleApplyCustomerExchange = () => {
+    if (!availableCustomerExchange) return;
+    const credit = Number(availableCustomerExchange.exchangeValue || availableCustomerExchange.refundAmount || 0);
+    const prevBill = availableCustomerExchange.originalBillNumber || availableCustomerExchange.orderNumber || "";
+    const voucherNum = availableCustomerExchange.returnNumber || availableCustomerExchange.orderNumber || "";
+
+    setExchangeCredit(credit);
+    setPreviousBillNumber(prevBill);
+    setExchangeVoucherNumber(voucherNum);
+    setAvailableCustomerExchange(null);
+
+    toast.success(
+      `Applied Exchange Credit of ₹${credit.toFixed(2)} from Bill #${prevBill} (Voucher: ${voucherNum})`
+    );
+  };
+
   // 8. Action: Draft the Bill (Hold Bill)
   const handleDraftBill = async () => {
     if (cartItems.length === 0) {
@@ -748,6 +809,8 @@ export default function PosBillingPage() {
     setExchangeCredit(0);
     setPreviousBillNumber("");
     setExchangeVoucherNumber("");
+    setAvailableCustomerExchange(null);
+    setDismissedExchangeVouchers([]);
     setBarcodeInput("");
     setPaymentMethod("CASH");
     setSplitAmounts({ cash: "", upi: "", card: "" });
@@ -805,7 +868,7 @@ export default function PosBillingPage() {
         })),
         customer: selectedCustomer
           ? {
-              id: selectedCustomer.id,
+              id: selectedCustomer.id && String(selectedCustomer.id).trim().length > 10 ? String(selectedCustomer.id).trim() : null,
               name: selectedCustomer.name,
               phone: selectedCustomer.phone,
             }
@@ -1361,6 +1424,62 @@ export default function PosBillingPage() {
                   </div>
                 )}
               </div>
+
+              {/* 1b. CUSTOMER EXCHANGE CREDIT NOTIFICATION BANNER */}
+              {availableCustomerExchange && exchangeCredit === 0 && (
+                <div className="p-3 bg-gradient-to-r from-purple-50 via-indigo-50/70 to-purple-50 border-2 border-purple-300 rounded-xl space-y-2.5 shadow-2xs animate-in fade-in slide-in-from-top-1">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-start gap-2.5">
+                      <div className="w-7 h-7 rounded-lg bg-[#5e2b9d] text-white flex items-center justify-center shrink-0 text-sm shadow-xs">
+                        🎫
+                      </div>
+                      <div>
+                        <div className="text-xs font-extrabold text-[#5e2b9d] flex items-center gap-1.5 flex-wrap">
+                          <span>Available Exchange Credit:</span>
+                          <span className="font-mono text-purple-900 bg-white px-2 py-0.5 rounded font-black border border-purple-300 shadow-2xs">
+                            ₹{Number(availableCustomerExchange.exchangeValue || availableCustomerExchange.refundAmount || 0).toFixed(2)}
+                          </span>
+                        </div>
+                        <div className="text-[10.5px] text-slate-600 mt-1">
+                          Voucher: <b className="font-mono text-slate-800">{availableCustomerExchange.returnNumber}</b>
+                          {availableCustomerExchange.originalBillNumber && (
+                            <> • Prev Bill: <b className="font-mono text-slate-800">#{availableCustomerExchange.originalBillNumber}</b></>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setDismissedExchangeVouchers((prev) => [...prev, availableCustomerExchange.returnNumber])}
+                      className="text-slate-400 hover:text-slate-600 font-bold text-xs p-1 cursor-pointer"
+                      title="Dismiss prompt"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1.5 border-t border-purple-200/60 text-xs">
+                    <span className="text-[11px] text-purple-900 font-medium">Apply this credit to current bill?</span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setDismissedExchangeVouchers((prev) => [...prev, availableCustomerExchange.returnNumber])}
+                        className="text-[11px] text-slate-500 hover:text-slate-700 font-semibold cursor-pointer"
+                      >
+                        Ignore
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleApplyCustomerExchange}
+                        className="px-3 py-1 bg-[#5e2b9d] hover:bg-purple-800 text-white rounded-lg font-bold text-xs shadow-xs cursor-pointer transition-all flex items-center gap-1"
+                      >
+                        <span>✓ Apply Credit</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* 2. COUPONS & PROMOTIONS SECTION */}
               <div className="p-3 bg-gradient-to-r from-purple-50/70 to-indigo-50/70 border border-purple-100 rounded-xl space-y-2">

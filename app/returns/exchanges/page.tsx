@@ -129,16 +129,7 @@ export default function ExchangesPage() {
 
   // Selected Items from Bill to Exchange
   const [selectedItems, setSelectedItems] = useState<ExchangeItemSelection[]>([]);
-
-  // Replacement Items (if immediate replacement on the spot)
-  const [fulfillmentType, setFulfillmentType] = useState<"voucher" | "replacement">("voucher");
-  const [replacementItems, setReplacementItems] = useState<ReplacementItem[]>([]);
-  const [paymentMethod, setPaymentMethod] = useState("CASH");
-
-  // Catalog product search for replacement items
-  const [prodSearch, setProdSearch] = useState("");
-  const [prodResults, setProdResults] = useState<any[]>([]);
-  const [searchingProds, setSearchingProds] = useState(false);
+  const [overallExchangeReason, setOverallExchangeReason] = useState("");
 
   const fetchExchanges = useCallback(async () => {
     try {
@@ -280,75 +271,23 @@ export default function ExchangesPage() {
     );
   };
 
-  // Replacement item search
-  const handleSearchProducts = async (q: string) => {
-    setProdSearch(q);
-    if (q.trim().length < 2) {
-      setProdResults([]);
-      return;
-    }
-    try {
-      setSearchingProds(true);
-      const res = await fetch(`/api/products?search=${encodeURIComponent(q.trim())}&limit=8`);
-      const data = await res.json();
-      if (res.ok && data.success && Array.isArray(data.products)) {
-        setProdResults(data.products);
-      }
-    } catch {
-      // ignore
-    } finally {
-      setSearchingProds(false);
-    }
-  };
-
-  const handleAddReplacementProduct = (prod: any, variant?: any) => {
-    const pName = variant ? `${prod.name} (${variant.name})` : prod.name;
-    const price = Number(variant ? variant.price || prod.salePrice : prod.salePrice) || 0;
-
-    setReplacementItems((prev) => [
-      ...prev,
-      {
-        productId: prod.id,
-        variantId: variant?.id,
-        productName: pName,
-        variantName: variant?.name,
-        quantity: 1,
-        price,
-      },
-    ]);
-    setProdSearch("");
-    setProdResults([]);
-  };
-
   // Calculations
   const totalExchangeCreditValue = useMemo(() => {
     return selectedItems.reduce((acc, it) => acc + it.exchangeQty * it.unitPrice, 0);
   }, [selectedItems]);
-
-  const totalReplacementValue = useMemo(() => {
-    return replacementItems.reduce((acc, it) => acc + it.quantity * it.price, 0);
-  }, [replacementItems]);
-
-  const netBalance = useMemo(() => {
-    if (fulfillmentType === "voucher") {
-      return -totalExchangeCreditValue; // Credit to customer
-    }
-    return totalReplacementValue - totalExchangeCreditValue;
-  }, [fulfillmentType, totalReplacementValue, totalExchangeCreditValue]);
 
   // Reset form
   const handleResetModal = () => {
     setIsModalOpen(false);
     setSelectedBill(null);
     setSelectedItems([]);
-    setReplacementItems([]);
+    setOverallExchangeReason("");
     setCustomerRecentBills([]);
     setCustomerSearchTerm("");
     setBillSearchTerm("");
-    setFulfillmentType("voucher");
   };
 
-  // Submit Exchange
+  // Submit Exchange & Issue Bill
   const handleSaveExchange = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedBill) {
@@ -359,13 +298,14 @@ export default function ExchangesPage() {
       toast.error("Please select at least one item from the bill to exchange.");
       return;
     }
-    if (fulfillmentType === "replacement" && replacementItems.length === 0) {
-      toast.error("Please add at least one replacement item, or choose Issue Exchange Voucher.");
-      return;
-    }
 
     try {
       setIsSubmitting(true);
+      const combinedReason = [
+        overallExchangeReason.trim(),
+        ...selectedItems.map((it) => it.reason?.trim()).filter(Boolean),
+      ].filter(Boolean).join(" | ") || "Product exchange";
+
       const payload = {
         type: "EXCHANGE",
         orderNumber: selectedBill.billNumber,
@@ -379,25 +319,15 @@ export default function ExchangesPage() {
           variantName: it.variantName,
           quantity: it.exchangeQty,
           price: it.unitPrice,
-          reason: it.reason,
+          reason: it.reason || "Size / Fit replacement",
         })),
-        replacementItems:
-          fulfillmentType === "replacement"
-            ? replacementItems.map((r) => ({
-                productId: r.productId,
-                variantId: r.variantId,
-                productName: r.productName,
-                variantName: r.variantName,
-                quantity: r.quantity,
-                price: r.price,
-              }))
-            : [],
+        replacementItems: [],
         exchangeValue: totalExchangeCreditValue,
-        replacementValue: totalReplacementValue,
-        netAmount: netBalance,
+        replacementValue: 0,
+        netAmount: -totalExchangeCreditValue,
         refundAmount: totalExchangeCreditValue,
-        refundMethod: paymentMethod,
-        reason: selectedItems.map((it) => it.reason).filter(Boolean).join(", ") || "Product exchange",
+        refundMethod: "CREDIT_NOTE",
+        reason: combinedReason,
       };
 
       const res = await fetch("/api/returns", {
@@ -979,16 +909,27 @@ export default function ExchangesPage() {
                                   </td>
                                   <td className="py-2.5 px-3">
                                     {isChecked && selectedObj ? (
-                                      <select
-                                        value={selectedObj.reason}
-                                        onChange={(e) => handleUpdateReason(selIdx, e.target.value)}
-                                        className="px-2 py-0.5 text-[11px] bg-white border border-slate-300 rounded text-slate-700 outline-none"
-                                      >
-                                        <option value="Size / Fit replacement">Size / Fit Misfit</option>
-                                        <option value="Color / Model swap">Color / Model Swap</option>
-                                        <option value="Defective / Damaged">Defective / Damaged</option>
-                                        <option value="Customer preference">Customer Preference</option>
-                                      </select>
+                                      <div className="space-y-1 py-1">
+                                        <input
+                                          type="text"
+                                          value={selectedObj.reason}
+                                          onChange={(e) => handleUpdateReason(selIdx, e.target.value)}
+                                          placeholder="Type exchange reason..."
+                                          className="w-full px-2 py-1 text-xs bg-white border border-slate-300 rounded text-slate-800 outline-none focus:border-[#5e2b9d] focus:ring-1 focus:ring-[#5e2b9d]"
+                                        />
+                                        <div className="flex flex-wrap gap-1">
+                                          {["Size misfit", "Color swap", "Defective item", "Customer choice"].map((tag) => (
+                                            <button
+                                              key={tag}
+                                              type="button"
+                                              onClick={() => handleUpdateReason(selIdx, tag)}
+                                              className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-purple-100 text-slate-600 hover:text-[#5e2b9d] transition-colors cursor-pointer"
+                                            >
+                                              {tag}
+                                            </button>
+                                          ))}
+                                        </div>
+                                      </div>
                                     ) : (
                                       <span className="text-slate-300">—</span>
                                     )}
@@ -1011,189 +952,28 @@ export default function ExchangesPage() {
                       </div>
                     </div>
 
-                    {/* STEP 3: FULFILLMENT METHOD */}
-                    <div className="space-y-3 pt-2 border-t border-slate-200">
-                      <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
-                        Step 3: Exchange Settlement Choice
-                      </label>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div
-                          onClick={() => setFulfillmentType("voucher")}
-                          className={`p-3.5 rounded-xl border cursor-pointer transition-all ${
-                            fulfillmentType === "voucher"
-                              ? "border-[#5e2b9d] bg-purple-50/50 ring-2 ring-[#5e2b9d]/20"
-                              : "border-slate-200 hover:border-slate-300 bg-white"
-                          }`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="radio"
-                              name="fulfillment"
-                              checked={fulfillmentType === "voucher"}
-                              onChange={() => setFulfillmentType("voucher")}
-                              className="text-[#5e2b9d] focus:ring-[#5e2b9d]"
-                            />
-                            <span className="font-bold text-slate-900 text-xs">
-                              Issue Exchange Credit Voucher / Bill
-                            </span>
-                          </div>
-                          <p className="text-[11px] text-slate-500 mt-1 pl-5">
-                            Customer receives an official exchange voucher slip for ₹{totalExchangeCreditValue.toLocaleString()} to use on their next purchase or immediately in POS.
-                          </p>
-                        </div>
-
-                        <div
-                          onClick={() => setFulfillmentType("replacement")}
-                          className={`p-3.5 rounded-xl border cursor-pointer transition-all ${
-                            fulfillmentType === "replacement"
-                              ? "border-[#5e2b9d] bg-purple-50/50 ring-2 ring-[#5e2b9d]/20"
-                              : "border-slate-200 hover:border-slate-300 bg-white"
-                          }`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="radio"
-                              name="fulfillment"
-                              checked={fulfillmentType === "replacement"}
-                              onChange={() => setFulfillmentType("replacement")}
-                              className="text-[#5e2b9d] focus:ring-[#5e2b9d]"
-                            />
-                            <span className="font-bold text-slate-900 text-xs">
-                              Immediate Replacement on the Spot
-                            </span>
-                          </div>
-                          <p className="text-[11px] text-slate-500 mt-1 pl-5">
-                            Customer picks new items now. Subtract exchange credit from new items and settle the difference.
-                          </p>
-                        </div>
+                    {/* STEP 3: OPTIONAL GENERAL NOTES & CONFIRMATION */}
+                    <div className="p-4 bg-gradient-to-r from-purple-50/70 to-indigo-50/70 border border-purple-200 rounded-xl space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-bold text-[#5e2b9d] uppercase tracking-wider block">
+                          Step 3: Exchange Bill Summary & Remarks
+                        </label>
+                        <span className="text-[11px] text-emerald-700 font-semibold flex items-center gap-1">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          Stock will be auto-restocked on bill issue
+                        </span>
                       </div>
 
-                      {/* If Replacement Items are selected on the spot */}
-                      {fulfillmentType === "replacement" && (
-                        <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg space-y-3">
-                          <label className="text-xs font-bold text-slate-700 block">
-                            Search & Select Replacement Product(s)
-                          </label>
-
-                          <div className="relative">
-                            <input
-                              type="text"
-                              value={prodSearch}
-                              onChange={(e) => handleSearchProducts(e.target.value)}
-                              placeholder="Type product name, SKU, or scan barcode..."
-                              className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none focus:border-[#5e2b9d]"
-                            />
-
-                            {/* Dropdown Results */}
-                            {prodResults.length > 0 && (
-                              <div className="absolute top-full left-0 right-0 z-20 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-48 overflow-y-auto divide-y divide-slate-100 text-xs">
-                                {prodResults.map((p) => {
-                                  if (p.hasVariations && Array.isArray(p.variants) && p.variants.length > 0) {
-                                    return p.variants.map((v: any) => (
-                                      <div
-                                        key={v.id}
-                                        onClick={() => handleAddReplacementProduct(p, v)}
-                                        className="p-2 hover:bg-purple-50 cursor-pointer flex items-center justify-between"
-                                      >
-                                        <div>
-                                          <span className="font-semibold text-slate-900">{p.name}</span>
-                                          <span className="text-slate-400 text-[10px] ml-1.5 font-mono">
-                                            ({v.name}) • Stock: {v.stock ?? 0}
-                                          </span>
-                                        </div>
-                                        <span className="font-bold text-[#5e2b9d]">
-                                          ₹{Number(v.price || p.salePrice || 0).toLocaleString()}
-                                        </span>
-                                      </div>
-                                    ));
-                                  }
-
-                                  return (
-                                    <div
-                                      key={p.id}
-                                      onClick={() => handleAddReplacementProduct(p)}
-                                      className="p-2 hover:bg-purple-50 cursor-pointer flex items-center justify-between"
-                                    >
-                                      <div>
-                                        <span className="font-semibold text-slate-900">{p.name}</span>
-                                        <span className="text-slate-400 text-[10px] ml-1.5 font-mono">
-                                          Stock: {p.stock ?? 0}
-                                        </span>
-                                      </div>
-                                      <span className="font-bold text-[#5e2b9d]">
-                                        ₹{Number(p.salePrice || 0).toLocaleString()}
-                                      </span>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Replacement Items Chosen List */}
-                          {replacementItems.length > 0 && (
-                            <div className="border border-slate-200 rounded-lg overflow-hidden bg-white">
-                              <table className="w-full text-left text-xs">
-                                <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold text-[10.5px]">
-                                  <tr>
-                                    <th className="py-2 px-3">Replacement Item</th>
-                                    <th className="py-2 px-3 text-center">Qty</th>
-                                    <th className="py-2 px-3 text-right">Price</th>
-                                    <th className="py-2 px-3 text-right">Subtotal</th>
-                                    <th className="py-2 px-2 text-center w-8"></th>
-                                  </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100">
-                                  {replacementItems.map((rep, rIdx) => (
-                                    <tr key={rIdx}>
-                                      <td className="py-2 px-3 font-medium text-slate-900">{rep.productName}</td>
-                                      <td className="py-2 px-3 text-center font-mono">{rep.quantity}</td>
-                                      <td className="py-2 px-3 text-right font-mono">₹{rep.price.toLocaleString()}</td>
-                                      <td className="py-2 px-3 text-right font-bold font-mono">
-                                        ₹{(rep.quantity * rep.price).toLocaleString()}
-                                      </td>
-                                      <td className="py-2 px-2 text-center">
-                                        <button
-                                          type="button"
-                                          onClick={() =>
-                                            setReplacementItems((prev) => prev.filter((_, i) => i !== rIdx))
-                                          }
-                                          className="text-rose-500 hover:text-rose-700 cursor-pointer"
-                                        >
-                                          <Trash2 className="w-3.5 h-3.5" />
-                                        </button>
-                                      </td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          )}
-
-                          {/* Net Summary Calculation */}
-                          <div className="pt-2 border-t border-slate-200 space-y-1 text-xs">
-                            <div className="flex justify-between">
-                              <span className="text-slate-600">Total Replacement Items:</span>
-                              <span className="font-bold text-slate-900">₹{totalReplacementValue.toLocaleString()}</span>
-                            </div>
-                            <div className="flex justify-between text-purple-700">
-                              <span>Less Exchange Credit Applied:</span>
-                              <span className="font-bold">-₹{totalExchangeCreditValue.toLocaleString()}</span>
-                            </div>
-                            <div className="flex justify-between font-bold text-sm pt-1 border-t border-slate-200">
-                              <span>Net Amount:</span>
-                              <span className={netBalance > 0 ? "text-amber-700" : "text-emerald-700"}>
-                                {netBalance > 0
-                                  ? `₹${netBalance.toLocaleString()} (Customer to Pay)`
-                                  : netBalance < 0
-                                  ? `₹${Math.abs(netBalance).toLocaleString()} (Refund to Customer)`
-                                  : "₹0.00 (Even Exchange)"}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      )}
+                      <input
+                        type="text"
+                        value={overallExchangeReason}
+                        onChange={(e) => setOverallExchangeReason(e.target.value)}
+                        placeholder="Write overall exchange notes / remarks (e.g. Size replacement, approved by manager)..."
+                        className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg outline-none focus:border-[#5e2b9d] text-slate-800"
+                      />
+                      <p className="text-[11px] text-slate-500">
+                        Upon saving, an official Exchange Bill & Credit Slip will be generated immediately for the customer to apply in POS or redeem on future orders.
+                      </p>
                     </div>
                   </div>
                 )}
@@ -1214,17 +994,17 @@ export default function ExchangesPage() {
                     type="button"
                     onClick={handleSaveExchange}
                     disabled={isSubmitting || selectedItems.length === 0}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#5e2b9d] hover:bg-[#4d2282] text-white rounded-lg text-xs font-semibold shadow-2xs transition-colors cursor-pointer disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 px-5 py-2.5 bg-[#5e2b9d] hover:bg-[#4d2282] text-white rounded-lg text-xs font-bold shadow-xs transition-colors cursor-pointer disabled:opacity-50"
                   >
                     {isSubmitting ? (
                       <>
                         <Spinner className="w-3.5 h-3.5" />
-                        <span>Restocking & Saving...</span>
+                        <span>Issuing Exchange Bill...</span>
                       </>
                     ) : (
                       <>
-                        <CheckCircle2 className="w-4 h-4" />
-                        <span>Save Exchange & Restock</span>
+                        <Receipt className="w-4 h-4" />
+                        <span>Save & Issue Exchange Bill (₹{totalExchangeCreditValue.toFixed(2)})</span>
                       </>
                     )}
                   </button>
@@ -1420,8 +1200,10 @@ export default function ExchangesPage() {
                     href={`/pos?exchangeVoucher=${selectedExchangeBill.returnNumber}&previousBill=${encodeURIComponent(
                       selectedExchangeBill.originalBillNumber || selectedExchangeBill.orderNumber
                     )}&credit=${Number(selectedExchangeBill.exchangeValue || selectedExchangeBill.refundAmount || 0)}&customerPhone=${encodeURIComponent(
-                      selectedExchangeBill.customer?.phone || ""
-                    )}&customerName=${encodeURIComponent(selectedExchangeBill.customer?.name || "")}`}
+                      selectedExchangeBill.customer?.phone || (selectedExchangeBill as any).customerPhone || ""
+                    )}&customerName=${encodeURIComponent(
+                      selectedExchangeBill.customer?.name || (selectedExchangeBill as any).customerName || ""
+                    )}`}
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs"
                   >
                     <ShoppingBag className="w-3.5 h-3.5" />

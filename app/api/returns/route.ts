@@ -67,6 +67,7 @@ export async function GET(request: Request) {
     const customerPhone = searchParams.get("customerPhone");
     const typeFilter = searchParams.get("type"); // 'RETURN' | 'EXCHANGE' | null
     const searchQuery = (searchParams.get("search") || "").trim().toLowerCase();
+    const activeOnly = searchParams.get("activeOnly") === "true";
     const fetchAll = searchParams.get("all") === "true";
     const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
     const limit = Math.max(1, parseInt(searchParams.get("limit") || "24", 10));
@@ -186,6 +187,14 @@ export async function GET(request: Request) {
       finalResults = finalResults.filter((r) => r.type === typeFilter);
     }
 
+    // Filter active (non-redeemed) vouchers if requested
+    if (activeOnly) {
+      finalResults = finalResults.filter((r) => {
+        const s = String(r.status || "").toLowerCase();
+        return !s.includes("redeem") && Number(r.exchangeValue || r.refundAmount || 0) > 0;
+      });
+    }
+
     // Filter by search query
     if (searchQuery) {
       finalResults = finalResults.filter(
@@ -303,7 +312,7 @@ export async function POST(request: Request) {
       total: finalAmount,
       payment_method: refundMethod,
       payment_status: type === "EXCHANGE" ? (netAmount > 0 ? "Paid Extra" : netAmount < 0 ? "Refunded" : "Even Exchange") : "Refunded",
-      status: type === "EXCHANGE" ? "Exchanged" : "Returned",
+      status: type === "EXCHANGE" ? "ACTIVE" : "Returned",
       staff_name: staffName,
       created_at: new Date().toISOString(),
     };
@@ -334,7 +343,7 @@ export async function POST(request: Request) {
         reason,
         refund_amount: refundAmount,
         refund_method: refundMethod,
-        status: "COMPLETED",
+        status: type === "EXCHANGE" ? "ACTIVE" : "COMPLETED",
         staff_name: staffName,
       });
     } catch {
@@ -357,7 +366,7 @@ export async function POST(request: Request) {
         reason,
         refundAmount,
         refundMethod,
-        status: "COMPLETED",
+        status: type === "EXCHANGE" ? "ACTIVE" : "COMPLETED",
         exchangeVoucherNumber: returnNumber,
         staffName,
         createdAt: timestamp,

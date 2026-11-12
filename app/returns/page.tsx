@@ -119,6 +119,7 @@ export default function ReturnsPage() {
 
   // Selected Items to Return
   const [selectedItems, setSelectedItems] = useState<ReturnItemSelection[]>([]);
+  const [overallReturnReason, setOverallReturnReason] = useState("");
   const [refundMethod, setRefundMethod] = useState("CASH");
 
   const fetchReturns = useCallback(async () => {
@@ -259,6 +260,7 @@ export default function ReturnsPage() {
     setCustomerRecentBills([]);
     setCustomerSearchTerm("");
     setBillSearchTerm("");
+    setOverallReturnReason("");
     setRefundMethod("CASH");
   };
 
@@ -276,6 +278,11 @@ export default function ReturnsPage() {
 
     try {
       setIsSubmitting(true);
+      const combinedReason = [
+        overallReturnReason.trim(),
+        ...selectedItems.map((it) => it.reason?.trim()).filter(Boolean),
+      ].filter(Boolean).join(" | ") || "Customer return";
+
       const payload = {
         type: "RETURN",
         orderNumber: selectedBill.billNumber,
@@ -293,7 +300,7 @@ export default function ReturnsPage() {
         })),
         refundAmount: totalRefundAmount,
         refundMethod,
-        reason: selectedItems.map((it) => it.reason).filter(Boolean).join(", ") || "Customer return",
+        reason: combinedReason,
       };
 
       const res = await fetch("/api/returns", {
@@ -901,16 +908,27 @@ export default function ReturnsPage() {
                                   </td>
                                   <td className="py-2.5 px-3">
                                     {isChecked && selectedObj ? (
-                                      <select
-                                        value={selectedObj.reason}
-                                        onChange={(e) => handleUpdateReason(selIdx, e.target.value)}
-                                        className="px-2 py-0.5 text-[11px] bg-white border border-slate-300 rounded text-slate-700 outline-none"
-                                      >
-                                        <option value="Customer preference">Customer Preference</option>
-                                        <option value="Defective / Damaged">Defective / Damaged</option>
-                                        <option value="Wrong Item Shipped">Wrong Item Shipped</option>
-                                        <option value="Size Misfit">Size Misfit</option>
-                                      </select>
+                                      <div className="space-y-1 py-1">
+                                        <input
+                                          type="text"
+                                          value={selectedObj.reason}
+                                          onChange={(e) => handleUpdateReason(selIdx, e.target.value)}
+                                          placeholder="Type return reason..."
+                                          className="w-full px-2 py-1 text-xs bg-white border border-slate-300 rounded text-slate-800 outline-none focus:border-[#5e2b9d] focus:ring-1 focus:ring-[#5e2b9d]"
+                                        />
+                                        <div className="flex flex-wrap gap-1">
+                                          {["Defective item", "Customer choice", "Size misfit", "Wrong item"].map((tag) => (
+                                            <button
+                                              key={tag}
+                                              type="button"
+                                              onClick={() => handleUpdateReason(selIdx, tag)}
+                                              className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-rose-100 text-slate-600 hover:text-rose-700 transition-colors cursor-pointer"
+                                            >
+                                              {tag}
+                                            </button>
+                                          ))}
+                                        </div>
+                                      </div>
                                     ) : (
                                       <span className="text-slate-300">—</span>
                                     )}
@@ -956,6 +974,20 @@ export default function ReturnsPage() {
                         <span className="text-lg font-black text-rose-600 font-mono">
                           ₹{totalRefundAmount.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                         </span>
+                      </div>
+
+                      {/* Overall Return Remarks Input */}
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                          Overall Return Remarks / Notes (Optional)
+                        </label>
+                        <input
+                          type="text"
+                          value={overallReturnReason}
+                          onChange={(e) => setOverallReturnReason(e.target.value)}
+                          placeholder="Type overall return reason or remarks (e.g. Approved return, tags attached)..."
+                          className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg outline-none focus:border-[#5e2b9d] text-slate-800"
+                        />
                       </div>
                     </div>
                   </div>
