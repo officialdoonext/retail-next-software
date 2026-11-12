@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo, useRef, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import SoftwareLayout from "@/components/SoftwareLayout";
+import PaginationControls from "@/components/ui/PaginationControls";
 
 // Types
 interface CustomerData {
@@ -142,13 +143,16 @@ function IndividualCustomerContent() {
   const [orders, setOrders] = useState<OrderData[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [orderSearch, setOrderSearch] = useState("");
+  const [ordersPage, setOrdersPage] = useState(1);
   const [selectedOrderModal, setSelectedOrderModal] = useState<OrderData | null>(null);
 
   // Returns / Exchange State
   const [returns, setReturns] = useState<ReturnRecord[]>([]);
   const [loadingReturns, setLoadingReturns] = useState(false);
   const [returnTypeFilter, setReturnTypeFilter] = useState<"ALL" | "RETURN" | "EXCHANGE">("ALL");
+  const [returnsPage, setReturnsPage] = useState(1);
   const [selectedReturnModal, setSelectedReturnModal] = useState<ReturnRecord | null>(null);
+  const PAGE_SIZE = 24;
 
   // New Return Modal State
   const [isRecordReturnOpen, setIsRecordReturnOpen] = useState(false);
@@ -406,6 +410,20 @@ function IndividualCustomerContent() {
     if (returnTypeFilter === "ALL") return returns;
     return returns.filter((r) => r.type === returnTypeFilter);
   }, [returns, returnTypeFilter]);
+
+  // Paginated Orders (24 items per page)
+  const totalOrderPages = Math.ceil(filteredOrders.length / PAGE_SIZE) || 1;
+  const paginatedOrders = useMemo(() => {
+    const start = (ordersPage - 1) * PAGE_SIZE;
+    return filteredOrders.slice(start, start + PAGE_SIZE);
+  }, [filteredOrders, ordersPage]);
+
+  // Paginated Returns (24 items per page)
+  const totalReturnPages = Math.ceil(filteredReturns.length / PAGE_SIZE) || 1;
+  const paginatedReturns = useMemo(() => {
+    const start = (returnsPage - 1) * PAGE_SIZE;
+    return filteredReturns.slice(start, start + PAGE_SIZE);
+  }, [filteredReturns, returnsPage]);
 
   // Aggregate Return / Exchange Counts
   const returnsCount = useMemo(() => returns.filter((r) => r.type === "RETURN").length, [returns]);
@@ -1018,7 +1036,10 @@ function IndividualCustomerContent() {
                     <input
                       type="text"
                       value={orderSearch}
-                      onChange={(e) => setOrderSearch(e.target.value)}
+                      onChange={(e) => {
+                        setOrderSearch(e.target.value);
+                        setOrdersPage(1);
+                      }}
                       placeholder="Filter by bill no, payment method..."
                       className="w-full h-[32px] pl-8 pr-3 rounded-[6px] border border-slate-200 bg-slate-50/50 text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-[#5e2b9d] focus:bg-white transition-colors"
                     />
@@ -1069,7 +1090,7 @@ function IndividualCustomerContent() {
                             </td>
                           </tr>
                         ) : (
-                          filteredOrders.map((order) => {
+                          paginatedOrders.map((order) => {
                             const actualItems = Array.isArray(order.items)
                               ? order.items.filter((it) => !it._isBillMeta && !it._isReturnMeta)
                               : [];
@@ -1145,6 +1166,17 @@ function IndividualCustomerContent() {
                       </tbody>
                     </table>
                   </div>
+
+                  {/* 24-Item Orders Pagination Controls */}
+                  {filteredOrders.length > 0 && (
+                    <PaginationControls
+                      currentPage={ordersPage}
+                      totalPages={totalOrderPages}
+                      totalItems={filteredOrders.length}
+                      pageSize={PAGE_SIZE}
+                      onPageChange={(page) => setOrdersPage(page)}
+                    />
+                  )}
                 </div>
               </div>
             )}
@@ -1205,7 +1237,10 @@ function IndividualCustomerContent() {
                   <div className="flex items-center gap-1.5">
                     <button
                       type="button"
-                      onClick={() => setReturnTypeFilter("ALL")}
+                      onClick={() => {
+                        setReturnTypeFilter("ALL");
+                        setReturnsPage(1);
+                      }}
                       className={`h-7 px-3 rounded-[4px] text-xs font-semibold transition-colors cursor-pointer ${
                         returnTypeFilter === "ALL"
                           ? "bg-[#5e2b9d] text-white"
@@ -1216,7 +1251,10 @@ function IndividualCustomerContent() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setReturnTypeFilter("RETURN")}
+                      onClick={() => {
+                        setReturnTypeFilter("RETURN");
+                        setReturnsPage(1);
+                      }}
                       className={`h-7 px-3 rounded-[4px] text-xs font-semibold transition-colors cursor-pointer ${
                         returnTypeFilter === "RETURN"
                           ? "bg-rose-600 text-white"
@@ -1227,7 +1265,10 @@ function IndividualCustomerContent() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setReturnTypeFilter("EXCHANGE")}
+                      onClick={() => {
+                        setReturnTypeFilter("EXCHANGE");
+                        setReturnsPage(1);
+                      }}
                       className={`h-7 px-3 rounded-[4px] text-xs font-semibold transition-colors cursor-pointer ${
                         returnTypeFilter === "EXCHANGE"
                           ? "bg-indigo-600 text-white"
@@ -1294,7 +1335,7 @@ function IndividualCustomerContent() {
                             </td>
                           </tr>
                         ) : (
-                          filteredReturns.map((record) => (
+                          paginatedReturns.map((record) => (
                             <tr key={record.id} className="hover:bg-slate-50/70 transition-colors">
                               <td className="py-2.5 px-3.5 font-mono font-semibold text-[#5e2b9d] whitespace-nowrap">
                                 {record.returnNumber}
@@ -1345,6 +1386,17 @@ function IndividualCustomerContent() {
                       </tbody>
                     </table>
                   </div>
+
+                  {/* 24-Item Returns Pagination Controls */}
+                  {filteredReturns.length > 0 && (
+                    <PaginationControls
+                      currentPage={returnsPage}
+                      totalPages={totalReturnPages}
+                      totalItems={filteredReturns.length}
+                      pageSize={PAGE_SIZE}
+                      onPageChange={(page) => setReturnsPage(page)}
+                    />
+                  )}
                 </div>
               </div>
             )}

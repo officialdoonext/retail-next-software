@@ -2,12 +2,18 @@ import { NextResponse } from "next/server";
 import { getBusinessContext } from "@/lib/supabaseDb";
 
 // GET – fetch all staff for the active business & store
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const ctx = await getBusinessContext();
     if (!ctx) {
       return NextResponse.json({ success: false, error: "Unauthorized or no active store." }, { status: 401 });
     }
+
+    const { searchParams } = new URL(request.url);
+    const searchQuery = (searchParams.get("search") || "").trim().toLowerCase();
+    const fetchAll = searchParams.get("all") === "true";
+    const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
+    const limit = Math.max(1, parseInt(searchParams.get("limit") || "24", 10));
 
     let query = ctx.supabase
       .from("staff")
@@ -24,7 +30,7 @@ export async function GET() {
       return NextResponse.json({ success: false, error: error.message }, { status: 500 });
     }
 
-    const staff = (staffList || []).map((d: any) => ({
+    let staff = (staffList || []).map((d: any) => ({
       id: d.id,
       name: d.name,
       mobile: d.mobile,
@@ -35,7 +41,28 @@ export async function GET() {
       businessId: d.business_id,
     }));
 
-    return NextResponse.json({ success: true, staff });
+    if (searchQuery) {
+      staff = staff.filter(
+        (s) => s.name.toLowerCase().includes(searchQuery) || s.mobile.includes(searchQuery)
+      );
+    }
+
+    const total = staff.length;
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+    const startIndex = (page - 1) * limit;
+    const paginatedStaff = fetchAll ? staff : staff.slice(startIndex, startIndex + limit);
+
+    return NextResponse.json({
+      success: true,
+      staff: paginatedStaff,
+      pagination: {
+        total,
+        totalPages: fetchAll ? 1 : totalPages,
+        page: fetchAll ? 1 : page,
+        limit: fetchAll ? total : limit,
+        hasMore: fetchAll ? false : page < totalPages,
+      },
+    });
   } catch (err) {
     console.error("GET /api/staff error:", err);
     return NextResponse.json({ success: false, error: "Failed to fetch staff." }, { status: 500 });

@@ -15,6 +15,10 @@ export async function GET(request: Request) {
     const customerId = searchParams.get("customerId");
     const customerPhone = searchParams.get("customerPhone");
     const typeFilter = searchParams.get("type"); // 'RETURN' | 'EXCHANGE' | null
+    const searchQuery = (searchParams.get("search") || "").trim().toLowerCase();
+    const fetchAll = searchParams.get("all") === "true";
+    const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
+    const limit = Math.max(1, parseInt(searchParams.get("limit") || "24", 10));
 
     // 1. Query orders table for returned/exchanged records
     let ordersQuery = ctx.supabase
@@ -124,16 +128,39 @@ export async function GET(request: Request) {
       finalResults = finalResults.filter((r) => r.type === typeFilter);
     }
 
+    // Filter by search query
+    if (searchQuery) {
+      finalResults = finalResults.filter(
+        (r) =>
+          r.returnNumber.toLowerCase().includes(searchQuery) ||
+          r.orderNumber.toLowerCase().includes(searchQuery) ||
+          (r.customer?.name && r.customer.name.toLowerCase().includes(searchQuery)) ||
+          (r.customer?.phone && r.customer.phone.includes(searchQuery))
+      );
+    }
+
     // Sort descending by date
     finalResults.sort((a, b) => b.createdAt - a.createdAt);
 
+    const totalCount = finalResults.length;
+    const totalPages = Math.max(1, Math.ceil(totalCount / limit));
+    const startIndex = (page - 1) * limit;
+    const paginatedReturns = fetchAll ? finalResults : finalResults.slice(startIndex, startIndex + limit);
+
     return NextResponse.json({
       success: true,
-      returns: finalResults,
-      count: finalResults.length,
+      returns: paginatedReturns,
+      count: totalCount,
       totalReturns: finalResults.filter((r) => r.type === "RETURN").length,
       totalExchanges: finalResults.filter((r) => r.type === "EXCHANGE").length,
       totalRefundAmount: finalResults.reduce((acc, curr) => acc + curr.refundAmount, 0),
+      pagination: {
+        total: totalCount,
+        totalPages: fetchAll ? 1 : totalPages,
+        page: fetchAll ? 1 : page,
+        limit: fetchAll ? totalCount : limit,
+        hasMore: fetchAll ? false : page < totalPages,
+      },
     });
   } catch (err: any) {
     console.error("Error fetching returns:", err);

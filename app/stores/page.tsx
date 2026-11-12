@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import SoftwareLayout from "@/components/SoftwareLayout";
+import PaginationControls from "@/components/ui/PaginationControls";
 
 interface RetailStore {
   id: string;
@@ -68,6 +69,10 @@ export default function StoresPage() {
   const [maxStores, setMaxStores] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+
+  // Pagination (Strictly 24 items per page)
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 24;
 
   // Offcanvas (Drawer) State
   const [isOffcanvasOpen, setIsOffcanvasOpen] = useState(false);
@@ -286,6 +291,14 @@ export default function StoresPage() {
     );
   });
 
+  // Pagination Slice
+  const totalItems = filteredStores.length;
+  const totalPages = Math.ceil(totalItems / PAGE_SIZE) || 1;
+  const paginatedStores = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return filteredStores.slice(start, start + PAGE_SIZE);
+  }, [filteredStores, currentPage]);
+
   return (
     <SoftwareLayout>
       <div className="w-full space-y-3.5 animate-in fade-in duration-150">
@@ -348,7 +361,10 @@ export default function StoresPage() {
             <input
               type="text"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setCurrentPage(1);
+              }}
               placeholder="Search by store name, city, GST, or phone..."
               className="w-full h-[32px] max-h-[32px] bg-[#f8fafc] border border-slate-200 rounded-[6px] pl-8 pr-3 text-xs text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#5e2b9d] focus:border-[#5e2b9d]"
             />
@@ -416,8 +432,9 @@ export default function StoresPage() {
           </div>
         ) : (
           /* Stores Cards Grid */
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-            {filteredStores.map((store) => {
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+              {paginatedStores.map((store) => {
               const { isUnexpired, display: formattedExpiry } = parseExpiry(store.expires);
               const isActive = store.status === "Active" && isUnexpired;
 
@@ -578,7 +595,19 @@ export default function StoresPage() {
               );
             })}
           </div>
-        )}
+
+          {/* 24-Item Pagination Controls */}
+          {totalItems > 0 && (
+            <PaginationControls
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalItems={totalItems}
+              pageSize={PAGE_SIZE}
+              onPageChange={(page) => setCurrentPage(page)}
+            />
+          )}
+        </div>
+      )}
       </div>
 
       {/* RIGHT-SIDE OFF-CANVAS DRAWER FOR ADD / EDIT STORE */}

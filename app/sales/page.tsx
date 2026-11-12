@@ -6,6 +6,7 @@ import { useToast } from "@/components/ToastProvider";
 import { Spinner } from "@/components/ui/spinner";
 import { DateFilterType, getDateRange, isDateInRange } from "@/lib/dateFilters";
 import PosReceiptModal, { ReceiptData } from "@/components/PosReceiptModal";
+import PaginationControls from "@/components/ui/PaginationControls";
 
 interface SettledOrder {
   id: string;
@@ -48,6 +49,10 @@ export default function SalesPage() {
   // Search & Payment Filter State
   const [searchQuery, setSearchQuery] = useState("");
   const [paymentFilter, setPaymentFilter] = useState<string>("all");
+
+  // Pagination State (Strictly latest 24 per page)
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 24;
 
   // Selected Order for Detail Modal / Reprint
   const [selectedOrder, setSelectedOrder] = useState<SettledOrder | null>(null);
@@ -145,6 +150,17 @@ export default function SalesPage() {
       return true;
     });
   }, [orders, activeDateRange, searchQuery, paymentFilter]);
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, paymentFilter, dateFilter, customStart, customEnd]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredOrders.length / PAGE_SIZE));
+  const paginatedOrders = useMemo(() => {
+    const startIndex = (currentPage - 1) * PAGE_SIZE;
+    return filteredOrders.slice(startIndex, startIndex + PAGE_SIZE);
+  }, [filteredOrders, currentPage]);
 
   // Top Metric Cards Calculations
   const metrics = useMemo(() => {
@@ -600,7 +616,7 @@ export default function SalesPage() {
                     </td>
                   </tr>
                 ) : (
-                  filteredOrders.map((order) => {
+                  paginatedOrders.map((order) => {
                     const formattedDate = new Date(order.createdAt).toLocaleString("en-IN", {
                       dateStyle: "medium",
                       timeStyle: "short",
@@ -710,6 +726,19 @@ export default function SalesPage() {
               </tbody>
             </table>
           </div>
+
+          {filteredOrders.length > 0 && (
+            <div className="p-4 bg-white border-t border-slate-200">
+              <PaginationControls
+                currentPage={currentPage}
+                totalPages={totalPages}
+                totalItems={filteredOrders.length}
+                pageSize={PAGE_SIZE}
+                onPageChange={setCurrentPage}
+                itemName="sales records"
+              />
+            </div>
+          )}
         </div>
 
         {/* ==================================================================== */}

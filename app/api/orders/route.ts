@@ -11,13 +11,15 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url);
     const limitParam = searchParams.get("limit");
+    const pageParam = searchParams.get("page");
     const fetchAll = searchParams.get("all") === "true";
     const startDate = searchParams.get("startDate");
     const endDate = searchParams.get("endDate");
     const customerId = searchParams.get("customerId");
     const customerPhone = searchParams.get("customerPhone");
     const allStores = searchParams.get("allStores") === "true";
-    const maxLimit = fetchAll ? 5000 : (limitParam ? parseInt(limitParam, 10) : 1000);
+    const page = pageParam ? Math.max(1, parseInt(pageParam, 10)) : 1;
+    const limit = limitParam ? Math.max(1, parseInt(limitParam, 10)) : 24;
 
     let query = ctx.supabase
       .from("orders")
@@ -42,8 +44,7 @@ export async function GET(request: Request) {
     }
 
     const { data: rawOrders, error } = await query
-      .order("created_at", { ascending: false })
-      .limit(maxLimit);
+      .order("created_at", { ascending: false });
 
     if (error) {
       return NextResponse.json({ success: false, error: error.message }, { status: 500 });
@@ -82,7 +83,33 @@ export async function GET(request: Request) {
       };
     });
 
-    return NextResponse.json({ success: true, orders, count: orders.length });
+    const total = orders.length;
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+
+    if (fetchAll) {
+      return NextResponse.json({
+        success: true,
+        orders,
+        count: total,
+        pagination: { total, totalPages: 1, page: 1, limit: total, hasMore: false },
+      });
+    }
+
+    const startIndex = (page - 1) * limit;
+    const paginatedOrders = orders.slice(startIndex, startIndex + limit);
+
+    return NextResponse.json({
+      success: true,
+      orders: paginatedOrders,
+      count: total,
+      pagination: {
+        total,
+        totalPages,
+        page,
+        limit,
+        hasMore: page < totalPages,
+      },
+    });
   } catch (error: any) {
     console.error("Error fetching settled orders:", error);
     return NextResponse.json({ success: false, error: "Failed to fetch sales records." }, { status: 500 });

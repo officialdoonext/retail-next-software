@@ -577,3 +577,89 @@ END $$;
 
 
 
+
+-- ==============================================================================
+-- 19. VENDORS & SUPPLIERS TABLE
+-- ==============================================================================
+CREATE TABLE IF NOT EXISTS public.vendors (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  business_id UUID NOT NULL REFERENCES public.businesses(id) ON DELETE CASCADE,
+  store_id UUID REFERENCES public.stores(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  company_name TEXT,
+  phone TEXT,
+  email TEXT,
+  gst_number TEXT,
+  address TEXT,
+  city TEXT,
+  outstanding_due NUMERIC(12, 2) DEFAULT 0.00,
+  status TEXT DEFAULT 'Active' CHECK (status IN ('Active', 'Inactive')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_vendors_business ON public.vendors(business_id);
+CREATE INDEX IF NOT EXISTS idx_vendors_store ON public.vendors(store_id);
+
+-- 20. VENDOR ORDERS (Purchase Orders)
+CREATE TABLE IF NOT EXISTS public.vendor_orders (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  business_id UUID NOT NULL REFERENCES public.businesses(id) ON DELETE CASCADE,
+  store_id UUID REFERENCES public.stores(id) ON DELETE CASCADE,
+  vendor_id UUID REFERENCES public.vendors(id) ON DELETE CASCADE,
+  vendor_name TEXT NOT NULL,
+  po_number TEXT NOT NULL,
+  items JSONB NOT NULL DEFAULT '[]'::jsonb,
+  total_amount NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
+  expected_delivery DATE,
+  status TEXT DEFAULT 'Pending' CHECK (status IN ('Pending', 'Approved', 'Shipped', 'Received', 'Cancelled')),
+  notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_vendor_orders_business ON public.vendor_orders(business_id);
+CREATE INDEX IF NOT EXISTS idx_vendor_orders_po ON public.vendor_orders(po_number);
+
+-- 21. VENDOR INVOICES (Supplier Bills & Payments)
+CREATE TABLE IF NOT EXISTS public.vendor_invoices (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  business_id UUID NOT NULL REFERENCES public.businesses(id) ON DELETE CASCADE,
+  store_id UUID REFERENCES public.stores(id) ON DELETE CASCADE,
+  vendor_id UUID REFERENCES public.vendors(id) ON DELETE CASCADE,
+  vendor_name TEXT NOT NULL,
+  invoice_number TEXT NOT NULL,
+  invoice_date DATE NOT NULL,
+  due_date DATE,
+  amount NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
+  paid_amount NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
+  payment_method TEXT DEFAULT 'Bank Transfer',
+  status TEXT DEFAULT 'Unpaid' CHECK (status IN ('Unpaid', 'Partially Paid', 'Paid', 'Overdue')),
+  notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_vendor_invoices_business ON public.vendor_invoices(business_id);
+
+-- 22. STOCK TRANSFERS TABLE
+CREATE TABLE IF NOT EXISTS public.stock_transfers (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  business_id UUID NOT NULL REFERENCES public.businesses(id) ON DELETE CASCADE,
+  transfer_number TEXT NOT NULL,
+  from_type TEXT NOT NULL DEFAULT 'Store', -- 'Store' | 'Warehouse'
+  from_id TEXT NOT NULL,
+  from_name TEXT NOT NULL,
+  to_type TEXT NOT NULL DEFAULT 'Store', -- 'Store' | 'Warehouse'
+  to_id TEXT NOT NULL,
+  to_name TEXT NOT NULL,
+  items JSONB NOT NULL DEFAULT '[]'::jsonb,
+  total_qty NUMERIC(12, 2) NOT NULL DEFAULT 0,
+  status TEXT DEFAULT 'Pending' CHECK (status IN ('Pending', 'In-Transit', 'Received', 'Cancelled')),
+  notes TEXT,
+  transferred_by TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_stock_transfers_business ON public.stock_transfers(business_id);

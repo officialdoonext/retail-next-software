@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import SoftwareLayout from "@/components/SoftwareLayout";
+import PaginationControls from "@/components/ui/PaginationControls";
 import { useToast } from "@/components/ToastProvider";
 import { Spinner } from "@/components/ui/spinner";
 import { DateFilterType, getDateRange, isDateInRange } from "@/lib/dateFilters";
@@ -41,6 +42,10 @@ export default function EmployeeSalesPage() {
 
   // Search by staff name / ID / mobile
   const [searchQuery, setSearchQuery] = useState("");
+
+  // Pagination (Strictly 24 items per page)
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 24;
 
   // Detailed Modal for viewing individual employee item sales
   const [selectedStaffSales, setSelectedStaffSales] = useState<EmployeeSalesSummary | null>(null);
@@ -196,6 +201,14 @@ export default function EmployeeSalesPage() {
     return list;
   }, [employeeSalesMap, searchQuery]);
 
+  // Pagination Slice
+  const totalItems = sortedStaffList.length;
+  const totalPages = Math.ceil(totalItems / PAGE_SIZE) || 1;
+  const paginatedStaffList = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return sortedStaffList.slice(start, start + PAGE_SIZE);
+  }, [sortedStaffList, currentPage]);
+
   // KPI Metrics
   const metrics = useMemo(() => {
     const totalStaffRev = sortedStaffList.reduce((acc, s) => acc + s.totalRevenue, 0);
@@ -276,7 +289,10 @@ export default function EmployeeSalesPage() {
               <button
                 key={btn.type}
                 type="button"
-                onClick={() => setDateFilter(btn.type)}
+                onClick={() => {
+                  setDateFilter(btn.type);
+                  setCurrentPage(1);
+                }}
                 className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                   dateFilter === btn.type
                     ? "bg-[#5e2b9d] text-white shadow-xs font-bold"
@@ -368,7 +384,10 @@ export default function EmployeeSalesPage() {
             <input
               type="text"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setCurrentPage(1);
+              }}
               placeholder="Search by Employee ID, Name, or Mobile..."
               className="w-full h-9 pl-9 pr-3 rounded-xl border border-slate-200 text-xs placeholder:text-slate-400 focus:outline-none focus:border-[#5e2b9d] focus:ring-1 focus:ring-[#5e2b9d]"
             />
@@ -413,7 +432,8 @@ export default function EmployeeSalesPage() {
                     </td>
                   </tr>
                 ) : (
-                  sortedStaffList.map((emp, idx) => {
+                  paginatedStaffList.map((emp, idx) => {
+                    const actualRank = (currentPage - 1) * PAGE_SIZE + idx;
                     const avgRate = emp.totalUnits > 0 ? emp.totalRevenue / emp.totalUnits : 0;
                     const contributionPct =
                       totalStoreRevenue > 0
@@ -424,14 +444,14 @@ export default function EmployeeSalesPage() {
                       <tr key={emp.employeeId} className="hover:bg-slate-50/70 transition-colors">
                         {/* 1. Rank */}
                         <td className="py-3 px-4 text-center">
-                          {idx === 0 && emp.totalRevenue > 0 ? (
+                          {actualRank === 0 && emp.totalRevenue > 0 ? (
                             <span className="text-base" title="Top Performer">🥇</span>
-                          ) : idx === 1 && emp.totalRevenue > 0 ? (
+                          ) : actualRank === 1 && emp.totalRevenue > 0 ? (
                             <span className="text-base" title="2nd Rank">🥈</span>
-                          ) : idx === 2 && emp.totalRevenue > 0 ? (
+                          ) : actualRank === 2 && emp.totalRevenue > 0 ? (
                             <span className="text-base" title="3rd Rank">🥉</span>
                           ) : (
-                            <span className="text-slate-400 font-mono font-bold text-xs">#{idx + 1}</span>
+                            <span className="text-slate-400 font-mono font-bold text-xs">#{actualRank + 1}</span>
                           )}
                         </td>
 
@@ -522,6 +542,17 @@ export default function EmployeeSalesPage() {
               </tbody>
             </table>
           </div>
+
+          {/* 24-Item Pagination Controls */}
+          {totalItems > 0 && (
+            <PaginationControls
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalItems={totalItems}
+              pageSize={PAGE_SIZE}
+              onPageChange={(page) => setCurrentPage(page)}
+            />
+          )}
         </div>
 
         {/* ==================================================================== */}

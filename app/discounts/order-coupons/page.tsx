@@ -7,6 +7,7 @@ import CouponModal from "@/components/CouponModal";
 import { CouponItem, formatDiscountDisplay } from "@/lib/coupons";
 import { useToast } from "@/components/ToastProvider";
 import { Spinner } from "@/components/ui/spinner";
+import PaginationControls from "@/components/ui/PaginationControls";
 
 export default function OrderCouponsPage() {
   const toast = useToast();
@@ -16,6 +17,10 @@ export default function OrderCouponsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [discountTypeFilter, setDiscountTypeFilter] = useState("all");
+
+  // Pagination (Strictly 24 per page)
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 24;
 
   const [stats, setStats] = useState({
     total: 0,
@@ -147,6 +152,17 @@ export default function OrderCouponsPage() {
     if (discountTypeFilter === "all") return coupons;
     return coupons.filter((c) => c.discountType === discountTypeFilter);
   }, [coupons, discountTypeFilter]);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, statusFilter, discountTypeFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredCoupons.length / PAGE_SIZE));
+  const paginatedCoupons = useMemo(() => {
+    const startIndex = (currentPage - 1) * PAGE_SIZE;
+    return filteredCoupons.slice(startIndex, startIndex + PAGE_SIZE);
+  }, [filteredCoupons, currentPage]);
 
   return (
     <SoftwareLayout>
@@ -337,8 +353,9 @@ export default function OrderCouponsPage() {
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-            {filteredCoupons.map((coupon) => {
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+              {paginatedCoupons.map((coupon) => {
               const isCopied = copiedCode === coupon.code;
               const usagePercent = coupon.totalUsageLimit
                 ? Math.min(100, Math.round((coupon.usedCount / coupon.totalUsageLimit) * 100))
@@ -513,6 +530,20 @@ export default function OrderCouponsPage() {
               );
             })}
           </div>
+
+          {filteredCoupons.length > 0 && (
+            <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
+              <PaginationControls
+                currentPage={currentPage}
+                totalPages={totalPages}
+                totalItems={filteredCoupons.length}
+                pageSize={PAGE_SIZE}
+                onPageChange={setCurrentPage}
+                itemName="order coupons"
+              />
+            </div>
+          )}
+        </div>
         )}
 
       </div>

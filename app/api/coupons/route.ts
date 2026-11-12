@@ -185,6 +185,9 @@ export async function GET(request: Request) {
     const filterType = (searchParams.get("type") || "order").toLowerCase() as CouponType | "all";
     const searchQuery = (searchParams.get("search") || "").trim().toLowerCase();
     const statusFilter = (searchParams.get("status") || "all").trim();
+    const fetchAll = searchParams.get("all") === "true";
+    const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
+    const limit = Math.max(1, parseInt(searchParams.get("limit") || "24", 10));
 
     let coupons: CouponItem[] = [];
 
@@ -241,14 +244,25 @@ export async function GET(request: Request) {
       return sum + (c.usedCount || 0) * avgSaving;
     }, 0);
 
+    const totalPages = Math.max(1, Math.ceil(totalCount / limit));
+    const startIndex = (page - 1) * limit;
+    const paginatedCoupons = fetchAll ? processed : processed.slice(startIndex, startIndex + limit);
+
     return NextResponse.json({
       success: true,
-      coupons: processed,
+      coupons: paginatedCoupons,
       stats: {
         total: totalCount,
         active: activeCount,
         totalRedemptions,
         totalSavingsEstimated,
+      },
+      pagination: {
+        total: totalCount,
+        totalPages: fetchAll ? 1 : totalPages,
+        page: fetchAll ? 1 : page,
+        limit: fetchAll ? totalCount : limit,
+        hasMore: fetchAll ? false : page < totalPages,
       },
     });
   } catch (err: any) {
