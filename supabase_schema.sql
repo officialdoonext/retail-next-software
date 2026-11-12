@@ -510,6 +510,7 @@ CREATE INDEX IF NOT EXISTS idx_coupons_status ON public.coupons(status);
 -- Enable RLS
 ALTER TABLE public.coupons ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Allow authenticated access to coupons" ON public.coupons;
 CREATE POLICY "Allow authenticated access to coupons"
   ON public.coupons FOR ALL
   TO authenticated
@@ -548,36 +549,6 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 -- 'authenticated', or 'service_role'. They must have USAGE on schema public
 -- and privileges on all tables and sequences to prevent "permission denied" errors.
 -- ==============================================================================
-GRANT USAGE ON SCHEMA public TO postgres, anon, authenticated, service_role;
-GRANT ALL ON ALL TABLES IN SCHEMA public TO postgres, anon, authenticated, service_role;
-GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO postgres, anon, authenticated, service_role;
-GRANT ALL ON ALL ROUTINES IN SCHEMA public TO postgres, anon, authenticated, service_role;
-
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO postgres, anon, authenticated, service_role;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO postgres, anon, authenticated, service_role;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON ROUTINES TO postgres, anon, authenticated, service_role;
-
--- Ensure service_role and authenticated users have full access across all tables under RLS
-DO $$
-DECLARE
-  tbl text;
-BEGIN
-  FOR tbl IN
-    SELECT table_name
-    FROM information_schema.tables
-    WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
-  LOOP
-    EXECUTE format('DROP POLICY IF EXISTS "Service role bypass %I" ON public.%I', tbl, tbl);
-    EXECUTE format('CREATE POLICY "Service role bypass %I" ON public.%I FOR ALL TO service_role USING (true) WITH CHECK (true)', tbl, tbl);
-    EXECUTE format('DROP POLICY IF EXISTS "Allow authenticated full access %I" ON public.%I', tbl, tbl);
-    EXECUTE format('CREATE POLICY "Allow authenticated full access %I" ON public.%I FOR ALL TO authenticated USING (true) WITH CHECK (true)', tbl, tbl);
-  END LOOP;
-END $$;
-
-
-
-
-
 -- ==============================================================================
 -- 19. VENDORS & SUPPLIERS TABLE
 -- ==============================================================================
@@ -663,3 +634,39 @@ CREATE TABLE IF NOT EXISTS public.stock_transfers (
 );
 
 CREATE INDEX IF NOT EXISTS idx_stock_transfers_business ON public.stock_transfers(business_id);
+
+-- Enable RLS on new tables
+ALTER TABLE public.vendors ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.vendor_orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.vendor_invoices ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.stock_transfers ENABLE ROW LEVEL SECURITY;
+
+-- ==============================================================================
+-- UNIVERSAL PERMISSIONS & RLS POLICIES FOR ALL TABLES
+-- Grants permissions and creates bypass policies for service_role and authenticated users.
+-- ==============================================================================
+GRANT USAGE ON SCHEMA public TO postgres, anon, authenticated, service_role;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO postgres, anon, authenticated, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO postgres, anon, authenticated, service_role;
+GRANT ALL ON ALL ROUTINES IN SCHEMA public TO postgres, anon, authenticated, service_role;
+
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO postgres, anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO postgres, anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON ROUTINES TO postgres, anon, authenticated, service_role;
+
+-- Ensure service_role and authenticated users have full access across all tables under RLS
+DO $$
+DECLARE
+  tbl text;
+BEGIN
+  FOR tbl IN
+    SELECT table_name
+    FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+  LOOP
+    EXECUTE format('DROP POLICY IF EXISTS "Service role bypass %I" ON public.%I', tbl, tbl);
+    EXECUTE format('CREATE POLICY "Service role bypass %I" ON public.%I FOR ALL TO service_role USING (true) WITH CHECK (true)', tbl, tbl);
+    EXECUTE format('DROP POLICY IF EXISTS "Allow authenticated full access %I" ON public.%I', tbl, tbl);
+    EXECUTE format('CREATE POLICY "Allow authenticated full access %I" ON public.%I FOR ALL TO authenticated USING (true) WITH CHECK (true)', tbl, tbl);
+  END LOOP;
+END $$;
