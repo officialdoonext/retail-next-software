@@ -17,6 +17,9 @@ export async function GET(request: Request) {
     const endDate = searchParams.get("endDate");
     const customerId = searchParams.get("customerId");
     const customerPhone = searchParams.get("customerPhone");
+    const searchQuery = searchParams.get("search")?.trim();
+    const billNumber = searchParams.get("billNumber")?.trim();
+    const customerSearch = searchParams.get("customer")?.trim();
     const allStores = searchParams.get("allStores") === "true";
     const page = pageParam ? Math.max(1, parseInt(pageParam, 10)) : 1;
     const limit = limitParam ? Math.max(1, parseInt(limitParam, 10)) : 24;
@@ -30,10 +33,16 @@ export async function GET(request: Request) {
       query = query.or(`store_id.eq.${ctx.storeId},store_id.is.null`);
     }
 
-    if (customerId) {
+    if (billNumber) {
+      query = query.eq("order_number", billNumber);
+    } else if (customerId) {
       query = query.eq("customer_id", customerId);
     } else if (customerPhone) {
       query = query.eq("customer_phone", customerPhone);
+    } else if (customerSearch) {
+      query = query.or(`customer_name.ilike.%${customerSearch}%,customer_phone.ilike.%${customerSearch}%`);
+    } else if (searchQuery) {
+      query = query.or(`order_number.ilike.%${searchQuery}%,customer_name.ilike.%${searchQuery}%,customer_phone.ilike.%${searchQuery}%`);
     }
 
     if (startDate) {
@@ -78,6 +87,9 @@ export async function GET(request: Request) {
         couponCode: billMeta.couponCode || null,
         couponDiscount: billMeta.couponDiscount || 0,
         customerDiscount: billMeta.customerDiscount || 0,
+        previousBillNumber: billMeta.previousBillNumber || null,
+        exchangeCredit: Number(billMeta.exchangeCredit) || 0,
+        exchangeVoucherNumber: billMeta.exchangeVoucherNumber || null,
         settledBy: o.staff_name || "",
         createdAt: o.created_at ? new Date(o.created_at).getTime() : Date.now(),
       };
@@ -261,6 +273,9 @@ export async function POST(request: Request) {
       couponCode: body.couponCode || null,
       couponDiscount: Number(body.couponDiscount) || 0,
       customerDiscount: Number(body.customerDiscount) || 0,
+      previousBillNumber: body.previousBillNumber || null,
+      exchangeCredit: Number(body.exchangeCredit) || 0,
+      exchangeVoucherNumber: body.exchangeVoucherNumber || null,
     };
 
     const finalPaymentMethod = paymentMethod === "SPLIT" && splitDetails

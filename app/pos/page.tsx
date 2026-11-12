@@ -99,6 +99,18 @@ export default function PosBillingPage() {
   const [isDraftsModalOpen, setIsDraftsModalOpen] = useState(false);
   const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
 
+  // Exchange Credit & Bill Linkage
+  const [previousBillNumber, setPreviousBillNumber] = useState("");
+  const [exchangeCredit, setExchangeCredit] = useState(0);
+  const [exchangeVoucherNumber, setExchangeVoucherNumber] = useState("");
+  const [isExchangeModalOpen, setIsExchangeModalOpen] = useState(false);
+  const [exchangeSearchQuery, setExchangeSearchQuery] = useState("");
+  const [isSearchingExchanges, setIsSearchingExchanges] = useState(false);
+  const [exchangeSearchResults, setExchangeSearchResults] = useState<any[]>([]);
+  const [manualBillInput, setManualBillInput] = useState("");
+  const [manualCreditInput, setManualCreditInput] = useState("");
+  const [exchangeModalTab, setExchangeModalTab] = useState<"search" | "manual">("search");
+
   // Settlement & Receipt Modal
   const [isSettling, setIsSettling] = useState(false);
   const [settledReceipt, setSettledReceipt] = useState<ReceiptData | null>(null);
@@ -106,6 +118,41 @@ export default function PosBillingPage() {
 
   // 1. Initial Load: Employees, Coupons, Local Drafts & Server Drafts
   useEffect(() => {
+    // Read URL Search Params for Exchange Credit / Previous Bill linkage
+    if (typeof window !== "undefined") {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const voucher = params.get("exchangeVoucher");
+        const prevBill = params.get("previousBill");
+        const creditStr = params.get("credit");
+        const custName = params.get("customerName");
+        const custPhone = params.get("customerPhone");
+
+        if (voucher || prevBill || creditStr) {
+          if (voucher) setExchangeVoucherNumber(voucher);
+          if (prevBill) setPreviousBillNumber(prevBill);
+          const credit = parseFloat(creditStr || "0");
+          if (!isNaN(credit) && credit > 0) {
+            setExchangeCredit(credit);
+          }
+
+          if (custName || custPhone) {
+            setSelectedCustomer({
+              id: "",
+              name: custName || "Customer",
+              phone: custPhone || "",
+            });
+          }
+
+          toast.success(
+            `Exchange Credit of ₹${credit || 0} applied! Ref Bill: #${prevBill || voucher}`
+          );
+        }
+      } catch (e) {
+        console.error("Error reading URL search params:", e);
+      }
+    }
+
     // 1. Read Local Drafts first
     if (typeof window !== "undefined") {
       try {
@@ -491,12 +538,12 @@ export default function PosBillingPage() {
     return customerDiscountAmount + couponDiscountAmount;
   }, [customerDiscountAmount, couponDiscountAmount]);
 
-  // Base Grand Total before discount & taxes
+  // Base Grand Total before discount & taxes, minus exchange credit deduction
   const grandTotal = useMemo(() => {
     let total = calculatedItems.reduce((acc, it) => acc + it.subtotal, 0);
-    total = Math.max(0, total - totalDiscount);
+    total = Math.max(0, total - totalDiscount - exchangeCredit);
     return Math.round(total * 100) / 100;
-  }, [calculatedItems, totalDiscount]);
+  }, [calculatedItems, totalDiscount, exchangeCredit]);
 
   // 7. Auto-apply eligible coupons with autoApplyAtCheckout flag
   useEffect(() => {
@@ -542,6 +589,72 @@ export default function PosBillingPage() {
     }));
   };
 
+  // Handle searching exchange vouchers & credit notes
+  const handleSearchExchanges = async (query: string) => {
+    setExchangeSearchQuery(query);
+    const clean = query.trim();
+    if (!clean) {
+      setExchangeSearchResults([]);
+      return;
+    }
+    try {
+      setIsSearchingExchanges(true);
+      const res = await fetch(`/api/returns?type=exchange&search=${encodeURIComponent(clean)}&limit=10`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.returns)) {
+          setExchangeSearchResults(data.returns);
+        }
+      }
+    } catch (err) {
+      console.error("Exchange search error:", err);
+    } finally {
+      setIsSearchingExchanges(false);
+    }
+  };
+
+  const handleApplyExchangeVoucher = (voucher: any) => {
+    const credit = Number(voucher.exchangeValue || voucher.refundAmount || 0);
+    const prevBill = voucher.originalBillNumber || voucher.orderNumber || "";
+    const voucherNum = voucher.returnNumber || voucher.orderNumber || "";
+
+    setExchangeCredit(credit);
+    setPreviousBillNumber(prevBill);
+    setExchangeVoucherNumber(voucherNum);
+
+    if (voucher.customerName || voucher.customerPhone) {
+      setSelectedCustomer((prev: any) => prev || {
+        id: voucher.customerId || "",
+        name: voucher.customerName || "Customer",
+        phone: voucher.customerPhone || "",
+      });
+    }
+
+    setIsExchangeModalOpen(false);
+    toast.success(`Applied ₹${credit.toFixed(2)} Exchange Credit from Bill #${prevBill}`);
+  };
+
+  const handleApplyManualExchange = (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanBill = manualBillInput.trim();
+    const credit = parseFloat(manualCreditInput);
+
+    if (!cleanBill) {
+      toast.error("Please enter the original / previous bill number.");
+      return;
+    }
+    if (isNaN(credit) || credit <= 0) {
+      toast.error("Please enter a valid credit amount greater than 0.");
+      return;
+    }
+
+    setPreviousBillNumber(cleanBill);
+    setExchangeCredit(credit);
+    setExchangeVoucherNumber("");
+    setIsExchangeModalOpen(false);
+    toast.success(`Applied ₹${credit.toFixed(2)} Exchange Credit for Bill #${cleanBill}`);
+  };
+
   // 8. Action: Draft the Bill (Hold Bill)
   const handleDraftBill = async () => {
     if (cartItems.length === 0) {
@@ -569,6 +682,9 @@ export default function PosBillingPage() {
       grandTotal,
       couponCode: appliedCoupon?.code,
       appliedCoupon,
+      previousBillNumber: previousBillNumber || null,
+      exchangeCredit: exchangeCredit > 0 ? exchangeCredit : 0,
+      exchangeVoucherNumber: exchangeVoucherNumber || null,
     };
 
     setDraftBills((prev) => [newDraft, ...prev.filter((d) => d.id !== newDraft.id)]);
@@ -603,6 +719,13 @@ export default function PosBillingPage() {
     } else {
       setAppliedCoupon(null);
     }
+    if (draft.exchangeCredit) {
+      setExchangeCredit(draft.exchangeCredit);
+    } else {
+      setExchangeCredit(0);
+    }
+    setPreviousBillNumber(draft.previousBillNumber || "");
+    setExchangeVoucherNumber(draft.exchangeVoucherNumber || "");
     setActiveDraftId(draft.id);
     setIsDraftsModalOpen(false);
     toast.success(`Resumed draft #${draft.draftNumber}`);
@@ -622,6 +745,9 @@ export default function PosBillingPage() {
     setCartItems([]);
     setSelectedCustomer(null);
     setAppliedCoupon(null);
+    setExchangeCredit(0);
+    setPreviousBillNumber("");
+    setExchangeVoucherNumber("");
     setBarcodeInput("");
     setPaymentMethod("CASH");
     setSplitAmounts({ cash: "", upi: "", card: "" });
@@ -695,6 +821,9 @@ export default function PosBillingPage() {
         couponDiscount: couponDiscountAmount,
         customerDiscount: customerDiscountAmount,
         savedBillId: activeDraftId || null,
+        previousBillNumber: previousBillNumber || null,
+        exchangeCredit: exchangeCredit > 0 ? exchangeCredit : 0,
+        exchangeVoucherNumber: exchangeVoucherNumber || null,
       };
 
       const res = await fetch("/api/orders", {
@@ -751,6 +880,9 @@ export default function PosBillingPage() {
             : paymentMethod,
         splitDetails,
         staffName: data.order.staff_name || "Cashier",
+        previousBillNumber: previousBillNumber || null,
+        exchangeCredit: exchangeCredit > 0 ? exchangeCredit : 0,
+        exchangeVoucherNumber: exchangeVoucherNumber || null,
       };
 
       setSettledReceipt(receiptPayload);
@@ -1286,6 +1418,77 @@ export default function PosBillingPage() {
                 )}
               </div>
 
+              {/* 2b. EXCHANGE CREDIT & PREVIOUS BILL LINKAGE */}
+              <div className="p-3 bg-gradient-to-r from-purple-50/70 to-indigo-50/70 border border-purple-200 rounded-xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-[#5e2b9d] flex items-center gap-1.5">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                    </svg>
+                    <span>Exchange Credit & Bill Link</span>
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setManualBillInput(previousBillNumber || "");
+                      setManualCreditInput(exchangeCredit > 0 ? String(exchangeCredit) : "");
+                      setIsExchangeModalOpen(true);
+                    }}
+                    className="text-[11px] font-bold text-[#5e2b9d] hover:underline cursor-pointer"
+                  >
+                    {exchangeCredit > 0 ? "Edit / Re-link" : "+ Link Exchange"}
+                  </button>
+                </div>
+
+                {exchangeCredit > 0 || previousBillNumber ? (
+                  <div className="bg-white p-2.5 rounded-lg border border-purple-300 flex items-center justify-between shadow-2xs">
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-mono font-bold text-xs text-[#5e2b9d]">
+                          {previousBillNumber ? `Ref Bill: #${previousBillNumber}` : "Exchange Credit"}
+                        </span>
+                        {exchangeVoucherNumber && (
+                          <span className="text-[10px] bg-purple-100 text-[#5e2b9d] px-1 rounded font-semibold font-mono">
+                            {exchangeVoucherNumber}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[10.5px] text-slate-500 mt-0.5">
+                        Deduction Value: <b className="text-purple-700 font-mono font-bold">₹{exchangeCredit.toFixed(2)}</b>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setExchangeCredit(0);
+                        setPreviousBillNumber("");
+                        setExchangeVoucherNumber("");
+                        toast.info("Exchange credit removed.");
+                      }}
+                      className="text-xs text-rose-500 hover:text-rose-700 font-semibold cursor-pointer"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between text-xs text-slate-600">
+                    <span className="text-[11px] text-slate-500">No exchange credit linked</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setManualBillInput("");
+                        setManualCreditInput("");
+                        setIsExchangeModalOpen(true);
+                      }}
+                      className="px-2.5 py-1 bg-white hover:bg-slate-50 border border-purple-200 text-[#5e2b9d] rounded-lg text-xs font-semibold cursor-pointer shadow-2xs transition-colors"
+                    >
+                      + Link Exchange
+                    </button>
+                  </div>
+                )}
+              </div>
+
               {/* 3. TOTALS BREAKDOWN */}
               <div className="space-y-1.5 text-xs text-slate-600 pt-2 border-t border-slate-200">
                 <div className="flex justify-between">
@@ -1311,6 +1514,20 @@ export default function PosBillingPage() {
                   <div className="flex justify-between">
                     <span>GST (CGST + SGST):</span>
                     <span className="font-mono text-slate-900">₹{totalTax.toFixed(2)}</span>
+                  </div>
+                )}
+
+                {exchangeCredit > 0 && (
+                  <div className="flex justify-between text-[#5e2b9d] font-semibold bg-purple-50/90 px-2 py-1.5 rounded-lg border border-purple-200">
+                    <div className="flex items-center gap-1.5">
+                      <span>Exchange Deduction:</span>
+                      {previousBillNumber && (
+                        <span className="text-[10px] bg-purple-200/70 text-[#5e2b9d] px-1 rounded font-mono font-bold">
+                          Ref #{previousBillNumber}
+                        </span>
+                      )}
+                    </div>
+                    <span className="font-mono text-purple-900 font-bold">-₹{exchangeCredit.toFixed(2)}</span>
                   </div>
                 )}
 
@@ -1746,6 +1963,228 @@ export default function PosBillingPage() {
                 className="px-4 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold cursor-pointer transition-colors"
               >
                 Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Exchange Credit & Previous Bill Linkage */}
+      {isExchangeModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-[2px] flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[85vh]">
+            
+            {/* Header */}
+            <div className="bg-[#5e2b9d] text-white px-5 py-4 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center">
+                  <svg className="w-4 h-4 text-purple-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold tracking-tight">Exchange Credit & Bill Reference</h3>
+                  <p className="text-[11px] text-purple-200">
+                    Apply exchange value & link original bill for audit trail
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsExchangeModalOpen(false)}
+                className="w-8 h-8 rounded-lg hover:bg-white/10 text-white/80 hover:text-white flex items-center justify-center transition-colors cursor-pointer text-sm font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Mode Tabs */}
+            <div className="flex border-b border-slate-200 bg-slate-50 px-5 pt-3 gap-3 shrink-0">
+              <button
+                type="button"
+                onClick={() => setExchangeModalTab("search")}
+                className={`pb-2.5 text-xs font-bold transition-colors cursor-pointer border-b-2 flex items-center gap-1.5 ${
+                  exchangeModalTab === "search"
+                    ? "border-[#5e2b9d] text-[#5e2b9d]"
+                    : "border-transparent text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                <span>🔍 Search Exchange Slip</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setExchangeModalTab("manual")}
+                className={`pb-2.5 text-xs font-bold transition-colors cursor-pointer border-b-2 flex items-center gap-1.5 ${
+                  exchangeModalTab === "manual"
+                    ? "border-[#5e2b9d] text-[#5e2b9d]"
+                    : "border-transparent text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                <span>✏️ Manual Bill Reference</span>
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-5 flex-1 overflow-y-auto bg-slate-50 space-y-4">
+              {exchangeModalTab === "search" ? (
+                <div className="space-y-3">
+                  <div className="relative">
+                    <input
+                      type="text"
+                      autoFocus
+                      value={exchangeSearchQuery}
+                      onChange={(e) => handleSearchExchanges(e.target.value)}
+                      placeholder="Search by Exchange #, Previous Bill #, Customer Name or Phone..."
+                      className="w-full h-10 pl-10 pr-3 rounded-xl border border-slate-200 text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-[#5e2b9d] focus:ring-2 focus:ring-[#5e2b9d]/20 bg-white shadow-2xs font-medium"
+                    />
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      </svg>
+                    </div>
+                  </div>
+
+                  {isSearchingExchanges && (
+                    <div className="py-6 flex flex-col items-center justify-center text-xs text-slate-500 gap-2">
+                      <Spinner className="w-5 h-5 text-[#5e2b9d]" />
+                      <span>Searching exchange slips...</span>
+                    </div>
+                  )}
+
+                  {!isSearchingExchanges && exchangeSearchQuery.trim().length > 0 && exchangeSearchResults.length === 0 && (
+                    <div className="py-6 text-center text-xs text-slate-500 bg-white rounded-xl border border-dashed border-slate-200 p-4">
+                      No exchange vouchers found matching "{exchangeSearchQuery}".
+                      <div className="mt-2 text-[11px] text-[#5e2b9d]">
+                        Try switching to "Manual Bill Reference" tab to enter it directly.
+                      </div>
+                    </div>
+                  )}
+
+                  {!isSearchingExchanges && exchangeSearchResults.length > 0 && (
+                    <div className="space-y-2">
+                      {exchangeSearchResults.map((exc) => {
+                        const creditVal = Number(exc.exchangeValue || exc.refundAmount || 0);
+                        const prevBill = exc.originalBillNumber || exc.orderNumber || "";
+                        return (
+                          <div
+                            key={exc.id}
+                            className="bg-white p-3.5 rounded-xl border border-slate-200 hover:border-purple-300 shadow-2xs flex items-center justify-between gap-3 transition-all"
+                          >
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono font-bold text-xs text-slate-900">
+                                  {exc.returnNumber || exc.orderNumber}
+                                </span>
+                                {prevBill && (
+                                  <span className="text-[10px] font-mono bg-purple-50 text-[#5e2b9d] font-bold px-1.5 py-0.5 rounded border border-purple-200">
+                                    Ref Bill: #{prevBill}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[11px] text-slate-500">
+                                {exc.customerName || "Walk-in"} {exc.customerPhone ? `• 📱 ${exc.customerPhone}` : ""}
+                              </div>
+                              <div className="text-[10px] text-slate-400">
+                                Date: {new Date(exc.createdAt || Date.now()).toLocaleDateString("en-IN")}
+                              </div>
+                            </div>
+
+                            <div className="flex flex-col items-end gap-1.5 shrink-0">
+                              <span className="font-mono font-extrabold text-sm text-purple-700">
+                                ₹{creditVal.toFixed(2)}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleApplyExchangeVoucher(exc)}
+                                className="px-3 py-1 bg-[#5e2b9d] hover:bg-purple-800 text-white rounded-lg text-xs font-semibold cursor-pointer shadow-2xs transition-colors"
+                              >
+                                Apply Credit
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {!exchangeSearchQuery && (
+                    <div className="py-8 text-center text-xs text-slate-400 bg-white rounded-xl border border-slate-100 p-6 space-y-2">
+                      <div className="text-2xl">🎫</div>
+                      <div className="font-semibold text-slate-700">Search for an Exchange Slip</div>
+                      <div className="text-[11px] text-slate-400 max-w-xs mx-auto">
+                        Type customer phone number, customer name, or original bill number to look up recent exchange slips.
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <form onSubmit={handleApplyManualExchange} className="space-y-4 bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Original / Previous Bill Number <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={manualBillInput}
+                      onChange={(e) => setManualBillInput(e.target.value)}
+                      placeholder="e.g. INV-100234"
+                      className="w-full h-10 px-3 rounded-xl border border-slate-300 font-mono text-xs text-slate-900 focus:outline-none focus:border-[#5e2b9d] focus:ring-2 focus:ring-[#5e2b9d]/20"
+                    />
+                    <p className="text-[10.5px] text-slate-400 mt-1">
+                      This bill number will be printed as the previous reference on the new receipt.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Exchange Credit Deduction (₹) <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      min="0"
+                      required
+                      value={manualCreditInput}
+                      onChange={(e) => setManualCreditInput(e.target.value)}
+                      placeholder="e.g. 1200"
+                      className="w-full h-10 px-3 rounded-xl border border-slate-300 font-mono text-xs text-slate-900 focus:outline-none focus:border-[#5e2b9d] focus:ring-2 focus:ring-[#5e2b9d]/20"
+                    />
+                    <p className="text-[10.5px] text-slate-400 mt-1">
+                      This amount will be subtracted from the new invoice total.
+                    </p>
+                  </div>
+
+                  <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => setIsExchangeModalOpen(false)}
+                      className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 cursor-pointer transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-5 py-2 bg-[#5e2b9d] hover:bg-purple-800 text-white rounded-xl text-xs font-bold cursor-pointer shadow-2xs transition-colors"
+                    >
+                      Apply to Bill
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="bg-white border-t border-slate-200 px-5 py-3 flex items-center justify-between shrink-0">
+              <span className="text-[11px] text-slate-400">
+                Connected with Returns & Exchanges Ledger
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsExchangeModalOpen(false)}
+                className="px-4 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold cursor-pointer transition-colors"
+              >
+                Close
               </button>
             </div>
           </div>

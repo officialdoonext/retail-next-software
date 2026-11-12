@@ -19,6 +19,9 @@ export interface DraftBillItem {
   grandTotal: number;
   couponCode?: string;
   appliedCoupon?: any;
+  previousBillNumber?: string | null;
+  exchangeCredit?: number;
+  exchangeVoucherNumber?: string | null;
 }
 
 interface PosDraftsModalProps {

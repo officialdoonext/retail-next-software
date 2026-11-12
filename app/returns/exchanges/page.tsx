@@ -6,11 +6,82 @@ import PaginationControls from "@/components/ui/PaginationControls";
 import { useToast } from "@/components/ToastProvider";
 import { Spinner } from "@/components/ui/spinner";
 import Link from "next/link";
+import {
+  ArrowLeftRight,
+  Search,
+  Receipt,
+  User,
+  Phone,
+  CheckCircle2,
+  Calendar,
+  AlertCircle,
+  Plus,
+  Trash2,
+  Printer,
+  X,
+  CreditCard,
+  FileText,
+  RotateCcw,
+  Sparkles,
+  ArrowRight,
+  ShoppingBag,
+} from "lucide-react";
+
+interface BillItem {
+  productId?: string;
+  variantId?: string;
+  productName: string;
+  name?: string;
+  variantName?: string;
+  quantity: number;
+  salePrice?: number;
+  price?: number;
+  subtotal?: number;
+}
+
+interface SourceBill {
+  id: string;
+  billNumber: string;
+  createdAt: number;
+  customer: {
+    id: string;
+    name: string;
+    phone: string;
+  };
+  items: BillItem[];
+  subtotal: number;
+  discount: number;
+  tax: number;
+  grandTotal: number;
+  paymentMethod: string;
+  status: string;
+}
+
+interface ExchangeItemSelection {
+  productId?: string;
+  variantId?: string;
+  productName: string;
+  variantName?: string;
+  purchasedQty: number;
+  exchangeQty: number;
+  unitPrice: number;
+  reason: string;
+}
+
+interface ReplacementItem {
+  productId?: string;
+  variantId?: string;
+  productName: string;
+  variantName?: string;
+  quantity: number;
+  price: number;
+}
 
 interface ExchangeRecord {
   id: string;
   returnNumber: string;
   orderNumber: string;
+  originalBillNumber?: string;
   type: "EXCHANGE";
   customer: {
     id: string;
@@ -18,8 +89,14 @@ interface ExchangeRecord {
     phone: string;
   };
   items: any[];
+  returnedItems?: any[];
+  replacementItems?: any[];
+  exchangeValue?: number;
+  replacementValue?: number;
+  netAmount?: number;
+  exchangeVoucherNumber?: string;
   reason: string;
-  refundAmount: number; // positive = refund to customer, negative = customer paid extra
+  refundAmount: number;
   refundMethod: string;
   status: string;
   staffName: string;
@@ -37,23 +114,31 @@ export default function ExchangesPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const PAGE_SIZE = 24;
 
-  // Modal State
+  // Modals
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [selectedExchange, setSelectedExchange] = useState<ExchangeRecord | null>(null);
+  const [selectedExchangeBill, setSelectedExchangeBill] = useState<ExchangeRecord | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // New Exchange Form
-  const [formData, setFormData] = useState({
-    orderNumber: "",
-    customerName: "",
-    customerPhone: "",
-    returnedItemName: "",
-    returnedItemPrice: 0,
-    replacementItemName: "",
-    replacementItemPrice: 0,
-    reason: "Size / Fit replacement",
-    paymentMethod: "CASH",
-  });
+  // Exchange Wizard State
+  const [searchMode, setSearchMode] = useState<"customer" | "bill">("customer");
+  const [customerSearchTerm, setCustomerSearchTerm] = useState("");
+  const [billSearchTerm, setBillSearchTerm] = useState("");
+  const [searchingBills, setSearchingBills] = useState(false);
+  const [customerRecentBills, setCustomerRecentBills] = useState<SourceBill[]>([]);
+  const [selectedBill, setSelectedBill] = useState<SourceBill | null>(null);
+
+  // Selected Items from Bill to Exchange
+  const [selectedItems, setSelectedItems] = useState<ExchangeItemSelection[]>([]);
+
+  // Replacement Items (if immediate replacement on the spot)
+  const [fulfillmentType, setFulfillmentType] = useState<"voucher" | "replacement">("voucher");
+  const [replacementItems, setReplacementItems] = useState<ReplacementItem[]>([]);
+  const [paymentMethod, setPaymentMethod] = useState("CASH");
+
+  // Catalog product search for replacement items
+  const [prodSearch, setProdSearch] = useState("");
+  const [prodResults, setProdResults] = useState<any[]>([]);
+  const [searchingProds, setSearchingProds] = useState(false);
 
   const fetchExchanges = useCallback(async () => {
     try {
@@ -70,13 +155,282 @@ export default function ExchangesPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
     fetchExchanges();
   }, [fetchExchanges]);
 
-  // Filter
+  // Search for latest 10 bills of customer (by name or phone)
+  const handleSearchCustomerBills = async (queryText?: string) => {
+    const q = (queryText !== undefined ? queryText : customerSearchTerm).trim();
+    if (!q) {
+      toast.error("Please enter a customer name or phone number.");
+      return;
+    }
+
+    try {
+      setSearchingBills(true);
+      const res = await fetch(`/api/orders?search=${encodeURIComponent(q)}&limit=10`);
+      const data = await res.json();
+      if (res.ok && data.success && Array.isArray(data.orders)) {
+        setCustomerRecentBills(data.orders);
+        if (data.orders.length === 0) {
+          toast.error("No recent invoices found for this customer.");
+        }
+      } else {
+        toast.error(data.error || "Failed to find bills.");
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error("Network error while searching bills.");
+    } finally {
+      setSearchingBills(false);
+    }
+  };
+
+  // Search bill directly by Bill Number
+  const handleSearchByBillNumber = async () => {
+    const b = billSearchTerm.trim();
+    if (!b) {
+      toast.error("Please enter a bill / invoice number.");
+      return;
+    }
+
+    try {
+      setSearchingBills(true);
+      const res = await fetch(`/api/orders?search=${encodeURIComponent(b)}&limit=10`);
+      const data = await res.json();
+      if (res.ok && data.success && Array.isArray(data.orders) && data.orders.length > 0) {
+        const exact = data.orders.find((o: any) => o.billNumber.toLowerCase() === b.toLowerCase());
+        const billToSelect = exact || data.orders[0];
+        handleSelectBill(billToSelect);
+      } else {
+        toast.error("No bill matching this invoice number was found.");
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error("Network error while searching bill.");
+    } finally {
+      setSearchingBills(false);
+    }
+  };
+
+  // Select a bill from results and prepare item list
+  const handleSelectBill = (bill: SourceBill) => {
+    setSelectedBill(bill);
+    setCustomerRecentBills([]);
+    // Pre-populate items as unselected
+    const itemsList: ExchangeItemSelection[] = (bill.items || []).map((it) => {
+      const unitPrice = Number(it.salePrice || it.price) || 0;
+      return {
+        productId: it.productId,
+        variantId: it.variantId,
+        productName: it.productName || it.name || "Product",
+        variantName: it.variantName,
+        purchasedQty: Number(it.quantity) || 1,
+        exchangeQty: 1,
+        unitPrice,
+        reason: "Size / Fit replacement",
+      };
+    });
+    setSelectedItems([]);
+  };
+
+  // Toggle item selection for return/exchange
+  const handleToggleItemSelection = (item: BillItem) => {
+    const pName = item.productName || item.name || "Product";
+    const existingIdx = selectedItems.findIndex(
+      (si) => si.productName === pName && si.variantName === item.variantName
+    );
+
+    if (existingIdx !== -1) {
+      setSelectedItems((prev) => prev.filter((_, idx) => idx !== existingIdx));
+    } else {
+      const unitPrice = Number(item.salePrice || item.price) || 0;
+      setSelectedItems((prev) => [
+        ...prev,
+        {
+          productId: item.productId,
+          variantId: item.variantId,
+          productName: pName,
+          variantName: item.variantName,
+          purchasedQty: Number(item.quantity) || 1,
+          exchangeQty: 1,
+          unitPrice,
+          reason: "Size / Fit replacement",
+        },
+      ]);
+    }
+  };
+
+  const handleUpdateExchangeQty = (index: number, newQty: number) => {
+    setSelectedItems((prev) =>
+      prev.map((it, idx) => {
+        if (idx !== index) return it;
+        const validQty = Math.max(1, Math.min(it.purchasedQty, newQty));
+        return { ...it, exchangeQty: validQty };
+      })
+    );
+  };
+
+  const handleUpdateReason = (index: number, reason: string) => {
+    setSelectedItems((prev) =>
+      prev.map((it, idx) => (idx === index ? { ...it, reason } : it))
+    );
+  };
+
+  // Replacement item search
+  const handleSearchProducts = async (q: string) => {
+    setProdSearch(q);
+    if (q.trim().length < 2) {
+      setProdResults([]);
+      return;
+    }
+    try {
+      setSearchingProds(true);
+      const res = await fetch(`/api/products?search=${encodeURIComponent(q.trim())}&limit=8`);
+      const data = await res.json();
+      if (res.ok && data.success && Array.isArray(data.products)) {
+        setProdResults(data.products);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setSearchingProds(false);
+    }
+  };
+
+  const handleAddReplacementProduct = (prod: any, variant?: any) => {
+    const pName = variant ? `${prod.name} (${variant.name})` : prod.name;
+    const price = Number(variant ? variant.price || prod.salePrice : prod.salePrice) || 0;
+
+    setReplacementItems((prev) => [
+      ...prev,
+      {
+        productId: prod.id,
+        variantId: variant?.id,
+        productName: pName,
+        variantName: variant?.name,
+        quantity: 1,
+        price,
+      },
+    ]);
+    setProdSearch("");
+    setProdResults([]);
+  };
+
+  // Calculations
+  const totalExchangeCreditValue = useMemo(() => {
+    return selectedItems.reduce((acc, it) => acc + it.exchangeQty * it.unitPrice, 0);
+  }, [selectedItems]);
+
+  const totalReplacementValue = useMemo(() => {
+    return replacementItems.reduce((acc, it) => acc + it.quantity * it.price, 0);
+  }, [replacementItems]);
+
+  const netBalance = useMemo(() => {
+    if (fulfillmentType === "voucher") {
+      return -totalExchangeCreditValue; // Credit to customer
+    }
+    return totalReplacementValue - totalExchangeCreditValue;
+  }, [fulfillmentType, totalReplacementValue, totalExchangeCreditValue]);
+
+  // Reset form
+  const handleResetModal = () => {
+    setIsModalOpen(false);
+    setSelectedBill(null);
+    setSelectedItems([]);
+    setReplacementItems([]);
+    setCustomerRecentBills([]);
+    setCustomerSearchTerm("");
+    setBillSearchTerm("");
+    setFulfillmentType("voucher");
+  };
+
+  // Submit Exchange
+  const handleSaveExchange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedBill) {
+      toast.error("Please search and select the original bill.");
+      return;
+    }
+    if (selectedItems.length === 0) {
+      toast.error("Please select at least one item from the bill to exchange.");
+      return;
+    }
+    if (fulfillmentType === "replacement" && replacementItems.length === 0) {
+      toast.error("Please add at least one replacement item, or choose Issue Exchange Voucher.");
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      const payload = {
+        type: "EXCHANGE",
+        orderNumber: selectedBill.billNumber,
+        customerId: selectedBill.customer?.id || null,
+        customerName: selectedBill.customer?.name || "Customer",
+        customerPhone: selectedBill.customer?.phone || "",
+        items: selectedItems.map((it) => ({
+          productId: it.productId,
+          variantId: it.variantId,
+          productName: it.productName,
+          variantName: it.variantName,
+          quantity: it.exchangeQty,
+          price: it.unitPrice,
+          reason: it.reason,
+        })),
+        replacementItems:
+          fulfillmentType === "replacement"
+            ? replacementItems.map((r) => ({
+                productId: r.productId,
+                variantId: r.variantId,
+                productName: r.productName,
+                variantName: r.variantName,
+                quantity: r.quantity,
+                price: r.price,
+              }))
+            : [],
+        exchangeValue: totalExchangeCreditValue,
+        replacementValue: totalReplacementValue,
+        netAmount: netBalance,
+        refundAmount: totalExchangeCreditValue,
+        refundMethod: paymentMethod,
+        reason: selectedItems.map((it) => it.reason).filter(Boolean).join(", ") || "Product exchange",
+      };
+
+      const res = await fetch("/api/returns", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Failed to process exchange.");
+      }
+
+      toast.success(
+        `Exchange #${data.returnRecord.returnNumber} saved! Returned stock added back to inventory.`
+      );
+      handleResetModal();
+      fetchExchanges();
+
+      // Immediately open the newly generated Exchange Bill for viewing and printing
+      setSelectedExchangeBill({
+        ...data.returnRecord,
+        originalBillNumber: selectedBill.billNumber,
+      });
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.message || "Failed to save exchange.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Filter existing exchange list
   const filteredExchanges = useMemo(() => {
     return exchanges.filter((e) => {
       const q = searchQuery.trim().toLowerCase();
@@ -84,6 +438,7 @@ export default function ExchangesPage() {
       return (
         (e.returnNumber || "").toLowerCase().includes(q) ||
         (e.orderNumber || "").toLowerCase().includes(q) ||
+        (e.originalBillNumber || "").toLowerCase().includes(q) ||
         (e.customer?.name || "").toLowerCase().includes(q) ||
         (e.customer?.phone || "").includes(q)
       );
@@ -100,521 +455,978 @@ export default function ExchangesPage() {
     return filteredExchanges.slice(start, start + PAGE_SIZE);
   }, [filteredExchanges, currentPage]);
 
-  // Price Difference
-  const priceDifference = useMemo(() => {
-    return Number(formData.replacementItemPrice || 0) - Number(formData.returnedItemPrice || 0);
-  }, [formData.returnedItemPrice, formData.replacementItemPrice]);
-
-  // Submit Exchange
-  const handleCreateExchange = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!formData.customerName.trim()) {
-      toast.error("Customer name is required.");
-      return;
-    }
-    if (!formData.returnedItemName.trim() || !formData.replacementItemName.trim()) {
-      toast.error("Both returned and replacement product names are required.");
-      return;
-    }
-
-    try {
-      setIsSubmitting(true);
-      const itemsPayload = [
-        {
-          name: formData.returnedItemName,
-          quantity: 1,
-          price: formData.returnedItemPrice,
-          role: "RETURNED",
-        },
-        {
-          name: formData.replacementItemName,
-          quantity: 1,
-          price: formData.replacementItemPrice,
-          role: "REPLACEMENT",
-        },
-      ];
-
-      const res = await fetch("/api/returns", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "EXCHANGE",
-          orderNumber: formData.orderNumber || "DIRECT-EXCHANGE",
-          customerName: formData.customerName.trim(),
-          customerPhone: formData.customerPhone.trim(),
-          items: itemsPayload,
-          reason: formData.reason,
-          refundAmount: priceDifference < 0 ? Math.abs(priceDifference) : 0, // if negative, refund difference
-          refundMethod: formData.paymentMethod,
-          staffName: "Store Cashier",
-        }),
-      });
-
-      const data = await res.json();
-      if (res.ok && data.success) {
-        toast.success(`Processed exchange ${data.returnRecord?.returnNumber || ""}`);
-        setIsModalOpen(false);
-        fetchExchanges();
-      } else {
-        toast.error(data.error || "Failed to process exchange.");
-      }
-    } catch {
-      toast.error("Network error while recording exchange.");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
   return (
     <SoftwareLayout>
-      <div className="w-full space-y-4 pb-12">
-        {/* Banner */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <div>
-            <div className="flex items-center gap-2.5">
-              <div className="w-10 h-10 rounded-lg bg-[#5e2b9d] text-white flex items-center justify-center shadow-xs">
-                <svg className="w-5 h-5 stroke-[2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
-                </svg>
+      <div className="space-y-5">
+        {/* Top Header Banner */}
+        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-purple-50 text-[#5e2b9d] flex items-center justify-center shrink-0 border border-purple-100">
+                <ArrowLeftRight className="w-5 h-5 stroke-[2]" />
               </div>
               <div>
-                <h1 className="text-lg font-bold text-slate-900 tracking-tight">Exchanges Manager</h1>
-                <p className="text-xs text-slate-500">
-                  Item size, color & variant exchanges with automated difference billing
+                <h1 className="text-xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
+                  <span>Product Exchange Manager</span>
+                  <span className="text-xs bg-purple-50 text-[#5e2b9d] px-2 py-0.5 rounded-full font-mono font-bold border border-purple-200">
+                    Restock Enabled
+                  </span>
+                </h1>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Search past invoices by bill # or customer, inspect purchased line items, restock returned goods, and issue exchange credit bills.
                 </p>
               </div>
             </div>
-          </div>
 
-          <div className="flex items-center gap-2.5">
-            <Link
-              href="/returns"
-              className="h-9 px-3 text-xs font-medium text-[#5e2b9d] bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
-            >
-              <span>Switch to Returns</span>
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
-              </svg>
-            </Link>
-
-            <button
-              type="button"
-              onClick={fetchExchanges}
-              className="h-9 px-3 text-xs font-medium text-slate-600 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
-            >
-              {loading ? <Spinner className="w-3.5 h-3.5 text-[#5e2b9d]" /> : "↻"}
-              <span>Refresh</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setFormData({
-                  orderNumber: "",
-                  customerName: "",
-                  customerPhone: "",
-                  returnedItemName: "",
-                  returnedItemPrice: 0,
-                  replacementItemName: "",
-                  replacementItemPrice: 0,
-                  reason: "Size / Fit replacement",
-                  paymentMethod: "CASH",
-                });
-                setIsModalOpen(true);
-              }}
-              className="h-9 px-4 text-xs font-semibold text-white bg-[#5e2b9d] hover:bg-[#4d2282] rounded-lg shadow-xs flex items-center gap-2 transition-all cursor-pointer"
-            >
-              <svg className="w-4 h-4 stroke-[2.5]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-              </svg>
-              <span>Record Exchange</span>
-            </button>
-          </div>
-        </div>
-
-        {/* 3 Metric Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div className="bg-white p-3.5 rounded-xl border border-slate-200/90 shadow-2xs">
-            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
-              Total Exchanges
-            </span>
-            <div className="flex items-baseline gap-2 mt-1">
-              <span className="text-xl font-bold text-slate-900 font-mono">{exchanges.length}</span>
-              <span className="text-[10px] text-slate-400 font-medium">Slips</span>
-            </div>
-          </div>
-
-          <div className="bg-white p-3.5 rounded-xl border border-slate-200/90 shadow-2xs">
-            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
-              Active Store Register
-            </span>
-            <div className="flex items-baseline gap-2 mt-1">
-              <span className="text-xl font-bold text-[#5e2b9d] font-mono">Synced</span>
-              <span className="text-[10px] text-[#5e2b9d] font-medium">Real-time</span>
-            </div>
-          </div>
-
-          <div className="bg-white p-3.5 rounded-xl border border-slate-200/90 shadow-2xs">
-            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
-              Customer Retention
-            </span>
-            <div className="flex items-baseline gap-2 mt-1">
-              <span className="text-xl font-bold text-emerald-600 font-mono">100%</span>
-              <span className="text-[10px] text-emerald-700 font-medium">Zero Lost Sales</span>
+            <div className="flex items-center gap-2.5">
+              <Link
+                href="/returns"
+                className="px-3 py-2 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-lg text-xs font-semibold shadow-2xs transition-colors"
+              >
+                Go to Returns
+              </Link>
+              <button
+                type="button"
+                onClick={() => setIsModalOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-[#5e2b9d] hover:bg-[#4d2282] text-white rounded-lg text-xs font-semibold shadow-2xs transition-colors cursor-pointer"
+              >
+                <Plus className="w-4 h-4 stroke-[2.5]" />
+                <span>Record Exchange</span>
+              </button>
             </div>
           </div>
         </div>
 
-        {/* Search */}
-        <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs flex items-center justify-between gap-3">
-          <div className="relative w-full sm:w-80">
+        {/* Filter and Search Bar */}
+        <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-2xs flex flex-col md:flex-row gap-3 items-center justify-between">
+          <div className="relative w-full md:w-80">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
+              placeholder="Search by exchange #, previous bill #, customer..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search exchange #, invoice or customer..."
-              className="w-full h-9 pl-9 pr-4 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:border-[#5e2b9d]"
+              className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-[#5e2b9d] focus:bg-white transition-all text-slate-800 placeholder:text-slate-400"
             />
-            <svg className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
+          </div>
+
+          <div className="text-xs text-slate-500 font-medium">
+            Showing <span className="font-bold text-slate-800">{filteredExchanges.length}</span> recorded exchange transactions
           </div>
         </div>
 
-        {/* Exchanges Table */}
+        {/* Exchanges Data Table */}
         <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-600 font-semibold text-[11px]">
-                  <th className="py-3 px-4">Exchange #</th>
-                  <th className="py-3 px-4">Original Invoice</th>
-                  <th className="py-3 px-4">Date</th>
-                  <th className="py-3 px-4">Customer</th>
-                  <th className="py-3 px-4">Exchange Reason</th>
-                  <th className="py-3 px-4 text-center">Difference</th>
-                  <th className="py-3 px-4 text-center">Status</th>
-                  <th className="py-3 px-4 text-right">View</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {loading ? (
-                  <tr>
-                    <td colSpan={8} className="py-12 text-center text-slate-400">
-                      <Spinner className="w-6 h-6 text-[#5e2b9d] mx-auto mb-2" />
-                      <span>Loading exchanges...</span>
-                    </td>
+          {loading ? (
+            <div className="p-12 flex flex-col items-center justify-center text-slate-400">
+              <Spinner className="w-8 h-8 text-[#5e2b9d] mb-2" />
+              <p className="text-xs">Loading exchange records...</p>
+            </div>
+          ) : paginatedExchanges.length === 0 ? (
+            <div className="p-12 flex flex-col items-center justify-center text-slate-400">
+              <ArrowLeftRight className="w-10 h-10 stroke-[1.5] text-slate-300 mb-2" />
+              <p className="text-sm font-semibold text-slate-700">No exchange records found</p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Click &ldquo;Record Exchange&rdquo; to process your first product replacement.
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-600 font-semibold uppercase tracking-wider text-[11px]">
+                    <th className="py-3 px-4">Exchange Bill #</th>
+                    <th className="py-3 px-3">Previous Bill #</th>
+                    <th className="py-3 px-3">Customer</th>
+                    <th className="py-3 px-3">Returned Items (Restocked)</th>
+                    <th className="py-3 px-3">Replacement / Credit</th>
+                    <th className="py-3 px-3">Exchange Value</th>
+                    <th className="py-3 px-3 text-center">Status</th>
+                    <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
-                ) : paginatedExchanges.length === 0 ? (
-                  <tr>
-                    <td colSpan={8} className="py-12 text-center text-slate-400">
-                      <p className="font-semibold text-slate-700">No exchange records found</p>
-                      <p className="text-[11px] text-slate-400 mt-0.5">Click &quot;Record Exchange&quot; when a customer swaps items.</p>
-                    </td>
-                  </tr>
-                ) : (
-                  paginatedExchanges.map((ex) => {
-                    const formattedDate = new Date(ex.createdAt).toLocaleDateString("en-IN", {
-                      day: "2-digit",
-                      month: "short",
-                      year: "numeric",
-                    });
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-slate-700">
+                  {paginatedExchanges.map((ex) => {
+                    const prevBill = ex.originalBillNumber || ex.orderNumber;
+                    const items = ex.returnedItems || ex.items || [];
+                    const replacements = ex.replacementItems || [];
+                    const exValue = Number(ex.exchangeValue) || Math.abs(Number(ex.refundAmount)) || 0;
+                    const netAmt = Number(ex.netAmount) || 0;
 
                     return (
                       <tr key={ex.id} className="hover:bg-slate-50/70 transition-colors">
-                        <td className="py-3 px-4 font-mono font-bold text-[#5e2b9d]">
-                          {ex.returnNumber}
-                        </td>
-                        <td className="py-3 px-4 font-mono text-slate-600">
-                          {ex.orderNumber || "—"}
-                        </td>
-                        <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
-                          {formattedDate}
-                        </td>
+                        {/* Exchange Bill # */}
                         <td className="py-3 px-4">
-                          <div className="font-semibold text-slate-900">{ex.customer?.name || "Customer"}</div>
-                          {ex.customer?.phone && (
-                            <div className="text-[10px] text-slate-400">📱 {ex.customer.phone}</div>
-                          )}
+                          <div className="font-mono font-bold text-[#5e2b9d]">
+                            {ex.returnNumber}
+                          </div>
+                          <div className="text-[10px] text-slate-400 mt-0.5">
+                            {new Date(ex.createdAt).toLocaleDateString("en-IN", {
+                              day: "2-digit",
+                              month: "short",
+                              year: "numeric",
+                            })}
+                          </div>
                         </td>
-                        <td className="py-3 px-4 text-slate-700">
-                          {ex.reason}
-                        </td>
-                        <td className="py-3 px-4 text-center font-mono font-semibold">
-                          {ex.refundAmount > 0 ? (
-                            <span className="text-rose-600">Refund ₹{ex.refundAmount.toLocaleString("en-IN")}</span>
-                          ) : ex.refundAmount < 0 ? (
-                            <span className="text-emerald-600">Paid ₹{Math.abs(ex.refundAmount).toLocaleString("en-IN")}</span>
-                          ) : (
-                            <span className="text-slate-400">Even Swap (₹0)</span>
-                          )}
-                        </td>
-                        <td className="py-3 px-4 text-center">
-                          <span className="px-2.5 py-0.5 rounded-full text-[10.5px] font-bold bg-purple-50 text-[#5e2b9d] border border-purple-200">
-                            {ex.status || "Exchanged"}
+
+                        {/* Previous Bill # */}
+                        <td className="py-3 px-3">
+                          <span className="inline-flex items-center gap-1 font-mono text-[11px] font-semibold text-purple-800 bg-purple-50 px-2 py-0.5 rounded border border-purple-200">
+                            <Receipt className="w-3 h-3 text-[#5e2b9d]" />
+                            {prevBill}
                           </span>
                         </td>
+
+                        {/* Customer */}
+                        <td className="py-3 px-3">
+                          <div className="font-semibold text-slate-900">
+                            {ex.customer?.name || "Customer"}
+                          </div>
+                          {ex.customer?.phone && (
+                            <div className="text-[10px] text-slate-400 font-mono">
+                              {ex.customer.phone}
+                            </div>
+                          )}
+                        </td>
+
+                        {/* Returned Items */}
+                        <td className="py-3 px-3 max-w-xs">
+                          <div className="space-y-1">
+                            {items.slice(0, 2).map((it: any, i: number) => (
+                              <div key={i} className="text-slate-800 font-medium truncate flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0" />
+                                <span>{it.productName || it.name || "Item"}</span>
+                                <span className="text-slate-400 text-[10px]">×{it.quantity || 1}</span>
+                              </div>
+                            ))}
+                            {items.length > 2 && (
+                              <span className="text-[10px] text-slate-400 block">
+                                +{items.length - 2} more item(s)
+                              </span>
+                            )}
+                          </div>
+                        </td>
+
+                        {/* Replacement Items */}
+                        <td className="py-3 px-3 max-w-xs">
+                          {replacements.length > 0 ? (
+                            <div className="space-y-1">
+                              {replacements.slice(0, 2).map((it: any, i: number) => (
+                                <div key={i} className="text-emerald-800 font-medium truncate flex items-center gap-1">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                                  <span>{it.productName || "Replacement"}</span>
+                                  <span className="text-slate-400 text-[10px]">×{it.quantity || 1}</span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold text-purple-700 bg-purple-50 border border-purple-200">
+                              Exchange Voucher Issued
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Exchange Value */}
+                        <td className="py-3 px-3 font-semibold text-slate-900">
+                          <div>₹{exValue.toLocaleString("en-IN")}</div>
+                          {netAmt !== 0 && (
+                            <span
+                              className={`text-[10px] font-bold block mt-0.5 ${
+                                netAmt > 0 ? "text-amber-700" : "text-emerald-700"
+                              }`}
+                            >
+                              {netAmt > 0
+                                ? `+₹${netAmt.toLocaleString()} Paid Extra`
+                                : `-₹${Math.abs(netAmt).toLocaleString()} Refunded`}
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Status */}
+                        <td className="py-3 px-3 text-center">
+                          <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                            <CheckCircle2 className="w-3 h-3" />
+                            Received
+                          </span>
+                        </td>
+
+                        {/* Actions */}
                         <td className="py-3 px-4 text-right">
                           <button
                             type="button"
-                            onClick={() => setSelectedExchange(ex)}
-                            className="px-2.5 py-1 text-[11px] font-medium text-[#5e2b9d] bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors cursor-pointer"
+                            onClick={() => setSelectedExchangeBill(ex)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-[#5e2b9d] bg-purple-50 hover:bg-purple-100 rounded-md transition-colors cursor-pointer border border-purple-200"
                           >
-                            Details
+                            <FileText className="w-3.5 h-3.5" />
+                            Exchange Bill
                           </button>
                         </td>
                       </tr>
                     );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          {filteredExchanges.length > 0 && (
-            <div className="p-4 bg-white border-t border-slate-200">
-              <PaginationControls
-                currentPage={currentPage}
-                totalPages={totalPages}
-                totalItems={filteredExchanges.length}
-                pageSize={PAGE_SIZE}
-                onPageChange={setCurrentPage}
-                itemName="exchanges"
-              />
+                  })}
+                </tbody>
+              </table>
             </div>
+          )}
+
+          {/* Pagination Controls */}
+          {filteredExchanges.length > 0 && (
+            <PaginationControls
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalItems={filteredExchanges.length}
+              pageSize={PAGE_SIZE}
+              onPageChange={(page) => setCurrentPage(page)}
+            />
           )}
         </div>
 
-        {/* Record Exchange Modal */}
+        {/* ==================================================================== */}
+        {/* MODAL 1: RECORD NEW EXCHANGE (SEARCH BY BILL OR CUSTOMER)            */}
+        {/* ==================================================================== */}
         {isModalOpen && (
-          <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-[2px] flex items-center justify-center p-4 overflow-y-auto">
-            <div className="w-full max-w-xl bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-              <div className="bg-[#5e2b9d] text-white px-5 py-3.5 flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-bold tracking-tight">Record Product Exchange</h3>
-                  <p className="text-[11px] text-purple-200">Swap item & calculate price difference</p>
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs overflow-y-auto">
+            <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-3xl overflow-hidden my-auto flex flex-col max-h-[92vh]">
+              {/* Header */}
+              <div className="flex items-center justify-between p-4 border-b border-slate-100 bg-slate-50 shrink-0">
+                <div className="flex items-center gap-2">
+                  <ArrowLeftRight className="w-4 h-4 text-[#5e2b9d]" />
+                  <h3 className="font-bold text-slate-900 text-sm">
+                    Record Product Exchange
+                  </h3>
                 </div>
                 <button
                   type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="w-7 h-7 rounded-lg hover:bg-white/10 text-white/80 hover:text-white flex items-center justify-center font-bold cursor-pointer"
+                  onClick={handleResetModal}
+                  className="p-1 rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
                 >
-                  ✕
+                  <X className="w-4 h-4" />
                 </button>
               </div>
 
-              <form onSubmit={handleCreateExchange} className="p-5 space-y-4 text-xs">
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Original Bill / Invoice #
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.orderNumber}
-                      onChange={(e) => setFormData({ ...formData, orderNumber: e.target.value })}
-                      placeholder="e.g. INV-202611-1234"
-                      className="w-full h-9 px-3 font-mono rounded-lg border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:border-[#5e2b9d]"
-                    />
-                  </div>
+              {/* Modal Body */}
+              <div className="p-5 overflow-y-auto space-y-5 flex-1">
+                {/* STEP 1: SEARCH ORIGINAL BILL */}
+                {!selectedBill ? (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                        Step 1: Locate Original Purchase Invoice
+                      </span>
+                      <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg text-xs font-semibold">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSearchMode("customer");
+                            setCustomerRecentBills([]);
+                          }}
+                          className={`px-3 py-1 rounded-md transition-colors cursor-pointer ${
+                            searchMode === "customer"
+                              ? "bg-white text-[#5e2b9d] shadow-2xs"
+                              : "text-slate-600 hover:text-slate-900"
+                          }`}
+                        >
+                          Search by Customer
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSearchMode("bill");
+                            setCustomerRecentBills([]);
+                          }}
+                          className={`px-3 py-1 rounded-md transition-colors cursor-pointer ${
+                            searchMode === "bill"
+                              ? "bg-white text-[#5e2b9d] shadow-2xs"
+                              : "text-slate-600 hover:text-slate-900"
+                          }`}
+                        >
+                          Search by Bill Number
+                        </button>
+                      </div>
+                    </div>
 
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Exchange Reason
-                    </label>
-                    <select
-                      value={formData.reason}
-                      onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
-                      className="w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:border-[#5e2b9d]"
-                    >
-                      <option value="Size / Fit replacement">Size / Fit replacement</option>
-                      <option value="Color / Style swap">Color / Style swap</option>
-                      <option value="Upgrade to higher variant">Upgrade to higher variant</option>
-                      <option value="Defective replacement">Defective replacement</option>
-                    </select>
-                  </div>
-                </div>
+                    {/* Mode A: Search by Customer Name or Phone */}
+                    {searchMode === "customer" && (
+                      <div className="space-y-3">
+                        <div className="flex gap-2">
+                          <div className="relative flex-1">
+                            <User className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                            <input
+                              type="text"
+                              value={customerSearchTerm}
+                              onChange={(e) => setCustomerSearchTerm(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  handleSearchCustomerBills();
+                                }
+                              }}
+                              placeholder="Enter customer name or 10-digit mobile number..."
+                              className="w-full pl-9 pr-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-[#5e2b9d] focus:bg-white text-slate-800"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleSearchCustomerBills()}
+                            disabled={searchingBills}
+                            className="px-4 py-2 bg-[#5e2b9d] hover:bg-[#4d2282] text-white text-xs font-semibold rounded-lg shadow-2xs transition-colors cursor-pointer flex items-center gap-1.5 shrink-0"
+                          >
+                            {searchingBills ? <Spinner className="w-3.5 h-3.5" /> : <Search className="w-3.5 h-3.5" />}
+                            <span>Find Latest 10 Bills</span>
+                          </button>
+                        </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Customer Name <span className="text-rose-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={formData.customerName}
-                      onChange={(e) => setFormData({ ...formData, customerName: e.target.value })}
-                      placeholder="Customer Name"
-                      className="w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:border-[#5e2b9d]"
-                    />
-                  </div>
+                        {/* Results List: Latest 10 Bills */}
+                        {customerRecentBills.length > 0 && (
+                          <div className="border border-slate-200 rounded-lg overflow-hidden">
+                            <div className="bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-600 border-b border-slate-200">
+                              Latest Bills for Customer ({customerRecentBills.length} found)
+                            </div>
+                            <div className="divide-y divide-slate-100 max-h-56 overflow-y-auto">
+                              {customerRecentBills.map((bill) => (
+                                <div
+                                  key={bill.id}
+                                  className="p-3 hover:bg-purple-50/50 transition-colors flex items-center justify-between gap-3 text-xs"
+                                >
+                                  <div>
+                                    <div className="font-mono font-bold text-[#5e2b9d]">
+                                      {bill.billNumber}
+                                    </div>
+                                    <div className="text-[11px] text-slate-500 mt-0.5">
+                                      {new Date(bill.createdAt).toLocaleDateString("en-IN", {
+                                        day: "2-digit",
+                                        month: "short",
+                                        year: "numeric",
+                                        hour: "2-digit",
+                                        minute: "2-digit",
+                                      })}{" "}
+                                      • <span className="font-semibold text-slate-800">{bill.customer?.name}</span> ({bill.customer?.phone || "No phone"})
+                                    </div>
+                                  </div>
 
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Customer Mobile
-                    </label>
-                    <input
-                      type="tel"
-                      value={formData.customerPhone}
-                      onChange={(e) => setFormData({ ...formData, customerPhone: e.target.value.replace(/\D/g, "") })}
-                      placeholder="10-digit mobile"
-                      className="w-full h-9 px-3 font-mono rounded-lg border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:border-[#5e2b9d]"
-                    />
-                  </div>
-                </div>
+                                  <div className="flex items-center gap-3">
+                                    <div className="text-right">
+                                      <div className="font-bold text-slate-900">
+                                        ₹{bill.grandTotal?.toLocaleString("en-IN")}
+                                      </div>
+                                      <div className="text-[10.5px] text-slate-400">
+                                        {(bill.items || []).length} item(s) • {bill.paymentMethod}
+                                      </div>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSelectBill(bill)}
+                                      className="px-3 py-1 bg-[#5e2b9d] text-white rounded text-xs font-semibold hover:bg-[#4d2282] cursor-pointer"
+                                    >
+                                      Select Bill
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
-                {/* Returned vs Replacement Side-by-side */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="p-3 rounded-xl border border-rose-200 bg-rose-50/30 space-y-2">
-                    <span className="text-[11px] font-bold text-rose-700 uppercase block">
-                      ← 1. Item Returned (Inward)
-                    </span>
-                    <input
-                      type="text"
-                      required
-                      placeholder="Product Name / SKU"
-                      value={formData.returnedItemName}
-                      onChange={(e) => setFormData({ ...formData, returnedItemName: e.target.value })}
-                      className="w-full h-8 px-2.5 rounded border border-rose-200 bg-white text-xs focus:outline-none"
-                    />
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-slate-500 text-[11px]">Value ₹</span>
-                      <input
-                        type="number"
-                        min={0}
-                        required
-                        placeholder="0.00"
-                        value={formData.returnedItemPrice}
-                        onChange={(e) => setFormData({ ...formData, returnedItemPrice: parseFloat(e.target.value) || 0 })}
-                        className="w-full h-8 px-2 text-right rounded border border-rose-200 bg-white text-xs font-mono"
-                      />
+                    {/* Mode B: Search by Bill Number */}
+                    {searchMode === "bill" && (
+                      <div className="flex gap-2">
+                        <div className="relative flex-1">
+                          <Receipt className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                          <input
+                            type="text"
+                            value={billSearchTerm}
+                            onChange={(e) => setBillSearchTerm(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                handleSearchByBillNumber();
+                              }
+                            }}
+                            placeholder="Enter exact bill number (e.g. INV-202611...)"
+                            className="w-full pl-9 pr-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-[#5e2b9d] focus:bg-white text-slate-800 font-mono"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleSearchByBillNumber}
+                          disabled={searchingBills}
+                          className="px-4 py-2 bg-[#5e2b9d] hover:bg-[#4d2282] text-white text-xs font-semibold rounded-lg shadow-2xs transition-colors cursor-pointer flex items-center gap-1.5 shrink-0"
+                        >
+                          {searchingBills ? <Spinner className="w-3.5 h-3.5" /> : <Search className="w-3.5 h-3.5" />}
+                          <span>Search Bill</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  /* STEP 2: SELECTED BILL & ITEM PICKER */
+                  <div className="space-y-4">
+                    {/* Selected Bill Banner */}
+                    <div className="bg-purple-50/70 border border-purple-200 p-3.5 rounded-lg flex items-center justify-between gap-3 text-xs">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-purple-900">Original Bill:</span>
+                          <span className="font-mono font-bold text-[#5e2b9d] bg-white px-2 py-0.5 rounded border border-purple-200">
+                            {selectedBill.billNumber}
+                          </span>
+                          <span className="text-slate-400">•</span>
+                          <span className="text-slate-600">
+                            {new Date(selectedBill.createdAt).toLocaleDateString("en-IN", {
+                              day: "2-digit",
+                              month: "short",
+                              year: "numeric",
+                            })}
+                          </span>
+                        </div>
+                        <div className="text-slate-600 mt-1">
+                          Customer: <span className="font-semibold text-slate-900">{selectedBill.customer?.name}</span>
+                          {selectedBill.customer?.phone && ` (${selectedBill.customer.phone})`} • Total Paid: <b className="text-slate-900">₹{selectedBill.grandTotal?.toLocaleString("en-IN")}</b>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedBill(null);
+                          setSelectedItems([]);
+                        }}
+                        className="text-xs text-[#5e2b9d] hover:underline font-semibold cursor-pointer shrink-0"
+                      >
+                        Change Bill
+                      </button>
+                    </div>
+
+                    {/* Bill Purchased Items Table */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                          Step 2: Select Items to Exchange
+                        </label>
+                        <span className="text-[11px] text-slate-400">
+                          Checked items will be received & restocked in inventory
+                        </span>
+                      </div>
+
+                      <div className="border border-slate-200 rounded-lg overflow-hidden">
+                        <table className="w-full text-left text-xs">
+                          <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase text-[10.5px]">
+                            <tr>
+                              <th className="py-2.5 px-3 text-center w-10">Select</th>
+                              <th className="py-2.5 px-3">Item Purchased</th>
+                              <th className="py-2.5 px-3 text-center">Purchased Qty</th>
+                              <th className="py-2.5 px-3 text-center">Exchange Qty</th>
+                              <th className="py-2.5 px-3 text-right">Unit Price</th>
+                              <th className="py-2.5 px-3 text-right">Exchange Credit</th>
+                              <th className="py-2.5 px-3">Exchange Reason</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {(selectedBill.items || []).map((item, idx) => {
+                              const pName = item.productName || item.name || "Product";
+                              const isChecked = selectedItems.some(
+                                (si) => si.productName === pName && si.variantName === item.variantName
+                              );
+                              const selectedObj = selectedItems.find(
+                                (si) => si.productName === pName && si.variantName === item.variantName
+                              );
+                              const selIdx = selectedItems.findIndex(
+                                (si) => si.productName === pName && si.variantName === item.variantName
+                              );
+                              const unitPrice = Number(item.salePrice || item.price) || 0;
+
+                              return (
+                                <tr key={idx} className={isChecked ? "bg-purple-50/40" : "hover:bg-slate-50"}>
+                                  <td className="py-2.5 px-3 text-center">
+                                    <input
+                                      type="checkbox"
+                                      checked={isChecked}
+                                      onChange={() => handleToggleItemSelection(item)}
+                                      className="rounded text-[#5e2b9d] focus:ring-[#5e2b9d] w-4 h-4 cursor-pointer"
+                                    />
+                                  </td>
+                                  <td className="py-2.5 px-3">
+                                    <div className="font-semibold text-slate-900">{pName}</div>
+                                    {item.variantName && (
+                                      <div className="text-[10px] text-slate-400">{item.variantName}</div>
+                                    )}
+                                  </td>
+                                  <td className="py-2.5 px-3 text-center font-mono">
+                                    {item.quantity || 1}
+                                  </td>
+                                  <td className="py-2.5 px-3 text-center">
+                                    {isChecked && selectedObj ? (
+                                      <input
+                                        type="number"
+                                        min="1"
+                                        max={item.quantity || 1}
+                                        value={selectedObj.exchangeQty}
+                                        onChange={(e) => handleUpdateExchangeQty(selIdx, Number(e.target.value))}
+                                        className="w-14 px-1.5 py-0.5 text-center bg-white border border-slate-300 rounded text-xs font-semibold"
+                                      />
+                                    ) : (
+                                      <span className="text-slate-300">—</span>
+                                    )}
+                                  </td>
+                                  <td className="py-2.5 px-3 text-right font-mono">
+                                    ₹{unitPrice.toLocaleString("en-IN")}
+                                  </td>
+                                  <td className="py-2.5 px-3 text-right font-bold text-[#5e2b9d] font-mono">
+                                    {isChecked && selectedObj
+                                      ? `₹${(selectedObj.exchangeQty * unitPrice).toLocaleString("en-IN")}`
+                                      : "—"}
+                                  </td>
+                                  <td className="py-2.5 px-3">
+                                    {isChecked && selectedObj ? (
+                                      <select
+                                        value={selectedObj.reason}
+                                        onChange={(e) => handleUpdateReason(selIdx, e.target.value)}
+                                        className="px-2 py-0.5 text-[11px] bg-white border border-slate-300 rounded text-slate-700 outline-none"
+                                      >
+                                        <option value="Size / Fit replacement">Size / Fit Misfit</option>
+                                        <option value="Color / Model swap">Color / Model Swap</option>
+                                        <option value="Defective / Damaged">Defective / Damaged</option>
+                                        <option value="Customer preference">Customer Preference</option>
+                                      </select>
+                                    ) : (
+                                      <span className="text-slate-300">—</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Total Exchange Value Callout */}
+                      <div className="mt-2.5 flex items-center justify-between p-3 bg-purple-50 rounded-lg border border-purple-200 text-xs">
+                        <span className="font-bold text-purple-900">
+                          Total Exchange Credit Value ({selectedItems.length} item(s) selected):
+                        </span>
+                        <span className="text-base font-extrabold text-[#5e2b9d] font-mono">
+                          ₹{totalExchangeCreditValue.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* STEP 3: FULFILLMENT METHOD */}
+                    <div className="space-y-3 pt-2 border-t border-slate-200">
+                      <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                        Step 3: Exchange Settlement Choice
+                      </label>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div
+                          onClick={() => setFulfillmentType("voucher")}
+                          className={`p-3.5 rounded-xl border cursor-pointer transition-all ${
+                            fulfillmentType === "voucher"
+                              ? "border-[#5e2b9d] bg-purple-50/50 ring-2 ring-[#5e2b9d]/20"
+                              : "border-slate-200 hover:border-slate-300 bg-white"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="radio"
+                              name="fulfillment"
+                              checked={fulfillmentType === "voucher"}
+                              onChange={() => setFulfillmentType("voucher")}
+                              className="text-[#5e2b9d] focus:ring-[#5e2b9d]"
+                            />
+                            <span className="font-bold text-slate-900 text-xs">
+                              Issue Exchange Credit Voucher / Bill
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-500 mt-1 pl-5">
+                            Customer receives an official exchange voucher slip for ₹{totalExchangeCreditValue.toLocaleString()} to use on their next purchase or immediately in POS.
+                          </p>
+                        </div>
+
+                        <div
+                          onClick={() => setFulfillmentType("replacement")}
+                          className={`p-3.5 rounded-xl border cursor-pointer transition-all ${
+                            fulfillmentType === "replacement"
+                              ? "border-[#5e2b9d] bg-purple-50/50 ring-2 ring-[#5e2b9d]/20"
+                              : "border-slate-200 hover:border-slate-300 bg-white"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="radio"
+                              name="fulfillment"
+                              checked={fulfillmentType === "replacement"}
+                              onChange={() => setFulfillmentType("replacement")}
+                              className="text-[#5e2b9d] focus:ring-[#5e2b9d]"
+                            />
+                            <span className="font-bold text-slate-900 text-xs">
+                              Immediate Replacement on the Spot
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-500 mt-1 pl-5">
+                            Customer picks new items now. Subtract exchange credit from new items and settle the difference.
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* If Replacement Items are selected on the spot */}
+                      {fulfillmentType === "replacement" && (
+                        <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg space-y-3">
+                          <label className="text-xs font-bold text-slate-700 block">
+                            Search & Select Replacement Product(s)
+                          </label>
+
+                          <div className="relative">
+                            <input
+                              type="text"
+                              value={prodSearch}
+                              onChange={(e) => handleSearchProducts(e.target.value)}
+                              placeholder="Type product name, SKU, or scan barcode..."
+                              className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none focus:border-[#5e2b9d]"
+                            />
+
+                            {/* Dropdown Results */}
+                            {prodResults.length > 0 && (
+                              <div className="absolute top-full left-0 right-0 z-20 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-48 overflow-y-auto divide-y divide-slate-100 text-xs">
+                                {prodResults.map((p) => {
+                                  if (p.hasVariations && Array.isArray(p.variants) && p.variants.length > 0) {
+                                    return p.variants.map((v: any) => (
+                                      <div
+                                        key={v.id}
+                                        onClick={() => handleAddReplacementProduct(p, v)}
+                                        className="p-2 hover:bg-purple-50 cursor-pointer flex items-center justify-between"
+                                      >
+                                        <div>
+                                          <span className="font-semibold text-slate-900">{p.name}</span>
+                                          <span className="text-slate-400 text-[10px] ml-1.5 font-mono">
+                                            ({v.name}) • Stock: {v.stock ?? 0}
+                                          </span>
+                                        </div>
+                                        <span className="font-bold text-[#5e2b9d]">
+                                          ₹{Number(v.price || p.salePrice || 0).toLocaleString()}
+                                        </span>
+                                      </div>
+                                    ));
+                                  }
+
+                                  return (
+                                    <div
+                                      key={p.id}
+                                      onClick={() => handleAddReplacementProduct(p)}
+                                      className="p-2 hover:bg-purple-50 cursor-pointer flex items-center justify-between"
+                                    >
+                                      <div>
+                                        <span className="font-semibold text-slate-900">{p.name}</span>
+                                        <span className="text-slate-400 text-[10px] ml-1.5 font-mono">
+                                          Stock: {p.stock ?? 0}
+                                        </span>
+                                      </div>
+                                      <span className="font-bold text-[#5e2b9d]">
+                                        ₹{Number(p.salePrice || 0).toLocaleString()}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Replacement Items Chosen List */}
+                          {replacementItems.length > 0 && (
+                            <div className="border border-slate-200 rounded-lg overflow-hidden bg-white">
+                              <table className="w-full text-left text-xs">
+                                <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold text-[10.5px]">
+                                  <tr>
+                                    <th className="py-2 px-3">Replacement Item</th>
+                                    <th className="py-2 px-3 text-center">Qty</th>
+                                    <th className="py-2 px-3 text-right">Price</th>
+                                    <th className="py-2 px-3 text-right">Subtotal</th>
+                                    <th className="py-2 px-2 text-center w-8"></th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                  {replacementItems.map((rep, rIdx) => (
+                                    <tr key={rIdx}>
+                                      <td className="py-2 px-3 font-medium text-slate-900">{rep.productName}</td>
+                                      <td className="py-2 px-3 text-center font-mono">{rep.quantity}</td>
+                                      <td className="py-2 px-3 text-right font-mono">₹{rep.price.toLocaleString()}</td>
+                                      <td className="py-2 px-3 text-right font-bold font-mono">
+                                        ₹{(rep.quantity * rep.price).toLocaleString()}
+                                      </td>
+                                      <td className="py-2 px-2 text-center">
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            setReplacementItems((prev) => prev.filter((_, i) => i !== rIdx))
+                                          }
+                                          className="text-rose-500 hover:text-rose-700 cursor-pointer"
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+
+                          {/* Net Summary Calculation */}
+                          <div className="pt-2 border-t border-slate-200 space-y-1 text-xs">
+                            <div className="flex justify-between">
+                              <span className="text-slate-600">Total Replacement Items:</span>
+                              <span className="font-bold text-slate-900">₹{totalReplacementValue.toLocaleString()}</span>
+                            </div>
+                            <div className="flex justify-between text-purple-700">
+                              <span>Less Exchange Credit Applied:</span>
+                              <span className="font-bold">-₹{totalExchangeCreditValue.toLocaleString()}</span>
+                            </div>
+                            <div className="flex justify-between font-bold text-sm pt-1 border-t border-slate-200">
+                              <span>Net Amount:</span>
+                              <span className={netBalance > 0 ? "text-amber-700" : "text-emerald-700"}>
+                                {netBalance > 0
+                                  ? `₹${netBalance.toLocaleString()} (Customer to Pay)`
+                                  : netBalance < 0
+                                  ? `₹${Math.abs(netBalance).toLocaleString()} (Refund to Customer)`
+                                  : "₹0.00 (Even Exchange)"}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
+                )}
+              </div>
 
-                  <div className="p-3 rounded-xl border border-emerald-200 bg-emerald-50/30 space-y-2">
-                    <span className="text-[11px] font-bold text-emerald-700 uppercase block">
-                      → 2. Replacement Given (Outward)
-                    </span>
-                    <input
-                      type="text"
-                      required
-                      placeholder="Replacement Product Name"
-                      value={formData.replacementItemName}
-                      onChange={(e) => setFormData({ ...formData, replacementItemName: e.target.value })}
-                      className="w-full h-8 px-2.5 rounded border border-emerald-200 bg-white text-xs focus:outline-none"
-                    />
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-slate-500 text-[11px]">Value ₹</span>
-                      <input
-                        type="number"
-                        min={0}
-                        required
-                        placeholder="0.00"
-                        value={formData.replacementItemPrice}
-                        onChange={(e) => setFormData({ ...formData, replacementItemPrice: parseFloat(e.target.value) || 0 })}
-                        className="w-full h-8 px-2 text-right rounded border border-emerald-200 bg-white text-xs font-mono"
-                      />
-                    </div>
-                  </div>
-                </div>
+              {/* Modal Footer */}
+              <div className="p-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between shrink-0">
+                <button
+                  type="button"
+                  onClick={handleResetModal}
+                  className="px-3.5 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 cursor-pointer"
+                >
+                  Cancel
+                </button>
 
-                {/* Net Difference Calculation */}
-                <div className="p-3 rounded-xl bg-purple-50/60 border border-purple-200/80 flex items-center justify-between">
-                  <div>
-                    <span className="font-bold text-xs text-slate-800 block">Net Difference</span>
-                    <span className="text-[11px] text-slate-500">
-                      {priceDifference > 0
-                        ? "Customer pays additional difference"
-                        : priceDifference < 0
-                        ? "Store refunds difference to customer"
-                        : "Even value exchange"}
-                    </span>
-                  </div>
-                  <div className="text-right">
-                    <span
-                      className={`text-lg font-bold font-mono ${
-                        priceDifference > 0
-                          ? "text-emerald-600"
-                          : priceDifference < 0
-                          ? "text-rose-600"
-                          : "text-slate-800"
-                      }`}
-                    >
-                      {priceDifference > 0
-                        ? `+₹${priceDifference.toLocaleString("en-IN")}`
-                        : priceDifference < 0
-                        ? `-₹${Math.abs(priceDifference).toLocaleString("en-IN")}`
-                        : "₹0.00"}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                {selectedBill && (
                   <button
                     type="button"
-                    onClick={() => setIsModalOpen(false)}
-                    className="h-9 px-4 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 font-medium"
+                    onClick={handleSaveExchange}
+                    disabled={isSubmitting || selectedItems.length === 0}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#5e2b9d] hover:bg-[#4d2282] text-white rounded-lg text-xs font-semibold shadow-2xs transition-colors cursor-pointer disabled:opacity-50"
                   >
-                    Cancel
+                    {isSubmitting ? (
+                      <>
+                        <Spinner className="w-3.5 h-3.5" />
+                        <span>Restocking & Saving...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>Save Exchange & Restock</span>
+                      </>
+                    )}
                   </button>
-                  <button
-                    type="submit"
-                    disabled={isSubmitting}
-                    className="h-9 px-5 bg-[#5e2b9d] hover:bg-[#4d2282] text-white font-semibold rounded-lg shadow-xs disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
-                  >
-                    {isSubmitting ? <Spinner className="w-4 h-4 text-white" /> : null}
-                    <span>Complete Exchange</span>
-                  </button>
-                </div>
-              </form>
+                )}
+              </div>
             </div>
           </div>
         )}
 
-        {/* View Details Modal */}
-        {selectedExchange && (
-          <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-[2px] flex items-center justify-center p-4">
-            <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-              <div className="bg-[#5e2b9d] text-white px-5 py-3.5 flex items-center justify-between">
-                <h3 className="text-sm font-bold tracking-tight">Exchange Slip Details</h3>
-                <button
-                  type="button"
-                  onClick={() => setSelectedExchange(null)}
-                  className="w-7 h-7 rounded-lg hover:bg-white/10 text-white/80 hover:text-white flex items-center justify-center font-bold"
-                >
-                  ✕
-                </button>
+        {/* ==================================================================== */}
+        {/* MODAL 2: VIEW PRINTABLE EXCHANGE BILL / VOUCHER                      */}
+        {/* ==================================================================== */}
+        {selectedExchangeBill && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs overflow-y-auto print:p-0 print:bg-white">
+            <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden my-auto flex flex-col print:shadow-none print:border-none print:w-full">
+              {/* Modal Action Bar (Hidden on print) */}
+              <div className="flex items-center justify-between p-4 border-b border-slate-100 bg-slate-50 print:hidden">
+                <div className="flex items-center gap-2">
+                  <Receipt className="w-4 h-4 text-[#5e2b9d]" />
+                  <h3 className="font-bold text-slate-900 text-xs">
+                    Exchange Invoice & Voucher
+                  </h3>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => window.print()}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 bg-[#5e2b9d] text-white rounded text-xs font-semibold hover:bg-[#4d2282] transition-colors cursor-pointer"
+                  >
+                    <Printer className="w-3.5 h-3.5" />
+                    Print Bill
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedExchangeBill(null)}
+                    className="p-1 rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
 
-              <div className="p-5 space-y-3 text-xs">
-                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-1">
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Exchange #:</span>
-                    <span className="font-mono font-bold text-[#5e2b9d]">{selectedExchange.returnNumber}</span>
+              {/* Printable Slip Content */}
+              <div className="p-6 space-y-4 print:p-6 text-slate-800 text-xs font-sans">
+                {/* Store Header */}
+                <div className="text-center pb-3 border-b border-dashed border-slate-300">
+                  <h2 className="text-base font-black text-slate-900 uppercase tracking-tight">
+                    Retail Next Store
+                  </h2>
+                  <p className="text-[11px] text-slate-500">Official Exchange Invoice & Credit Slip</p>
+                </div>
+
+                {/* Meta details */}
+                <div className="grid grid-cols-2 gap-2 text-[11px] bg-slate-50 p-3 rounded-lg border border-slate-200">
+                  <div>
+                    <span className="text-slate-400 block font-bold text-[9px] uppercase">
+                      Exchange Bill #
+                    </span>
+                    <span className="font-mono font-bold text-[#5e2b9d]">
+                      {selectedExchangeBill.returnNumber}
+                    </span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Invoice:</span>
-                    <span className="font-mono text-slate-700">{selectedExchange.orderNumber}</span>
+                  <div>
+                    <span className="text-slate-400 block font-bold text-[9px] uppercase">
+                      Previous / Original Bill
+                    </span>
+                    <span className="font-mono font-bold text-purple-900 bg-white px-1.5 py-0.5 rounded border border-purple-200">
+                      #{selectedExchangeBill.originalBillNumber || selectedExchangeBill.orderNumber}
+                    </span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Customer:</span>
-                    <span className="font-semibold text-slate-800">{selectedExchange.customer?.name} ({selectedExchange.customer?.phone || "N/A"})</span>
+                  <div>
+                    <span className="text-slate-400 block font-bold text-[9px] uppercase">
+                      Customer
+                    </span>
+                    <span className="font-semibold text-slate-900">
+                      {selectedExchangeBill.customer?.name}
+                    </span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Reason:</span>
-                    <span className="text-slate-700">{selectedExchange.reason}</span>
+                  <div>
+                    <span className="text-slate-400 block font-bold text-[9px] uppercase">
+                      Date & Cashier
+                    </span>
+                    <span className="text-slate-700">
+                      {new Date(selectedExchangeBill.createdAt).toLocaleDateString("en-IN", {
+                        day: "2-digit",
+                        month: "short",
+                        year: "numeric",
+                      })}
+                    </span>
                   </div>
                 </div>
 
-                <div className="flex justify-end pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedExchange(null)}
-                    className="h-8 px-4 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold"
+                {/* Returned Items Table */}
+                <div>
+                  <h4 className="font-bold text-slate-800 text-[11px] uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                    <span>Returned Items (Restocked)</span>
+                    <span className="text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-semibold border border-emerald-200">
+                      Stock Added to Inventory
+                    </span>
+                  </h4>
+                  <div className="border border-slate-200 rounded-lg overflow-hidden">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold text-[10px] uppercase">
+                        <tr>
+                          <th className="py-1.5 px-2.5">Item</th>
+                          <th className="py-1.5 px-2 text-center">Qty</th>
+                          <th className="py-1.5 px-2 text-right">Rate</th>
+                          <th className="py-1.5 px-2.5 text-right">Credit Value</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {(selectedExchangeBill.returnedItems || selectedExchangeBill.items || []).map(
+                          (it: any, idx: number) => {
+                            const qty = it.quantity || 1;
+                            const rate = Number(it.price || it.salePrice) || 0;
+                            return (
+                              <tr key={idx}>
+                                <td className="py-1.5 px-2.5 font-medium text-slate-900">
+                                  {it.productName || it.name}
+                                </td>
+                                <td className="py-1.5 px-2 text-center font-mono">{qty}</td>
+                                <td className="py-1.5 px-2 text-right font-mono">₹{rate.toLocaleString()}</td>
+                                <td className="py-1.5 px-2.5 text-right font-bold text-[#5e2b9d] font-mono">
+                                  ₹{(qty * rate).toLocaleString()}
+                                </td>
+                              </tr>
+                            );
+                          }
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Replacement Items (if any) */}
+                {Array.isArray(selectedExchangeBill.replacementItems) &&
+                  selectedExchangeBill.replacementItems.length > 0 && (
+                    <div>
+                      <h4 className="font-bold text-slate-800 text-[11px] uppercase tracking-wider mb-1.5">
+                        Replacement Items Provided
+                      </h4>
+                      <div className="border border-slate-200 rounded-lg overflow-hidden">
+                        <table className="w-full text-left text-xs">
+                          <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold text-[10px] uppercase">
+                            <tr>
+                              <th className="py-1.5 px-2.5">New Item</th>
+                              <th className="py-1.5 px-2 text-center">Qty</th>
+                              <th className="py-1.5 px-2.5 text-right">Price</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {selectedExchangeBill.replacementItems.map((it: any, idx: number) => (
+                              <tr key={idx}>
+                                <td className="py-1.5 px-2.5 font-medium text-slate-900">
+                                  {it.productName}
+                                </td>
+                                <td className="py-1.5 px-2 text-center font-mono">{it.quantity || 1}</td>
+                                <td className="py-1.5 px-2.5 text-right font-bold text-slate-900 font-mono">
+                                  ₹{Number(it.price || 0).toLocaleString()}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                {/* Total Exchange Value Callout Banner */}
+                <div className="bg-[#5e2b9d] text-white p-3.5 rounded-xl flex items-center justify-between">
+                  <div>
+                    <span className="text-purple-200 text-[10px] uppercase font-semibold tracking-wider block">
+                      Total Exchange Credit Value
+                    </span>
+                    <span className="text-xl font-black">
+                      ₹{(
+                        Number(selectedExchangeBill.exchangeValue) ||
+                        Math.abs(Number(selectedExchangeBill.refundAmount)) ||
+                        0
+                      ).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] bg-white/20 px-2 py-0.5 rounded font-semibold font-mono">
+                      Ref: #{selectedExchangeBill.originalBillNumber || selectedExchangeBill.orderNumber}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Quick Link to POS */}
+                <div className="pt-2 print:hidden flex items-center justify-end">
+                  <Link
+                    href={`/pos?exchangeVoucher=${selectedExchangeBill.returnNumber}&previousBill=${encodeURIComponent(
+                      selectedExchangeBill.originalBillNumber || selectedExchangeBill.orderNumber
+                    )}&credit=${Number(selectedExchangeBill.exchangeValue || selectedExchangeBill.refundAmount || 0)}&customerPhone=${encodeURIComponent(
+                      selectedExchangeBill.customer?.phone || ""
+                    )}&customerName=${encodeURIComponent(selectedExchangeBill.customer?.name || "")}`}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs"
                   >
-                    Close
-                  </button>
+                    <ShoppingBag className="w-3.5 h-3.5" />
+                    <span>Create New POS Bill with this Credit</span>
+                  </Link>
                 </div>
               </div>
             </div>

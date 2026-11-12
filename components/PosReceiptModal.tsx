@@ -46,6 +46,9 @@ export interface ReceiptData {
     card?: number;
   } | null;
   staffName?: string;
+  previousBillNumber?: string | null;
+  exchangeCredit?: number;
+  exchangeVoucherNumber?: string | null;
 }
 
 interface PosReceiptModalProps {
@@ -163,6 +166,12 @@ export default function PosReceiptModal({
                   <span>{receipt.staffName}</span>
                 </div>
               )}
+              {receipt.previousBillNumber && (
+                <div className="flex justify-between font-mono text-[10.5px] bg-purple-50 p-1.5 rounded border border-purple-200 text-purple-900 mt-1">
+                  <span className="font-bold">Original / Previous Bill:</span>
+                  <span className="font-extrabold text-[#5e2b9d]">#{receipt.previousBillNumber}</span>
+                </div>
+              )}
             </div>
 
             {/* Itemized Table */}
@@ -221,6 +230,13 @@ export default function PosReceiptModal({
                 <div className="flex justify-between text-slate-600">
                   <span>Total GST:</span>
                   <span>₹{receipt.tax.toFixed(2)}</span>
+                </div>
+              )}
+
+              {Boolean(receipt.exchangeCredit && receipt.exchangeCredit > 0) && (
+                <div className="flex justify-between text-purple-900 font-bold bg-purple-50/80 px-1.5 py-0.5 rounded border border-purple-200">
+                  <span>Exchange Value Deduction:</span>
+                  <span>-₹{receipt.exchangeCredit!.toFixed(2)}</span>
                 </div>
               )}
 
